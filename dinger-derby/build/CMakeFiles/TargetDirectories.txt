@@ -1,0 +1,3 @@
+/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles/dinger-derby.dir
+/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles/edit_cache.dir
+/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles/rebuild_cache.dir
