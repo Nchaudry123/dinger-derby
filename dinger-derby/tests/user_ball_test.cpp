@@ -11,11 +11,14 @@ int main() {
     );
 
     window.setFramerateLimit(60);
+    const float floorHeight = 10.0f;
+    const float floorOffset = 100.0f;
 
     // Setup physics world
     PhysicsWorld2D world;
     world.gravity = Vector2(0, 980.0f);
-    world.setBounds(window.getSize().x, window.getSize().y);
+    world.setBounds(window.getSize().x, window.getSize().y - floorOffset);    
+
 
     // Create controllable ball
     Body2D ball(Vector2(400, 300), 1.0f);
@@ -30,7 +33,7 @@ int main() {
     ballShape.setFillColor(sf::Color::White);
 
     // Hitbox debug circle
-    float clickHitbox = 60.0f;
+    const clickHitbox = 60.0f;
 
     sf::CircleShape hitboxShape(clickHitbox);
     hitboxShape.setOrigin(sf::Vector2f(clickHitbox, clickHitbox));
@@ -41,9 +44,9 @@ int main() {
     // Floor visual
     sf::RectangleShape floorShape;
     floorShape.setFillColor(sf::Color(80, 80, 80));
-    floorShape.setSize(sf::Vector2f(window.getSize().x, 10));
+    floorShape.setSize(sf::Vector2f(window.getSize().x, floorHeight));
     floorShape.setPosition(
-        sf::Vector2f(0, window.getSize().y - 10)
+        sf::Vector2f(0, window.getSize().y - floorOffset)
     );
 
     // Drag system
@@ -52,7 +55,7 @@ int main() {
     Vector2 dragStart;
     Vector2 dragCurrent;
 
-    float powerScale = 5.0f;
+    const powerScale = 5.0f;
 
     // Drag line
     sf::VertexArray dragLine(sf::PrimitiveType::Lines, 2);
@@ -60,7 +63,7 @@ int main() {
     // Trajectory dots
     std::vector<sf::CircleShape> trajectoryDots;
 
-    int trajectorySteps = 30;
+    const trajectorySteps = 30;
 
     for (int i = 0; i < trajectorySteps; i++) {
         sf::CircleShape dot(3);
@@ -95,15 +98,15 @@ int main() {
 
                 world.setBounds(
                     resized->size.x,
-                    resized->size.y
+                    resized->size.y - floorOffset
                 );
 
                 floorShape.setSize(
-                    sf::Vector2f(resized->size.x, 10)
+                    sf::Vector2f(resized->size.x, floorHeight)
                 );
 
                 floorShape.setPosition(
-                    sf::Vector2f(0, resized->size.y - 10)
+                    sf::Vector2f(0, resized->size.y - floorOffset)
                 );
             }
 
@@ -214,20 +217,25 @@ int main() {
                 predictedVelocity += world.gravity * simDt;
 
                 predictedVelocity = predictedVelocity - predictedVelocity * 0.2f * simDt;
-                
+
                 predictedPosition += predictedVelocity * simDt;
 
-                if (
-                    predictedPosition.y + ball.radius > world.groundY
-                ) {
+                if (predictedPosition.y + ball.radius > world.groundY) {
                     predictedPosition.y = world.groundY - ball.radius;
+
+                    trajectoryDots[i].setPosition(
+                        sf::Vector2f(predictedPosition.x, predictedPosition.y)
+                    );
+
+                    for (int j = i + 1; j < trajectorySteps; j++) {
+                        trajectoryDots[j].setPosition(sf::Vector2f(-100, -100));
+                    }
+
+                    break;
                 }
 
                 trajectoryDots[i].setPosition(
-                    sf::Vector2f(
-                        predictedPosition.x,
-                        predictedPosition.y
-                    )
+                    sf::Vector2f(predictedPosition.x, predictedPosition.y)
                 );
             }
         }
