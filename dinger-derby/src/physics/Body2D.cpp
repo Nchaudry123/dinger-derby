@@ -40,6 +40,11 @@ void Body2D::update(float dt) {
     }
 
     velocity += acceleration * dt;
+
+    // Simple linear drag / damping
+    float dragCoefficient = 0.2f;
+    velocity = velocity - velocity * dragCoefficient * dt;
+
     position += velocity * dt;
 
     acceleration = Vector2(0, 0);

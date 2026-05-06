@@ -1,5 +1,7 @@
 #include "Collision2D.h"
 #include <algorithm>
+#include <cmath>
+
 bool circleCircleCollision(const Body2D& a, const Body2D& b) {
     Vector2 difference = b.position - a.position;
 
@@ -32,7 +34,7 @@ void resolveCircleCollision(Body2D& a, Body2D& b) {
         return;
     }
 
-    // Normal impulse / bounce
+    // Normal impulse
     float restitution = 0.6f;
 
     float impulseStrength = -(1 + restitution) * velocityAlongNormal;
@@ -43,20 +45,28 @@ void resolveCircleCollision(Body2D& a, Body2D& b) {
     a.velocity = a.velocity - impulse * (1 / a.mass);
     b.velocity = b.velocity + impulse * (1 / b.mass);
 
-    // Friction impulse
+    // Static and kinetic friction
     Vector2 tangent = relativeVelocity - normal * velocityAlongNormal;
 
     if (tangent.magnitude() != 0) {
         tangent = tangent.normalized();
 
-        float frictionMagnitude =
-            -(relativeVelocity.x * tangent.x + relativeVelocity.y * tangent.y);
+        float tangentVelocity =
+            relativeVelocity.x * tangent.x + relativeVelocity.y * tangent.y;
 
-        frictionMagnitude /= (1 / a.mass) + (1 / b.mass);
+        float tangentImpulseMagnitude =
+            -tangentVelocity / ((1 / a.mass) + (1 / b.mass));
 
-        float frictionCoefficient = 0.3f;
+        float staticFriction = 0.6f;
+        float kineticFriction = 0.3f;
 
-        Vector2 frictionImpulse = tangent * frictionMagnitude * frictionCoefficient;
+        Vector2 frictionImpulse;
+
+        if (std::abs(tangentImpulseMagnitude) < impulseStrength * staticFriction) {
+            frictionImpulse = tangent * tangentImpulseMagnitude;
+        } else {
+            frictionImpulse = tangent * (-impulseStrength * kineticFriction);
+        }
 
         a.velocity = a.velocity - frictionImpulse * (1 / a.mass);
         b.velocity = b.velocity + frictionImpulse * (1 / b.mass);
