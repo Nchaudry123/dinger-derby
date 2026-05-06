@@ -117,24 +117,38 @@ depend:
 .PHONY : depend
 
 #=============================================================================
-# Target rules for targets named dinger-derby
+# Target rules for targets named user_ball_test
 
 # Build rule for target.
-dinger-derby: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 dinger-derby
-.PHONY : dinger-derby
+user_ball_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 user_ball_test
+.PHONY : user_ball_test
 
 # fast build rule for target.
-dinger-derby/fast:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/build
-.PHONY : dinger-derby/fast
+user_ball_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/build
+.PHONY : user_ball_test/fast
+
+#=============================================================================
+# Target rules for targets named random_spawn_test
+
+# Build rule for target.
+random_spawn_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 random_spawn_test
+.PHONY : random_spawn_test
+
+# fast build rule for target.
+random_spawn_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/build
+.PHONY : random_spawn_test/fast
 
 src/collision/Collision2D.o: src/collision/Collision2D.cpp.o
 .PHONY : src/collision/Collision2D.o
 
 # target to build an object file
 src/collision/Collision2D.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/collision/Collision2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/collision/Collision2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/collision/Collision2D.cpp.o
 .PHONY : src/collision/Collision2D.cpp.o
 
 src/collision/Collision2D.i: src/collision/Collision2D.cpp.i
@@ -142,7 +156,8 @@ src/collision/Collision2D.i: src/collision/Collision2D.cpp.i
 
 # target to preprocess a source file
 src/collision/Collision2D.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/collision/Collision2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/collision/Collision2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/collision/Collision2D.cpp.i
 .PHONY : src/collision/Collision2D.cpp.i
 
 src/collision/Collision2D.s: src/collision/Collision2D.cpp.s
@@ -150,39 +165,17 @@ src/collision/Collision2D.s: src/collision/Collision2D.cpp.s
 
 # target to generate assembly for a file
 src/collision/Collision2D.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/collision/Collision2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/collision/Collision2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/collision/Collision2D.cpp.s
 .PHONY : src/collision/Collision2D.cpp.s
-
-src/main.o: src/main.cpp.o
-.PHONY : src/main.o
-
-# target to build an object file
-src/main.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/main.cpp.o
-.PHONY : src/main.cpp.o
-
-src/main.i: src/main.cpp.i
-.PHONY : src/main.i
-
-# target to preprocess a source file
-src/main.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/main.cpp.i
-.PHONY : src/main.cpp.i
-
-src/main.s: src/main.cpp.s
-.PHONY : src/main.s
-
-# target to generate assembly for a file
-src/main.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/main.cpp.s
-.PHONY : src/main.cpp.s
 
 src/math/Vector2.o: src/math/Vector2.cpp.o
 .PHONY : src/math/Vector2.o
 
 # target to build an object file
 src/math/Vector2.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/math/Vector2.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/math/Vector2.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/math/Vector2.cpp.o
 .PHONY : src/math/Vector2.cpp.o
 
 src/math/Vector2.i: src/math/Vector2.cpp.i
@@ -190,7 +183,8 @@ src/math/Vector2.i: src/math/Vector2.cpp.i
 
 # target to preprocess a source file
 src/math/Vector2.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/math/Vector2.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/math/Vector2.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/math/Vector2.cpp.i
 .PHONY : src/math/Vector2.cpp.i
 
 src/math/Vector2.s: src/math/Vector2.cpp.s
@@ -198,7 +192,8 @@ src/math/Vector2.s: src/math/Vector2.cpp.s
 
 # target to generate assembly for a file
 src/math/Vector2.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/math/Vector2.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/math/Vector2.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/math/Vector2.cpp.s
 .PHONY : src/math/Vector2.cpp.s
 
 src/physics/Body2D.o: src/physics/Body2D.cpp.o
@@ -206,7 +201,8 @@ src/physics/Body2D.o: src/physics/Body2D.cpp.o
 
 # target to build an object file
 src/physics/Body2D.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/physics/Body2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/Body2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/Body2D.cpp.o
 .PHONY : src/physics/Body2D.cpp.o
 
 src/physics/Body2D.i: src/physics/Body2D.cpp.i
@@ -214,7 +210,8 @@ src/physics/Body2D.i: src/physics/Body2D.cpp.i
 
 # target to preprocess a source file
 src/physics/Body2D.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/physics/Body2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/Body2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/Body2D.cpp.i
 .PHONY : src/physics/Body2D.cpp.i
 
 src/physics/Body2D.s: src/physics/Body2D.cpp.s
@@ -222,7 +219,8 @@ src/physics/Body2D.s: src/physics/Body2D.cpp.s
 
 # target to generate assembly for a file
 src/physics/Body2D.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/physics/Body2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/Body2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/Body2D.cpp.s
 .PHONY : src/physics/Body2D.cpp.s
 
 src/physics/PhysicsWorld2D.o: src/physics/PhysicsWorld2D.cpp.o
@@ -230,7 +228,8 @@ src/physics/PhysicsWorld2D.o: src/physics/PhysicsWorld2D.cpp.o
 
 # target to build an object file
 src/physics/PhysicsWorld2D.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/physics/PhysicsWorld2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/PhysicsWorld2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/PhysicsWorld2D.cpp.o
 .PHONY : src/physics/PhysicsWorld2D.cpp.o
 
 src/physics/PhysicsWorld2D.i: src/physics/PhysicsWorld2D.cpp.i
@@ -238,7 +237,8 @@ src/physics/PhysicsWorld2D.i: src/physics/PhysicsWorld2D.cpp.i
 
 # target to preprocess a source file
 src/physics/PhysicsWorld2D.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/physics/PhysicsWorld2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/PhysicsWorld2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/PhysicsWorld2D.cpp.i
 .PHONY : src/physics/PhysicsWorld2D.cpp.i
 
 src/physics/PhysicsWorld2D.s: src/physics/PhysicsWorld2D.cpp.s
@@ -246,8 +246,57 @@ src/physics/PhysicsWorld2D.s: src/physics/PhysicsWorld2D.cpp.s
 
 # target to generate assembly for a file
 src/physics/PhysicsWorld2D.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/src/physics/PhysicsWorld2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/PhysicsWorld2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/PhysicsWorld2D.cpp.s
 .PHONY : src/physics/PhysicsWorld2D.cpp.s
+
+tests/random_spawn_test.o: tests/random_spawn_test.cpp.o
+.PHONY : tests/random_spawn_test.o
+
+# target to build an object file
+tests/random_spawn_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/tests/random_spawn_test.cpp.o
+.PHONY : tests/random_spawn_test.cpp.o
+
+tests/random_spawn_test.i: tests/random_spawn_test.cpp.i
+.PHONY : tests/random_spawn_test.i
+
+# target to preprocess a source file
+tests/random_spawn_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/tests/random_spawn_test.cpp.i
+.PHONY : tests/random_spawn_test.cpp.i
+
+tests/random_spawn_test.s: tests/random_spawn_test.cpp.s
+.PHONY : tests/random_spawn_test.s
+
+# target to generate assembly for a file
+tests/random_spawn_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/tests/random_spawn_test.cpp.s
+.PHONY : tests/random_spawn_test.cpp.s
+
+tests/user_ball_test.o: tests/user_ball_test.cpp.o
+.PHONY : tests/user_ball_test.o
+
+# target to build an object file
+tests/user_ball_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/tests/user_ball_test.cpp.o
+.PHONY : tests/user_ball_test.cpp.o
+
+tests/user_ball_test.i: tests/user_ball_test.cpp.i
+.PHONY : tests/user_ball_test.i
+
+# target to preprocess a source file
+tests/user_ball_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/tests/user_ball_test.cpp.i
+.PHONY : tests/user_ball_test.cpp.i
+
+tests/user_ball_test.s: tests/user_ball_test.cpp.s
+.PHONY : tests/user_ball_test.s
+
+# target to generate assembly for a file
+tests/user_ball_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/tests/user_ball_test.cpp.s
+.PHONY : tests/user_ball_test.cpp.s
 
 # Help Target
 help:
@@ -257,13 +306,11 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
-	@echo "... dinger-derby"
+	@echo "... random_spawn_test"
+	@echo "... user_ball_test"
 	@echo "... src/collision/Collision2D.o"
 	@echo "... src/collision/Collision2D.i"
 	@echo "... src/collision/Collision2D.s"
-	@echo "... src/main.o"
-	@echo "... src/main.i"
-	@echo "... src/main.s"
 	@echo "... src/math/Vector2.o"
 	@echo "... src/math/Vector2.i"
 	@echo "... src/math/Vector2.s"
@@ -273,6 +320,12 @@ help:
 	@echo "... src/physics/PhysicsWorld2D.o"
 	@echo "... src/physics/PhysicsWorld2D.i"
 	@echo "... src/physics/PhysicsWorld2D.s"
+	@echo "... tests/random_spawn_test.o"
+	@echo "... tests/random_spawn_test.i"
+	@echo "... tests/random_spawn_test.s"
+	@echo "... tests/user_ball_test.o"
+	@echo "... tests/user_ball_test.i"
+	@echo "... tests/user_ball_test.s"
 .PHONY : help
 
 

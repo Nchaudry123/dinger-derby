@@ -64,5 +64,6 @@ set(CMAKE_MAKEFILE_PRODUCTS
 
 # Dependency information for all targets:
 set(CMAKE_DEPEND_INFO_FILES
-  "CMakeFiles/dinger-derby.dir/DependInfo.cmake"
+  "CMakeFiles/user_ball_test.dir/DependInfo.cmake"
+  "CMakeFiles/random_spawn_test.dir/DependInfo.cmake"
   )

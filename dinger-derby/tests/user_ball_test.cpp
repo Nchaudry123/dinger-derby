@@ -202,33 +202,25 @@ int main() {
             dragLine[0].color = sf::Color::Green;
             dragLine[1].color = sf::Color::Green;
 
-            Vector2 launchVector =
-                dragStart - dragCurrent;
+            Vector2 launchVector = dragStart - dragCurrent;
 
-            Vector2 predictedVelocity =
-                launchVector * powerScale;
+            Vector2 predictedVelocity = launchVector * powerScale;
 
-            Vector2 predictedPosition =
-                ball.position;
+            Vector2 predictedPosition = ball.position;
 
             float simDt = 0.05f;
 
             for (int i = 0; i < trajectorySteps; i++) {
-                predictedVelocity +=
-                    world.gravity * simDt;
+                predictedVelocity += world.gravity * simDt;
 
-                predictedVelocity -=
-                    predictedVelocity * 0.2f * simDt;
-
-                predictedPosition +=
-                    predictedVelocity * simDt;
+                predictedVelocity = predictedVelocity - predictedVelocity * 0.2f * simDt;
+                
+                predictedPosition += predictedVelocity * simDt;
 
                 if (
-                    predictedPosition.y + ball.radius >
-                    world.groundY
+                    predictedPosition.y + ball.radius > world.groundY
                 ) {
-                    predictedPosition.y =
-                        world.groundY - ball.radius;
+                    predictedPosition.y = world.groundY - ball.radius;
                 }
 
                 trajectoryDots[i].setPosition(

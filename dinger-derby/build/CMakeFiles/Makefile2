@@ -63,11 +63,13 @@ CMAKE_BINARY_DIR = /Users/namir/Documents/workspace/dinger-derby/build
 # Directory level rules for the build root directory
 
 # The main recursive "all" target.
-all: CMakeFiles/dinger-derby.dir/all
+all: CMakeFiles/user_ball_test.dir/all
+all: CMakeFiles/random_spawn_test.dir/all
 .PHONY : all
 
 # The main recursive "codegen" target.
-codegen: CMakeFiles/dinger-derby.dir/codegen
+codegen: CMakeFiles/user_ball_test.dir/codegen
+codegen: CMakeFiles/random_spawn_test.dir/codegen
 .PHONY : codegen
 
 # The main recursive "preinstall" target.
@@ -75,40 +77,73 @@ preinstall:
 .PHONY : preinstall
 
 # The main recursive "clean" target.
-clean: CMakeFiles/dinger-derby.dir/clean
+clean: CMakeFiles/user_ball_test.dir/clean
+clean: CMakeFiles/random_spawn_test.dir/clean
 .PHONY : clean
 
 #=============================================================================
-# Target rules for target CMakeFiles/dinger-derby.dir
+# Target rules for target CMakeFiles/user_ball_test.dir
 
 # All Build rule for target.
-CMakeFiles/dinger-derby.dir/all:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/depend
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles --progress-num=1,2,3,4,5,6 "Built target dinger-derby"
-.PHONY : CMakeFiles/dinger-derby.dir/all
+CMakeFiles/user_ball_test.dir/all:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles --progress-num=7,8,9,10,11,12 "Built target user_ball_test"
+.PHONY : CMakeFiles/user_ball_test.dir/all
 
 # Build rule for subdir invocation for target.
-CMakeFiles/dinger-derby.dir/rule: cmake_check_build_system
+CMakeFiles/user_ball_test.dir/rule: cmake_check_build_system
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles 6
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/dinger-derby.dir/all
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/user_ball_test.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles 0
-.PHONY : CMakeFiles/dinger-derby.dir/rule
+.PHONY : CMakeFiles/user_ball_test.dir/rule
 
 # Convenience name for target.
-dinger-derby: CMakeFiles/dinger-derby.dir/rule
-.PHONY : dinger-derby
+user_ball_test: CMakeFiles/user_ball_test.dir/rule
+.PHONY : user_ball_test
 
 # codegen rule for target.
-CMakeFiles/dinger-derby.dir/codegen:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles --progress-num=1,2,3,4,5,6 "Finished codegen for target dinger-derby"
-.PHONY : CMakeFiles/dinger-derby.dir/codegen
+CMakeFiles/user_ball_test.dir/codegen:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/codegen
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles --progress-num=7,8,9,10,11,12 "Finished codegen for target user_ball_test"
+.PHONY : CMakeFiles/user_ball_test.dir/codegen
 
 # clean rule for target.
-CMakeFiles/dinger-derby.dir/clean:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/dinger-derby.dir/build.make CMakeFiles/dinger-derby.dir/clean
-.PHONY : CMakeFiles/dinger-derby.dir/clean
+CMakeFiles/user_ball_test.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/clean
+.PHONY : CMakeFiles/user_ball_test.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/random_spawn_test.dir
+
+# All Build rule for target.
+CMakeFiles/random_spawn_test.dir/all:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles --progress-num=1,2,3,4,5,6 "Built target random_spawn_test"
+.PHONY : CMakeFiles/random_spawn_test.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/random_spawn_test.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles 6
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/random_spawn_test.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles 0
+.PHONY : CMakeFiles/random_spawn_test.dir/rule
+
+# Convenience name for target.
+random_spawn_test: CMakeFiles/random_spawn_test.dir/rule
+.PHONY : random_spawn_test
+
+# codegen rule for target.
+CMakeFiles/random_spawn_test.dir/codegen:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/codegen
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles --progress-num=1,2,3,4,5,6 "Finished codegen for target random_spawn_test"
+.PHONY : CMakeFiles/random_spawn_test.dir/codegen
+
+# clean rule for target.
+CMakeFiles/random_spawn_test.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/clean
+.PHONY : CMakeFiles/random_spawn_test.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.
