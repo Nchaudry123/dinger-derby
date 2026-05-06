@@ -20,9 +20,6 @@ void resolveCircleCollision(Body2D& a, Body2D& b) {
         return;
     }
 
-    a.wakeUp();
-    b.wakeUp();
-
     normal = normal.normalized();
 
     Vector2 relativeVelocity = b.velocity - a.velocity;
@@ -30,53 +27,57 @@ void resolveCircleCollision(Body2D& a, Body2D& b) {
     float velocityAlongNormal =
         relativeVelocity.x * normal.x + relativeVelocity.y * normal.y;
 
-    if (velocityAlongNormal > 0) {
-        return;
-    }
+    bool movingApart = velocityAlongNormal > 0;
 
-    // Normal impulse
-    float restitution = 0.6f;
+    // Only apply bounce/friction if bodies are moving toward each other
+    if (!movingApart) {
+        a.wakeUp();
+        b.wakeUp();
 
-    float impulseStrength = -(1 + restitution) * velocityAlongNormal;
-    impulseStrength /= (1 / a.mass) + (1 / b.mass);
+        // Normal impulse
+        float restitution = 0.6f;
 
-    Vector2 impulse = normal * impulseStrength;
+        float impulseStrength = -(1 + restitution) * velocityAlongNormal;
+        impulseStrength /= (1 / a.mass) + (1 / b.mass);
 
-    a.velocity = a.velocity - impulse * (1 / a.mass);
-    b.velocity = b.velocity + impulse * (1 / b.mass);
+        Vector2 impulse = normal * impulseStrength;
 
-    // Static and kinetic friction
-    Vector2 tangent = relativeVelocity - normal * velocityAlongNormal;
+        a.velocity = a.velocity - impulse * (1 / a.mass);
+        b.velocity = b.velocity + impulse * (1 / b.mass);
 
-    if (tangent.magnitude() != 0) {
-        tangent = tangent.normalized();
+        // Static and kinetic friction
+        Vector2 tangent = relativeVelocity - normal * velocityAlongNormal;
 
-        float tangentVelocity =
-            relativeVelocity.x * tangent.x + relativeVelocity.y * tangent.y;
+        if (tangent.magnitude() != 0) {
+            tangent = tangent.normalized();
 
-        float tangentImpulseMagnitude =
-            -tangentVelocity / ((1 / a.mass) + (1 / b.mass));
+            float tangentVelocity =
+                relativeVelocity.x * tangent.x + relativeVelocity.y * tangent.y;
 
-        float staticFriction = 0.6f;
-        float kineticFriction = 0.3f;
+            float tangentImpulseMagnitude =
+                -tangentVelocity / ((1 / a.mass) + (1 / b.mass));
 
-        Vector2 frictionImpulse;
+            float staticFriction = 0.6f;
+            float kineticFriction = 0.3f;
 
-        if (std::abs(tangentImpulseMagnitude) < impulseStrength * staticFriction) {
-            frictionImpulse = tangent * tangentImpulseMagnitude;
-        } else {
-            frictionImpulse = tangent * (-impulseStrength * kineticFriction);
+            Vector2 frictionImpulse;
+
+            if (std::abs(tangentImpulseMagnitude) < impulseStrength * staticFriction) {
+                frictionImpulse = tangent * tangentImpulseMagnitude;
+            } else {
+                frictionImpulse = tangent * (-impulseStrength * kineticFriction);
+            }
+
+            a.velocity = a.velocity - frictionImpulse * (1 / a.mass);
+            b.velocity = b.velocity + frictionImpulse * (1 / b.mass);
         }
-
-        a.velocity = a.velocity - frictionImpulse * (1 / a.mass);
-        b.velocity = b.velocity + frictionImpulse * (1 / b.mass);
     }
 
-    // Positional correction
+    // Always correct overlap, even if bodies are moving apart
     float overlap = (a.radius + b.radius) - distance;
 
-    float slop = 0.01f;
-    float percent = 0.8f;
+    float slop = 0.001f;
+    float percent = 1.0f;
 
     float correctionAmount =
         (overlap - slop > 0.0f ? overlap - slop : 0.0f)
