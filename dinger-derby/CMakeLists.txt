@@ -5,15 +5,33 @@ set(CMAKE_CXX_STANDARD 17)
 
 find_package(SFML 3 REQUIRED COMPONENTS Graphics Window System)
 
-add_executable(dinger-derby
-    src/main.cpp
+set(ENGINE_SOURCES
     src/math/Vector2.cpp
     src/physics/Body2D.cpp
     src/physics/PhysicsWorld2D.cpp
     src/collision/Collision2D.cpp
 )
 
-target_link_libraries(dinger-derby
+add_executable(user_ball_test
+    tests/user_ball_test.cpp
+    ${ENGINE_SOURCES}
+)
+
+add_executable(random_spawn_test
+    tests/random_spawn_test.cpp
+    ${ENGINE_SOURCES}
+)
+
+target_include_directories(user_ball_test PRIVATE src)
+target_include_directories(random_spawn_test PRIVATE src)
+
+target_link_libraries(user_ball_test
+    SFML::Graphics
+    SFML::Window
+    SFML::System
+)
+
+target_link_libraries(random_spawn_test
     SFML::Graphics
     SFML::Window
     SFML::System
