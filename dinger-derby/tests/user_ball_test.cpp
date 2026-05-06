@@ -211,34 +211,41 @@ int main() {
 
             Vector2 predictedPosition = ball.position;
 
-            float simDt = 0.02f;
+            float simDt = 0.016f;
 
             for (int i = 0; i < trajectorySteps; i++) {
+                // Same as applyForce(gravity) + update(dt)
                 predictedVelocity += world.gravity * simDt;
 
-                predictedVelocity = predictedVelocity - predictedVelocity * 0.2f * simDt;
+                // Same drag as Body2D::update()
+                float dragCoefficient = 0.2f;
+                predictedVelocity = predictedVelocity - predictedVelocity * dragCoefficient * simDt;
 
+                // Same position update
                 predictedPosition += predictedVelocity * simDt;
 
+                // Same ground collision
                 if (predictedPosition.y + ball.radius > world.groundY) {
                     predictedPosition.y = world.groundY - ball.radius;
                     predictedVelocity.y *= -ball.restitution;
-                    predictedVelocity.x *= 0.9f;
                 }
 
+                // Same ceiling collision
+                if (predictedPosition.y - ball.radius < world.ceilingY) {
+                    predictedPosition.y = world.ceilingY + ball.radius;
+                    predictedVelocity.y *= -ball.restitution;
+                }
+
+                // Same left wall collision
                 if (predictedPosition.x - ball.radius < world.leftWall) {
                     predictedPosition.x = world.leftWall + ball.radius;
                     predictedVelocity.x *= -ball.restitution;
                 }
 
+                // Same right wall collision
                 if (predictedPosition.x + ball.radius > world.rightWall) {
                     predictedPosition.x = world.rightWall - ball.radius;
                     predictedVelocity.x *= -ball.restitution;
-                }
-
-                if (predictedPosition.y - ball.radius < world.ceilingY) {
-                    predictedPosition.y = world.ceilingY + ball.radius;
-                    predictedVelocity.y *= -ball.restitution;
                 }
 
                 trajectoryDots[i].setPosition(
