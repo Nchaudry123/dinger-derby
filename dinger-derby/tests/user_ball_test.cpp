@@ -33,7 +33,7 @@ int main() {
     ballShape.setFillColor(sf::Color::White);
 
     // Hitbox debug circle
-    const clickHitbox = 60.0f;
+    const float clickHitbox = 60.0f;
 
     sf::CircleShape hitboxShape(clickHitbox);
     hitboxShape.setOrigin(sf::Vector2f(clickHitbox, clickHitbox));
@@ -55,7 +55,7 @@ int main() {
     Vector2 dragStart;
     Vector2 dragCurrent;
 
-    const powerScale = 5.0f;
+    const float powerScale = 5.0f;
 
     // Drag line
     sf::VertexArray dragLine(sf::PrimitiveType::Lines, 2);
@@ -63,7 +63,7 @@ int main() {
     // Trajectory dots
     std::vector<sf::CircleShape> trajectoryDots;
 
-    const trajectorySteps = 30;
+    const int trajectorySteps = 200;
 
     for (int i = 0; i < trajectorySteps; i++) {
         sf::CircleShape dot(3);
@@ -211,7 +211,7 @@ int main() {
 
             Vector2 predictedPosition = ball.position;
 
-            float simDt = 0.05f;
+            float simDt = 0.02f;
 
             for (int i = 0; i < trajectorySteps; i++) {
                 predictedVelocity += world.gravity * simDt;
@@ -223,15 +223,11 @@ int main() {
                 if (predictedPosition.y + ball.radius > world.groundY) {
                     predictedPosition.y = world.groundY - ball.radius;
 
-                    trajectoryDots[i].setPosition(
-                        sf::Vector2f(predictedPosition.x, predictedPosition.y)
-                    );
+                    // Simulate bounce
+                    predictedVelocity.y *= -ball.restitution;
 
-                    for (int j = i + 1; j < trajectorySteps; j++) {
-                        trajectoryDots[j].setPosition(sf::Vector2f(-100, -100));
-                    }
-
-                    break;
+                    // Simulate floor friction
+                    predictedVelocity.x *= 0.9f;
                 }
 
                 trajectoryDots[i].setPosition(
