@@ -222,12 +222,23 @@ int main() {
 
                 if (predictedPosition.y + ball.radius > world.groundY) {
                     predictedPosition.y = world.groundY - ball.radius;
-
-                    // Simulate bounce
                     predictedVelocity.y *= -ball.restitution;
-
-                    // Simulate floor friction
                     predictedVelocity.x *= 0.9f;
+                }
+
+                if (predictedPosition.x - ball.radius < world.leftWall) {
+                    predictedPosition.x = world.leftWall + ball.radius;
+                    predictedVelocity.x *= -ball.restitution;
+                }
+
+                if (predictedPosition.x + ball.radius > world.rightWall) {
+                    predictedPosition.x = world.rightWall - ball.radius;
+                    predictedVelocity.x *= -ball.restitution;
+                }
+
+                if (predictedPosition.y - ball.radius < world.ceilingY) {
+                    predictedPosition.y = world.ceilingY + ball.radius;
+                    predictedVelocity.y *= -ball.restitution;
                 }
 
                 trajectoryDots[i].setPosition(
