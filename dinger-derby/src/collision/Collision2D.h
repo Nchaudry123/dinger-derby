@@ -13,3 +13,17 @@ void resolveCircleCollision(
     Body2D& a,
     Body2D& b
 );
+// Circle-rectangle collision
+bool circleRectangleCollision(
+    const Body2D& circle,
+    const Vector2& rectPosition,
+    float rectWidth,
+    float rectHeight
+);
+// Resolves collision
+void resolveCircleRectangleCollision(
+    Body2D& circle,
+    const Vector2& rectPosition,
+    float rectWidth,
+    float rectHeight
+);
