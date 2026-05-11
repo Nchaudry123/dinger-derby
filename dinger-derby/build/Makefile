@@ -142,6 +142,19 @@ random_spawn_test/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/build
 .PHONY : random_spawn_test/fast
 
+#=============================================================================
+# Target rules for targets named bat_test
+
+# Build rule for target.
+bat_test: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 bat_test
+.PHONY : bat_test
+
+# fast build rule for target.
+bat_test/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/build
+.PHONY : bat_test/fast
+
 src/collision/Collision2D.o: src/collision/Collision2D.cpp.o
 .PHONY : src/collision/Collision2D.o
 
@@ -149,6 +162,7 @@ src/collision/Collision2D.o: src/collision/Collision2D.cpp.o
 src/collision/Collision2D.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/collision/Collision2D.cpp.o
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/collision/Collision2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/collision/Collision2D.cpp.o
 .PHONY : src/collision/Collision2D.cpp.o
 
 src/collision/Collision2D.i: src/collision/Collision2D.cpp.i
@@ -158,6 +172,7 @@ src/collision/Collision2D.i: src/collision/Collision2D.cpp.i
 src/collision/Collision2D.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/collision/Collision2D.cpp.i
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/collision/Collision2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/collision/Collision2D.cpp.i
 .PHONY : src/collision/Collision2D.cpp.i
 
 src/collision/Collision2D.s: src/collision/Collision2D.cpp.s
@@ -167,6 +182,7 @@ src/collision/Collision2D.s: src/collision/Collision2D.cpp.s
 src/collision/Collision2D.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/collision/Collision2D.cpp.s
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/collision/Collision2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/collision/Collision2D.cpp.s
 .PHONY : src/collision/Collision2D.cpp.s
 
 src/math/Vector2.o: src/math/Vector2.cpp.o
@@ -176,6 +192,7 @@ src/math/Vector2.o: src/math/Vector2.cpp.o
 src/math/Vector2.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/math/Vector2.cpp.o
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/math/Vector2.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/math/Vector2.cpp.o
 .PHONY : src/math/Vector2.cpp.o
 
 src/math/Vector2.i: src/math/Vector2.cpp.i
@@ -185,6 +202,7 @@ src/math/Vector2.i: src/math/Vector2.cpp.i
 src/math/Vector2.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/math/Vector2.cpp.i
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/math/Vector2.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/math/Vector2.cpp.i
 .PHONY : src/math/Vector2.cpp.i
 
 src/math/Vector2.s: src/math/Vector2.cpp.s
@@ -194,6 +212,7 @@ src/math/Vector2.s: src/math/Vector2.cpp.s
 src/math/Vector2.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/math/Vector2.cpp.s
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/math/Vector2.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/math/Vector2.cpp.s
 .PHONY : src/math/Vector2.cpp.s
 
 src/physics/Body2D.o: src/physics/Body2D.cpp.o
@@ -203,6 +222,7 @@ src/physics/Body2D.o: src/physics/Body2D.cpp.o
 src/physics/Body2D.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/Body2D.cpp.o
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/Body2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/physics/Body2D.cpp.o
 .PHONY : src/physics/Body2D.cpp.o
 
 src/physics/Body2D.i: src/physics/Body2D.cpp.i
@@ -212,6 +232,7 @@ src/physics/Body2D.i: src/physics/Body2D.cpp.i
 src/physics/Body2D.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/Body2D.cpp.i
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/Body2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/physics/Body2D.cpp.i
 .PHONY : src/physics/Body2D.cpp.i
 
 src/physics/Body2D.s: src/physics/Body2D.cpp.s
@@ -221,6 +242,7 @@ src/physics/Body2D.s: src/physics/Body2D.cpp.s
 src/physics/Body2D.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/Body2D.cpp.s
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/Body2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/physics/Body2D.cpp.s
 .PHONY : src/physics/Body2D.cpp.s
 
 src/physics/PhysicsWorld2D.o: src/physics/PhysicsWorld2D.cpp.o
@@ -230,6 +252,7 @@ src/physics/PhysicsWorld2D.o: src/physics/PhysicsWorld2D.cpp.o
 src/physics/PhysicsWorld2D.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/PhysicsWorld2D.cpp.o
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/PhysicsWorld2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/physics/PhysicsWorld2D.cpp.o
 .PHONY : src/physics/PhysicsWorld2D.cpp.o
 
 src/physics/PhysicsWorld2D.i: src/physics/PhysicsWorld2D.cpp.i
@@ -239,6 +262,7 @@ src/physics/PhysicsWorld2D.i: src/physics/PhysicsWorld2D.cpp.i
 src/physics/PhysicsWorld2D.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/PhysicsWorld2D.cpp.i
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/PhysicsWorld2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/physics/PhysicsWorld2D.cpp.i
 .PHONY : src/physics/PhysicsWorld2D.cpp.i
 
 src/physics/PhysicsWorld2D.s: src/physics/PhysicsWorld2D.cpp.s
@@ -248,7 +272,32 @@ src/physics/PhysicsWorld2D.s: src/physics/PhysicsWorld2D.cpp.s
 src/physics/PhysicsWorld2D.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/user_ball_test.dir/build.make CMakeFiles/user_ball_test.dir/src/physics/PhysicsWorld2D.cpp.s
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/random_spawn_test.dir/build.make CMakeFiles/random_spawn_test.dir/src/physics/PhysicsWorld2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/src/physics/PhysicsWorld2D.cpp.s
 .PHONY : src/physics/PhysicsWorld2D.cpp.s
+
+tests/bat_test.o: tests/bat_test.cpp.o
+.PHONY : tests/bat_test.o
+
+# target to build an object file
+tests/bat_test.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/tests/bat_test.cpp.o
+.PHONY : tests/bat_test.cpp.o
+
+tests/bat_test.i: tests/bat_test.cpp.i
+.PHONY : tests/bat_test.i
+
+# target to preprocess a source file
+tests/bat_test.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/tests/bat_test.cpp.i
+.PHONY : tests/bat_test.cpp.i
+
+tests/bat_test.s: tests/bat_test.cpp.s
+.PHONY : tests/bat_test.s
+
+# target to generate assembly for a file
+tests/bat_test.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/bat_test.dir/build.make CMakeFiles/bat_test.dir/tests/bat_test.cpp.s
+.PHONY : tests/bat_test.cpp.s
 
 tests/random_spawn_test.o: tests/random_spawn_test.cpp.o
 .PHONY : tests/random_spawn_test.o
@@ -306,6 +355,7 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... bat_test"
 	@echo "... random_spawn_test"
 	@echo "... user_ball_test"
 	@echo "... src/collision/Collision2D.o"
@@ -320,6 +370,9 @@ help:
 	@echo "... src/physics/PhysicsWorld2D.o"
 	@echo "... src/physics/PhysicsWorld2D.i"
 	@echo "... src/physics/PhysicsWorld2D.s"
+	@echo "... tests/bat_test.o"
+	@echo "... tests/bat_test.i"
+	@echo "... tests/bat_test.s"
 	@echo "... tests/random_spawn_test.o"
 	@echo "... tests/random_spawn_test.i"
 	@echo "... tests/random_spawn_test.s"

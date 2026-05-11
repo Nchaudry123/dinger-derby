@@ -159,6 +159,9 @@ bat_test: CMakeFiles/bat_test.dir/src/physics/Body2D.cpp.o
 bat_test: CMakeFiles/bat_test.dir/src/physics/PhysicsWorld2D.cpp.o
 bat_test: CMakeFiles/bat_test.dir/src/collision/Collision2D.cpp.o
 bat_test: CMakeFiles/bat_test.dir/build.make
+bat_test: /opt/homebrew/lib/libsfml-graphics.3.0.2.dylib
+bat_test: /opt/homebrew/lib/libsfml-window.3.0.2.dylib
+bat_test: /opt/homebrew/lib/libsfml-system.3.0.2.dylib
 bat_test: CMakeFiles/bat_test.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Linking CXX executable bat_test"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/bat_test.dir/link.txt --verbose=$(VERBOSE)
