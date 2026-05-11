@@ -67,4 +67,5 @@ set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/user_ball_test.dir/DependInfo.cmake"
   "CMakeFiles/random_spawn_test.dir/DependInfo.cmake"
   "CMakeFiles/bat_test.dir/DependInfo.cmake"
+  "CMakeFiles/spin_test.dir/DependInfo.cmake"
   )

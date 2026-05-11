@@ -27,10 +27,15 @@ add_executable(bat_test
     ${ENGINE_SOURCES}
 )
 
+add_executable(spin_test
+    tests/spin_test.cpp
+    ${ENGINE_SOURCES}
+)
+
 target_include_directories(user_ball_test PRIVATE src)
 target_include_directories(random_spawn_test PRIVATE src)
 target_include_directories(bat_test PRIVATE src)
-
+target_include_directories(spin_test PRIVATE src)
 target_link_libraries(user_ball_test
     SFML::Graphics
     SFML::Window
@@ -44,6 +49,12 @@ target_link_libraries(random_spawn_test
 )
 
 target_link_libraries(bat_test
+    SFML::Graphics
+    SFML::Window
+    SFML::System
+)
+
+target_link_libraries(spin_test
     SFML::Graphics
     SFML::Window
     SFML::System

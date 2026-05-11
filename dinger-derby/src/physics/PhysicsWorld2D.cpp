@@ -1,13 +1,30 @@
 #include "PhysicsWorld2D.h"
-#include "../collision/Collision2D.h" 
-PhysicsWorld2D::PhysicsWorld2D() {
+#include "../collision/Collision2D.h"
+// Handles friction + spin transfer when a body hits a surface
+void applySurfaceResponse(Body2D* body, const Vector2& normal) {
+    Vector2 tangent(-normal.y, normal.x);
 
+    float tangentVelocity =
+        body->velocity.x * tangent.x +
+        body->velocity.y * tangent.y;
+
+    float targetAngularVelocity =
+        tangentVelocity / body->radius;
+
+    body->angularVelocity +=
+        (targetAngularVelocity - body->angularVelocity) * 0.1f;
+
+    body->velocity =
+        body->velocity - tangent * tangentVelocity * 0.02f;
+}
+
+PhysicsWorld2D::PhysicsWorld2D() {
     gravity = Vector2(0, 9.8f);
 
-    leftWall = 0;
-    ceilingY = 0;
-    rightWall = 800;
-    groundY = 600;
+    leftWall = 0.0f;
+    ceilingY = 0.0f;
+    rightWall = 800.0f;
+    groundY = 600.0f;
 }
 
 void PhysicsWorld2D::addBody(Body2D* body) {
@@ -15,7 +32,7 @@ void PhysicsWorld2D::addBody(Body2D* body) {
 }
 
 void PhysicsWorld2D::step(float dt) {
-    // Apply forces and update movement
+    // Apply forces, update movement, and handle wall collisions
     for (Body2D* body : bodies) {
         body->applyForce(gravity);
         body->update(dt);
@@ -24,24 +41,32 @@ void PhysicsWorld2D::step(float dt) {
         if (body->position.y + body->radius > groundY) {
             body->position.y = groundY - body->radius;
             body->velocity.y *= -body->restitution;
+
+            applySurfaceResponse(body, Vector2(0, -1));
         }
 
         // Ceiling
         if (body->position.y - body->radius < ceilingY) {
             body->position.y = ceilingY + body->radius;
             body->velocity.y *= -body->restitution;
+
+            applySurfaceResponse(body, Vector2(0, 1));
         }
 
         // Left wall
         if (body->position.x - body->radius < leftWall) {
             body->position.x = leftWall + body->radius;
             body->velocity.x *= -body->restitution;
+
+            applySurfaceResponse(body, Vector2(1, 0));
         }
 
         // Right wall
         if (body->position.x + body->radius > rightWall) {
             body->position.x = rightWall - body->radius;
             body->velocity.x *= -body->restitution;
+
+            applySurfaceResponse(body, Vector2(-1, 0));
         }
     }
 
@@ -61,11 +86,10 @@ void PhysicsWorld2D::step(float dt) {
         }
     }
 }
-void PhysicsWorld2D::setBounds(float width, float height) {
 
+void PhysicsWorld2D::setBounds(float width, float height) {
     leftWall = 0.0f;
     ceilingY = 0.0f;
-
     rightWall = width;
     groundY = height;
 }

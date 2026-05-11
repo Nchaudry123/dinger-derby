@@ -1,5 +1,6 @@
 /Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles/user_ball_test.dir
 /Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles/random_spawn_test.dir
 /Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles/bat_test.dir
+/Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles/spin_test.dir
 /Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles/edit_cache.dir
 /Users/namir/Documents/workspace/dinger-derby/build/CMakeFiles/rebuild_cache.dir
