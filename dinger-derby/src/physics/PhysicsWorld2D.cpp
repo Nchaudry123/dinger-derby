@@ -53,7 +53,7 @@ void PhysicsWorld2D::step(float dt) {
             applySurfaceResponse(body, Vector2(0, 1));
         }
 
-        // Left wall
+        //Left wall
         if (body->position.x - body->radius < leftWall) {
             body->position.x = leftWall + body->radius;
             body->velocity.x *= -body->restitution;
@@ -61,7 +61,7 @@ void PhysicsWorld2D::step(float dt) {
             applySurfaceResponse(body, Vector2(1, 0));
         }
 
-        // Right wall
+        //Right wall
         if (body->position.x + body->radius > rightWall) {
             body->position.x = rightWall - body->radius;
             body->velocity.x *= -body->restitution;
@@ -70,7 +70,7 @@ void PhysicsWorld2D::step(float dt) {
         }
     }
 
-    // Resolve body-to-body collisions multiple times for stability
+    //Resolve body-to-body collisions multiple times for stability
     int iterations = 5;
 
     for (int k = 0; k < iterations; k++) {
@@ -80,7 +80,7 @@ void PhysicsWorld2D::step(float dt) {
                 Body2D* b = bodies[j];
 
                 if (circleCircleCollision(*a, *b)) {
-                    resolveCircleCollision(*a, *b);
+                    resolveCircleCollision(*a,*b);
                 }
             }
         }

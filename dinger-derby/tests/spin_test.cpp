@@ -71,6 +71,8 @@ int main() {
                     ball.wakeUp();
 
                     ball.angularVelocity += 15.0f;
+                    ball.veloctiy.x+=200.0f;
+                    ball.velocity.y=-300.0f;
                 }
             }
         }
