@@ -12,6 +12,7 @@ set(ENGINE_SOURCES
     src/math/Vector2.cpp
     src/math/Vector3.cpp
     src/math/Matrix4.cpp
+    src/rendering/Camera3D.cpp
     src/physics/Body2D.cpp
     src/physics/PhysicsWorld2D.cpp
     src/collision/Collision2D.cpp
@@ -49,3 +50,7 @@ add_test(NAME physics_engine_test COMMAND physics_engine_test)
 add_executable(math3d_test tests/math3d_test.cpp)
 target_link_libraries(math3d_test PRIVATE dinger_engine)
 add_test(NAME math3d_test COMMAND math3d_test)
+
+add_executable(camera3d_test tests/camera3d_test.cpp)
+target_link_libraries(camera3d_test PRIVATE dinger_engine)
+add_test(NAME camera3d_test COMMAND camera3d_test)

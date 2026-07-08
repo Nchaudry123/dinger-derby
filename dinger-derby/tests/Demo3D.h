@@ -4,6 +4,7 @@
 
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
+#include "../src/rendering/Camera3D.h"
 
 struct ProjectedPoint {
     sf::Vector2f position;
@@ -12,24 +13,20 @@ struct ProjectedPoint {
 
 inline ProjectedPoint projectPoint(
     const Vector3& point,
-    sf::Vector2u screenSize,
-    float cameraDistance = 6.0f,
-    float focalLength = 420.0f
+    sf::Vector2u screenSize
 ) {
-    float depth = point.z + cameraDistance;
+    Camera3D camera;
+    ProjectedPoint3D projected3D =
+        camera.projectPoint(point, screenSize.x, screenSize.y);
 
-    if (depth <= 0.1f) {
+    if (!projected3D.visible) {
         return ProjectedPoint{};
     }
 
-    float scale = focalLength / depth;
-    float centerX = screenSize.x * 0.5f;
-    float centerY = screenSize.y * 0.5f;
-
     ProjectedPoint projected;
     projected.position = sf::Vector2f(
-        centerX + point.x * scale,
-        centerY - point.y * scale
+        projected3D.position.x,
+        projected3D.position.y
     );
     projected.visible = true;
 
