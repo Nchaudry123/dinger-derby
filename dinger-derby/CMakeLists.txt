@@ -21,6 +21,7 @@ set(ENGINE_SOURCES
     src/rendering/Mesh3D.cpp
     src/rendering/Rasterizer3D.cpp
     src/rendering/SoftwareRenderer3D.cpp
+    src/rendering/SpatialGrid3D.cpp
     src/physics/Body2D.cpp
     src/physics/PhysicsWorld2D.cpp
     src/physics/SoftBodyMesh3D.cpp
@@ -86,3 +87,7 @@ add_test(NAME rasterizer3d_test COMMAND rasterizer3d_test)
 add_executable(softbody3d_test tests/softbody3d_test.cpp)
 target_link_libraries(softbody3d_test PRIVATE dinger_engine)
 add_test(NAME softbody3d_test COMMAND softbody3d_test)
+
+add_executable(spatial_grid3d_test tests/spatial_grid3d_test.cpp)
+target_link_libraries(spatial_grid3d_test PRIVATE dinger_engine)
+add_test(NAME spatial_grid3d_test COMMAND spatial_grid3d_test)
