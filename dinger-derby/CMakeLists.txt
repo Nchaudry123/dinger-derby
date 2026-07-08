@@ -23,6 +23,7 @@ set(ENGINE_SOURCES
     src/rendering/SoftwareRenderer3D.cpp
     src/physics/Body2D.cpp
     src/physics/PhysicsWorld2D.cpp
+    src/physics/SoftBodyMesh3D.cpp
     src/collision/Collision2D.cpp
 )
 
@@ -55,6 +56,7 @@ add_dinger_demo(filled_cube_3d_demo tests/filled_cube_3d_demo.cpp)
 add_dinger_demo(depth_sort_3d_demo tests/depth_sort_3d_demo.cpp)
 add_dinger_demo(raster_cube_3d_demo tests/raster_cube_3d_demo.cpp)
 add_dinger_demo(raster_depth_3d_demo tests/raster_depth_3d_demo.cpp)
+add_dinger_demo(soft_cube_3d_demo tests/soft_cube_3d_demo.cpp)
 
 add_executable(physics_engine_test tests/physics_engine_test.cpp)
 target_link_libraries(physics_engine_test PRIVATE dinger_engine)
@@ -79,3 +81,7 @@ add_test(NAME framebuffer_test COMMAND framebuffer_test)
 add_executable(rasterizer3d_test tests/rasterizer3d_test.cpp)
 target_link_libraries(rasterizer3d_test PRIVATE dinger_engine)
 add_test(NAME rasterizer3d_test COMMAND rasterizer3d_test)
+
+add_executable(softbody3d_test tests/softbody3d_test.cpp)
+target_link_libraries(softbody3d_test PRIVATE dinger_engine)
+add_test(NAME softbody3d_test COMMAND softbody3d_test)
