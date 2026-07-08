@@ -102,6 +102,23 @@ void testCircleRectangleBounce() {
     assert(ball.velocity.y < 0.0f);
 }
 
+void testGroundCollisionBouncesBody() {
+    PhysicsWorld2D world;
+    world.gravity = Vector2(0.0f, 0.0f);
+    world.setBounds(200.0f, 100.0f);
+
+    Body2D ball(Vector2(50.0f, 95.0f), 1.0f);
+    ball.setRadius(10.0f);
+    ball.velocity = Vector2(0.0f, 20.0f);
+    ball.restitution = 0.5f;
+
+    world.addBody(&ball);
+    world.step(0.1f);
+
+    assert(nearlyEqual(ball.position.y, 90.0f));
+    assert(ball.velocity.y < 0.0f);
+}
+
 }
 
 int main() {
@@ -111,6 +128,7 @@ int main() {
     testCircleCircleManifoldWhenSeparated();
     testCircleCollisionResponseUsesManifoldNormal();
     testCircleRectangleBounce();
+    testGroundCollisionBouncesBody();
 
     return 0;
 }
