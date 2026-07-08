@@ -7,6 +7,9 @@
 
 class Rasterizer3D {
 public:
+    static void setAntiAliasingEnabled(bool enabled);
+    static bool isAntiAliasingEnabled();
+
     static void drawTriangle(
         FrameBuffer& frameBuffer,
         const Vector3& a,

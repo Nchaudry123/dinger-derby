@@ -56,11 +56,31 @@ void testRasterizerUsesDepthBuffer() {
     assert(front == sf::Color::Green);
 }
 
+void testRasterizerBlendsPartialCoverageEdges() {
+    FrameBuffer buffer(8, 8);
+    buffer.clear(sf::Color::Black);
+    buffer.clearDepth(100.0f);
+
+    Rasterizer3D::drawTriangle(
+        buffer,
+        Vector3(1.5f, 1.5f, 5.0f),
+        Vector3(5.5f, 1.5f, 5.0f),
+        Vector3(1.5f, 5.5f, 5.0f),
+        sf::Color::Red
+    );
+
+    sf::Color edge = colorAt(buffer, 5, 1);
+
+    assert(edge.r > 0);
+    assert(edge.r < sf::Color::Red.r);
+}
+
 }
 
 int main() {
     testRasterizerFillsTriangleInterior();
     testRasterizerUsesDepthBuffer();
+    testRasterizerBlendsPartialCoverageEdges();
 
     return 0;
 }

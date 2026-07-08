@@ -8,6 +8,7 @@
 #include "../src/rendering/Camera3D.h"
 #include "../src/rendering/FrameBuffer.h"
 #include "../src/rendering/Mesh3D.h"
+#include "../src/rendering/Rasterizer3D.h"
 
 int main() {
     sf::RenderWindow window(
@@ -15,7 +16,8 @@ int main() {
         "3D Raster Depth Demo"
     );
     window.setFramerateLimit(60);
-    DemoFpsCounter fpsCounter("3D Raster Depth Demo");
+    bool antiAliasingEnabled = true;
+    DemoFpsCounter fpsCounter("3D Raster Depth Demo | AA: on");
 
     sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
@@ -28,6 +30,18 @@ int main() {
         while (const std::optional event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) {
                 window.close();
+            }
+
+            if (const auto* key = event->getIf<sf::Event::KeyPressed>()) {
+                if (key->code == sf::Keyboard::Key::A) {
+                    antiAliasingEnabled = !antiAliasingEnabled;
+                    Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
+                    fpsCounter.setTitle(
+                        antiAliasingEnabled
+                            ? "3D Raster Depth Demo | AA: on"
+                            : "3D Raster Depth Demo | AA: off"
+                    );
+                }
             }
 
             if (const auto* resized = event->getIf<sf::Event::Resized>()) {
@@ -56,6 +70,7 @@ int main() {
 
         frameBuffer.clear(sf::Color(7, 9, 14));
         frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
+        Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
 
         rasterizeMeshTriangles(
             frameBuffer,

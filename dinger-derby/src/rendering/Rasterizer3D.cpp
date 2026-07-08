@@ -3,6 +3,32 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+
+struct SampleOffset {
+    float x;
+    float y;
+};
+
+const SampleOffset coverageSamples[4] = {
+    {0.25f, 0.25f},
+    {0.75f, 0.25f},
+    {0.25f, 0.75f},
+    {0.75f, 0.75f}
+};
+
+bool antiAliasingEnabled = true;
+
+}
+
+void Rasterizer3D::setAntiAliasingEnabled(bool enabled) {
+    antiAliasingEnabled = enabled;
+}
+
+bool Rasterizer3D::isAntiAliasingEnabled() {
+    return antiAliasingEnabled;
+}
+
 void Rasterizer3D::drawTriangle(
     FrameBuffer& frameBuffer,
     const Vector3& a,
@@ -54,21 +80,61 @@ void Rasterizer3D::drawTriangle(
         float edgeC = rowC;
 
         for (int x = startX; x <= endX; x++) {
-            bool inside = positiveArea
-                ? edgeA >= 0.0f && edgeB >= 0.0f && edgeC >= 0.0f
-                : edgeA <= 0.0f && edgeB <= 0.0f && edgeC <= 0.0f;
+            if (!antiAliasingEnabled) {
+                bool inside = positiveArea
+                    ? edgeA >= 0.0f && edgeB >= 0.0f && edgeC >= 0.0f
+                    : edgeA <= 0.0f && edgeB <= 0.0f && edgeC <= 0.0f;
 
-            if (!inside) {
+                if (inside) {
+                    float depth =
+                        (a.z * edgeA + b.z * edgeB + c.z * edgeC) *
+                        inverseArea;
+                    frameBuffer.setPixelFast(x, y, color, depth);
+                }
+
                 edgeA += stepAX;
                 edgeB += stepBX;
                 edgeC += stepCX;
                 continue;
             }
 
-            float depth =
-                (a.z * edgeA + b.z * edgeB + c.z * edgeC) * inverseArea;
+            int coveredSamples = 0;
+            float depthSum = 0.0f;
 
-            frameBuffer.setPixelFast(x, y, color, depth);
+            for (const SampleOffset& sample : coverageSamples) {
+                float offsetX = sample.x - 0.5f;
+                float offsetY = sample.y - 0.5f;
+                float sampleA = edgeA + stepAX * offsetX + stepAY * offsetY;
+                float sampleB = edgeB + stepBX * offsetX + stepBY * offsetY;
+                float sampleC = edgeC + stepCX * offsetX + stepCY * offsetY;
+
+                bool sampleInside = positiveArea
+                    ? sampleA >= 0.0f && sampleB >= 0.0f && sampleC >= 0.0f
+                    : sampleA <= 0.0f && sampleB <= 0.0f && sampleC <= 0.0f;
+
+                if (!sampleInside) {
+                    continue;
+                }
+
+                float depth =
+                    (a.z * sampleA + b.z * sampleB + c.z * sampleC) *
+                    inverseArea;
+
+                depthSum += depth;
+                coveredSamples++;
+            }
+
+            if (coveredSamples == 0) {
+                edgeA += stepAX;
+                edgeB += stepBX;
+                edgeC += stepCX;
+                continue;
+            }
+
+            float coverage = coveredSamples * 0.25f;
+            float depth = depthSum / coveredSamples;
+
+            frameBuffer.blendPixelFast(x, y, color, depth, coverage);
 
             edgeA += stepAX;
             edgeB += stepBX;

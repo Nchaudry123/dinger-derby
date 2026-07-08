@@ -29,6 +29,34 @@ public:
 
         return true;
     }
+    bool blendPixelFast(int x, int y, sf::Color color, float depth, float coverage) {
+        int dIndex = y * width + x;
+
+        if (depth >= depthBuffer[dIndex]) {
+            return false;
+        }
+
+        if (coverage >= 1.0f) {
+            depthBuffer[dIndex] = depth;
+            pixels[dIndex] = packColor(color);
+            return true;
+        }
+
+        sf::Color destination = unpackColor(pixels[dIndex]);
+        float inverseCoverage = 1.0f - coverage;
+
+        sf::Color blended(
+            static_cast<std::uint8_t>(color.r * coverage + destination.r * inverseCoverage),
+            static_cast<std::uint8_t>(color.g * coverage + destination.g * inverseCoverage),
+            static_cast<std::uint8_t>(color.b * coverage + destination.b * inverseCoverage),
+            255
+        );
+
+        depthBuffer[dIndex] = depth;
+        pixels[dIndex] = packColor(blended);
+
+        return true;
+    }
 
     int getWidth() const;
     int getHeight() const;

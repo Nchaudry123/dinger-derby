@@ -10,6 +10,10 @@ public:
     explicit DemoFpsCounter(const std::string& title)
         : title(title) {}
 
+    void setTitle(const std::string& newTitle) {
+        title = newTitle;
+    }
+
     void frame(sf::RenderWindow& window) {
         frameCount++;
 
