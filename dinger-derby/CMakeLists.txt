@@ -91,3 +91,7 @@ add_test(NAME softbody3d_test COMMAND softbody3d_test)
 add_executable(spatial_grid3d_test tests/spatial_grid3d_test.cpp)
 target_link_libraries(spatial_grid3d_test PRIVATE dinger_engine)
 add_test(NAME spatial_grid3d_test COMMAND spatial_grid3d_test)
+
+add_executable(raster_near_clip_test tests/raster_near_clip_test.cpp)
+target_link_libraries(raster_near_clip_test PRIVATE dinger_engine)
+add_test(NAME raster_near_clip_test COMMAND raster_near_clip_test)

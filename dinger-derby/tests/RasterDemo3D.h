@@ -8,6 +8,7 @@
 #include "../src/rendering/Rasterizer3D.h"
 #include <SFML/System/Vector2.hpp>
 #include <algorithm>
+#include <array>
 #include <vector>
 
 inline sf::Vector2u rasterSizeForWindow(sf::Vector2u windowSize) {
@@ -21,17 +22,14 @@ inline sf::Vector2u rasterSizeForWindow(sf::Vector2u windowSize) {
 
 struct RasterMeshRenderCache {
     std::vector<Vector3> worldVertices;
-    std::vector<Vector3> screenVertices;
-    std::vector<bool> visibleVertices;
+    std::vector<Vector3> cameraVertices;
 
     void reserveFor(const Mesh3D& mesh) {
         worldVertices.clear();
-        screenVertices.clear();
-        visibleVertices.clear();
+        cameraVertices.clear();
 
         worldVertices.reserve(mesh.vertices.size());
-        screenVertices.reserve(mesh.vertices.size());
-        visibleVertices.reserve(mesh.vertices.size());
+        cameraVertices.reserve(mesh.vertices.size());
     }
 };
 
@@ -52,6 +50,59 @@ struct RasterRenderStats {
         trianglesSkipped = 0;
     }
 };
+
+inline Vector3 projectCameraPointToScreen(
+    const Vector3& cameraPoint,
+    const Camera3D& camera,
+    const FrameBuffer& frameBuffer
+) {
+    float scale = camera.fieldOfView / cameraPoint.z;
+
+    return Vector3(
+        frameBuffer.getWidth() * 0.5f + cameraPoint.x * scale,
+        frameBuffer.getHeight() * 0.5f - cameraPoint.y * scale,
+        cameraPoint.z
+    );
+}
+
+inline Vector3 intersectNearPlane(
+    const Vector3& a,
+    const Vector3& b,
+    float nearPlane
+) {
+    float t = (nearPlane - a.z) / (b.z - a.z);
+    return a + (b - a) * t;
+}
+
+inline int clipTriangleAgainstNearPlane(
+    const Vector3& a,
+    const Vector3& b,
+    const Vector3& c,
+    float nearPlane,
+    std::array<Vector3, 4>& clipped
+) {
+    std::array<Vector3, 3> input = {a, b, c};
+    int outputCount = 0;
+
+    for (int i = 0; i < 3; i++) {
+        const Vector3& current = input[i];
+        const Vector3& previous = input[(i + 2) % 3];
+        bool currentInside = current.z >= nearPlane;
+        bool previousInside = previous.z >= nearPlane;
+
+        if (currentInside != previousInside) {
+            clipped[outputCount] = intersectNearPlane(previous, current, nearPlane);
+            outputCount++;
+        }
+
+        if (currentInside) {
+            clipped[outputCount] = current;
+            outputCount++;
+        }
+    }
+
+    return outputCount;
+}
 
 inline void rasterizeMeshTriangles(
     FrameBuffer& frameBuffer,
@@ -101,35 +152,14 @@ inline void rasterizeMeshTriangles(
 
     for (const Vector3& vertex : mesh.vertices) {
         Vector3 world = transform.transformPoint(vertex);
-        ProjectedPoint3D projected = camera.projectPoint(
-            world,
-            frameBuffer.getWidth(),
-            frameBuffer.getHeight()
-        );
         Vector3 cameraSpace = world - camera.position;
 
         cache.worldVertices.push_back(world);
-        cache.screenVertices.push_back(Vector3(
-            projected.position.x,
-            projected.position.y,
-            cameraSpace.z
-        ));
-        cache.visibleVertices.push_back(projected.visible);
+        cache.cameraVertices.push_back(cameraSpace);
     }
 
     for (int i = 0; i < mesh.triangles.size(); i++) {
         const Triangle3D& triangle = mesh.triangles[i];
-
-        if (
-            !cache.visibleVertices[triangle.a] ||
-            !cache.visibleVertices[triangle.b] ||
-            !cache.visibleVertices[triangle.c]
-        ) {
-            if (stats) {
-                stats->trianglesSkipped++;
-            }
-            continue;
-        }
 
         Vector3 worldA = cache.worldVertices[triangle.a];
 
@@ -154,21 +184,57 @@ inline void rasterizeMeshTriangles(
             }
         }
 
+        std::array<Vector3, 4> clippedCameraPoints;
+        int clippedCount = clipTriangleAgainstNearPlane(
+            cache.cameraVertices[triangle.a],
+            cache.cameraVertices[triangle.b],
+            cache.cameraVertices[triangle.c],
+            camera.nearPlane,
+            clippedCameraPoints
+        );
+
+        if (clippedCount < 3) {
+            if (stats) {
+                stats->trianglesSkipped++;
+            }
+            continue;
+        }
+
         sf::Color color = fallbackColor;
         if (i < mesh.triangleColors.size()) {
             color = mesh.triangleColors[i];
         }
 
+        Vector3 screenA = projectCameraPointToScreen(clippedCameraPoints[0], camera, frameBuffer);
+        Vector3 screenB = projectCameraPointToScreen(clippedCameraPoints[1], camera, frameBuffer);
+        Vector3 screenC = projectCameraPointToScreen(clippedCameraPoints[2], camera, frameBuffer);
+
         Rasterizer3D::drawTriangle(
             frameBuffer,
-            cache.screenVertices[triangle.a],
-            cache.screenVertices[triangle.b],
-            cache.screenVertices[triangle.c],
+            screenA,
+            screenB,
+            screenC,
             color
         );
 
         if (stats) {
             stats->trianglesDrawn++;
+        }
+
+        if (clippedCount == 4) {
+            Vector3 screenD = projectCameraPointToScreen(clippedCameraPoints[3], camera, frameBuffer);
+
+            Rasterizer3D::drawTriangle(
+                frameBuffer,
+                screenA,
+                screenC,
+                screenD,
+                color
+            );
+
+            if (stats) {
+                stats->trianglesDrawn++;
+            }
         }
     }
 }
