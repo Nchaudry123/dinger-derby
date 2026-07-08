@@ -29,19 +29,16 @@ bool circleCircleCollision(const Body2D& a, const Body2D& b) {
     return findCircleCircleCollision(a, b).colliding;
 }
 
-void resolveCircleCollision(Body2D& a, Body2D& b) {
-    Vector2 normal = b.position - a.position;
-
-    float distance = normal.magnitude();
-
-    if (distance == 0) {
-        // Pick a stable fallback normal so perfectly overlapping bodies can separate.
-        normal = Vector2(1.0f, 0.0f);
-        distance = 0.0001f;
-    } else {
-        normal = normal.normalized();
+void resolveCircleCollision(
+    Body2D& a,
+    Body2D& b,
+    const CollisionManifold& manifold
+) {
+    if (!manifold.colliding) {
+        return;
     }
 
+    Vector2 normal = manifold.normal;
     Vector2 relativeVelocity = b.velocity - a.velocity;
 
     float velocityAlongNormal =
@@ -94,19 +91,21 @@ void resolveCircleCollision(Body2D& a, Body2D& b) {
     }
 
     // Always correct overlap, even if bodies are moving apart
-    float overlap = (a.radius + b.radius) - distance;
-
     float slop = 0.001f;
     float percent = 1.0f;
 
     float correctionAmount =
-        (overlap - slop > 0.0f ? overlap - slop : 0.0f)
+        (manifold.penetration - slop > 0.0f ? manifold.penetration - slop : 0.0f)
         / ((1 / a.mass) + (1 / b.mass)) * percent;
 
     Vector2 correction = normal * correctionAmount;
 
     a.position = a.position - correction * (1 / a.mass);
     b.position = b.position + correction * (1 / b.mass);
+}
+
+void resolveCircleCollision(Body2D& a, Body2D& b) {
+    resolveCircleCollision(a, b, findCircleCircleCollision(a, b));
 }
 
 float clamp(float value, float minValue, float maxValue) {

@@ -22,6 +22,12 @@ bool circleCircleCollision(
 // Resolves collision (applies bounce)
 void resolveCircleCollision(
     Body2D& a,
+    Body2D& b,
+    const CollisionManifold& manifold
+);
+
+void resolveCircleCollision(
+    Body2D& a,
     Body2D& b
 );
 // Circle-rectangle collision
