@@ -1,5 +1,6 @@
 #include <SFML/Graphics.hpp>
 
+#include "DemoFpsCounter.h"
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
 #include "../src/rendering/Mesh3D.h"
@@ -11,6 +12,7 @@ int main() {
         "3D Filled Cube Demo"
     );
     window.setFramerateLimit(60);
+    DemoFpsCounter fpsCounter("3D Filled Cube Demo");
 
     Mesh3D cube = Mesh3D::cube();
     sf::Clock clock;
@@ -40,6 +42,7 @@ int main() {
         window.clear(sf::Color(12, 14, 18));
         renderer.drawMeshTriangles(cube, transform, sf::Color(180, 180, 180));
         renderer.drawMeshEdges(cube, transform, sf::Color(20, 22, 26));
+        fpsCounter.frame(window);
         window.display();
     }
 

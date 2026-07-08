@@ -1,5 +1,6 @@
 #include <SFML/Graphics.hpp>
 
+#include "DemoFpsCounter.h"
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
 #include "../src/rendering/Mesh3D.h"
@@ -11,6 +12,7 @@ int main() {
         "3D Depth Sort Demo"
     );
     window.setFramerateLimit(60);
+    DemoFpsCounter fpsCounter("3D Depth Sort Demo");
 
     Mesh3D nearCube = Mesh3D::cube();
     Mesh3D farCube = Mesh3D::cube();
@@ -58,6 +60,7 @@ int main() {
         renderer.drawMeshEdges(farCube, farTransform, sf::Color(15, 20, 34));
         renderer.drawMeshEdges(nearCube, nearTransform, sf::Color(34, 18, 16));
 
+        fpsCounter.frame(window);
         window.display();
     }
 

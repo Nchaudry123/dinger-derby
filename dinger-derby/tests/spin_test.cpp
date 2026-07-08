@@ -1,5 +1,6 @@
 #include <SFML/Graphics.hpp>
 
+#include "DemoFpsCounter.h"
 #include "../src/physics/Body2D.h"
 #include "../src/physics/PhysicsWorld2D.h"
 
@@ -12,6 +13,7 @@ int main() {
     );
 
     window.setFramerateLimit(60);
+    DemoFpsCounter fpsCounter("Spin Test");
 
     // Setup physics world
     PhysicsWorld2D world;
@@ -97,6 +99,7 @@ int main() {
         window.draw(ballShape);
         window.draw(spinLine);
 
+        fpsCounter.frame(window);
         window.display();
     }
 

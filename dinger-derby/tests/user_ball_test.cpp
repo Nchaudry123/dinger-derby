@@ -1,6 +1,7 @@
 #include <SFML/Graphics.hpp>
 #include <vector>
 #include "DemoDragLauncher.h"
+#include "DemoFpsCounter.h"
 #include "../src/physics/Body2D.h"
 #include "../src/physics/PhysicsWorld2D.h"
 
@@ -12,6 +13,7 @@ int main() {
     );
 
     window.setFramerateLimit(60);
+    DemoFpsCounter fpsCounter("User Ball Test");
     const float floorHeight = 10.0f;
     const float floorOffset = 100.0f;
 
@@ -207,6 +209,7 @@ int main() {
             }
         }
 
+        fpsCounter.frame(window);
         window.display();
     }
 

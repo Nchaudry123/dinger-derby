@@ -1,5 +1,6 @@
 #include <SFML/Graphics.hpp>
 #include "DemoDragLauncher.h"
+#include "DemoFpsCounter.h"
 #include "../src/physics/Body2D.h"
 #include "../src/physics/PhysicsWorld2D.h"
 #include "../src/collision/Collision2D.h"
@@ -12,6 +13,7 @@ int main() {
     );
 
     window.setFramerateLimit(60);
+    DemoFpsCounter fpsCounter("Bat Test");
 
     // General settings
     const float floorOffset = 100.0f;
@@ -115,6 +117,7 @@ int main() {
             window.draw(dragLine);
         }
 
+        fpsCounter.frame(window);
         window.display();
     }
 

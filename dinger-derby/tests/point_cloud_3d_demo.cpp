@@ -1,6 +1,7 @@
 #include <SFML/Graphics.hpp>
 #include <cmath>
 
+#include "DemoFpsCounter.h"
 #include "Demo3D.h"
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
@@ -11,6 +12,7 @@ int main() {
         "3D Point Cloud Demo"
     );
     window.setFramerateLimit(60);
+    DemoFpsCounter fpsCounter("3D Point Cloud Demo");
 
     Vector3 points[9] = {
         Vector3(0.0f, 0.0f, 0.0f),
@@ -57,6 +59,7 @@ int main() {
             drawPoint3D(window, point, i == 0 ? 7.0f : 5.0f, color);
         }
 
+        fpsCounter.frame(window);
         window.display();
     }
 

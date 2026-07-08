@@ -1,6 +1,7 @@
 #include <SFML/Graphics.hpp>
 #include <limits>
 
+#include "DemoFpsCounter.h"
 #include "RasterDemo3D.h"
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
@@ -14,6 +15,7 @@ int main() {
         "3D Raster Cube Demo"
     );
     window.setFramerateLimit(60);
+    DemoFpsCounter fpsCounter("3D Raster Cube Demo");
 
     FrameBuffer frameBuffer(window.getSize().x, window.getSize().y);
     Camera3D camera;
@@ -53,6 +55,7 @@ int main() {
 
         window.clear();
         frameBuffer.present(window);
+        fpsCounter.frame(window);
         window.display();
     }
 

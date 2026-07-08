@@ -1,5 +1,6 @@
 #include <SFML/Graphics.hpp>
 
+#include "DemoFpsCounter.h"
 #include "Demo3D.h"
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
@@ -10,6 +11,7 @@ int main() {
         "3D Wire Cube Demo"
     );
     window.setFramerateLimit(60);
+    DemoFpsCounter fpsCounter("3D Wire Cube Demo");
 
     sf::Clock clock;
 
@@ -37,6 +39,7 @@ int main() {
         drawAxes(window, Matrix4::identity());
         drawWireCube(window, cubeTransform, sf::Color(245, 245, 245));
 
+        fpsCounter.frame(window);
         window.display();
     }
 

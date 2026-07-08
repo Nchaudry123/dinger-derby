@@ -1,5 +1,6 @@
 #include <SFML/Graphics.hpp>
 
+#include "DemoFpsCounter.h"
 #include "Demo3D.h"
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
@@ -10,6 +11,7 @@ int main() {
         "3D Transform Stack Demo"
     );
     window.setFramerateLimit(60);
+    DemoFpsCounter fpsCounter("3D Transform Stack Demo");
 
     sf::Clock clock;
 
@@ -60,6 +62,7 @@ int main() {
         drawWireCube(window, childB, sf::Color(110, 230, 150));
         drawWireCube(window, childC, sf::Color(120, 170, 255));
 
+        fpsCounter.frame(window);
         window.display();
     }
 

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <ctime>
 
+#include "DemoFpsCounter.h"
 #include "../src/physics/Body2D.h"
 #include "../src/physics/PhysicsWorld2D.h"
 
@@ -14,6 +15,7 @@ int main() {
     );
 
     window.setFramerateLimit(60);
+    DemoFpsCounter fpsCounter("Random Spawn Test");
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
 
     PhysicsWorld2D world;
@@ -98,6 +100,7 @@ int main() {
             window.draw(shape);
         }
 
+        fpsCounter.frame(window);
         window.display();
     }
 
