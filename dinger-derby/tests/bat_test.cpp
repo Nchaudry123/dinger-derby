@@ -1,4 +1,5 @@
 #include <SFML/Graphics.hpp>
+#include "DemoDragLauncher.h"
 #include "../src/physics/Body2D.h"
 #include "../src/physics/PhysicsWorld2D.h"
 #include "../src/collision/Collision2D.h"
@@ -14,7 +15,6 @@ int main() {
 
     // General settings
     const float floorOffset = 100.0f;
-    const float powerScale = 5.0f;
     const float clickHitbox = 60.0f;
 
     // Setup physics world
@@ -44,10 +44,7 @@ int main() {
     floor.setPosition(sf::Vector2f(0, window.getSize().y - floorOffset));
     floor.setFillColor(sf::Color(80, 80, 80));
 
-    // Drag state
-    bool dragging = false;
-    Vector2 dragStart;
-    Vector2 dragCurrent;
+    DemoDragLauncher dragLauncher(ball, clickHitbox, 5.0f);
 
     // Drag line
     sf::VertexArray dragLine(sf::PrimitiveType::Lines, 2);
@@ -77,32 +74,15 @@ int main() {
             }
 
             if (const auto* mouse = event->getIf<sf::Event::MouseButtonPressed>()) {
-                if (mouse->button == sf::Mouse::Button::Left) {
-                    Vector2 mousePos(mouse->position.x, mouse->position.y);
-
-                    if ((mousePos - ball.position).magnitude() <= clickHitbox) {
-                        dragging = true;
-                        dragStart = mousePos;
-                        dragCurrent = mousePos;
-                    }
-                }
+                dragLauncher.handleMousePressed(*mouse);
             }
 
             if (const auto* move = event->getIf<sf::Event::MouseMoved>()) {
-                if (dragging) {
-                    dragCurrent = Vector2(move->position.x, move->position.y);
-                }
+                dragLauncher.handleMouseMoved(*move);
             }
 
             if (const auto* mouse = event->getIf<sf::Event::MouseButtonReleased>()) {
-                if (mouse->button == sf::Mouse::Button::Left && dragging) {
-                    Vector2 release(mouse->position.x, mouse->position.y);
-
-                    ball.wakeUp();
-                    ball.velocity = (dragStart - release) * powerScale;
-
-                    dragging = false;
-                }
+                dragLauncher.handleMouseReleased(*mouse);
             }
         }
 
@@ -120,12 +100,8 @@ int main() {
         // Update visuals
         ballShape.setPosition(sf::Vector2f(ball.position.x, ball.position.y));
 
-        if (dragging) {
-            dragLine[0].position = sf::Vector2f(ball.position.x, ball.position.y);
-            dragLine[0].color = sf::Color::Green;
-
-            dragLine[1].position = sf::Vector2f(dragCurrent.x, dragCurrent.y);
-            dragLine[1].color = sf::Color::Green;
+        if (dragLauncher.isDragging()) {
+            dragLauncher.updateLine(dragLine);
         }
 
         // Render
@@ -135,7 +111,7 @@ int main() {
         window.draw(bat);
         window.draw(ballShape);
 
-        if (dragging) {
+        if (dragLauncher.isDragging()) {
             window.draw(dragLine);
         }
 

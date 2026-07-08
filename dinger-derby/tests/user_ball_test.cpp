@@ -1,5 +1,6 @@
 #include <SFML/Graphics.hpp>
 #include <vector>
+#include "DemoDragLauncher.h"
 #include "../src/physics/Body2D.h"
 #include "../src/physics/PhysicsWorld2D.h"
 
@@ -49,13 +50,7 @@ int main() {
         sf::Vector2f(0, window.getSize().y - floorOffset)
     );
 
-    // Drag system
-    bool isDragging = false;
-
-    Vector2 dragStart;
-    Vector2 dragCurrent;
-
-    const float powerScale = 5.0f;
+    DemoDragLauncher dragLauncher(ball, clickHitbox, 5.0f);
 
     // Drag line
     sf::VertexArray dragLine(sf::PrimitiveType::Lines, 2);
@@ -110,63 +105,19 @@ int main() {
                 );
             }
 
-            // Mouse pressed
             if (const auto* mouse =
                 event->getIf<sf::Event::MouseButtonPressed>()) {
-
-                if (mouse->button == sf::Mouse::Button::Left) {
-                    Vector2 mousePos(
-                        mouse->position.x,
-                        mouse->position.y
-                    );
-
-                    Vector2 difference =
-                        mousePos - ball.position;
-
-                    if (difference.magnitude() <= clickHitbox) {
-                        isDragging = true;
-
-                        dragStart = mousePos;
-                        dragCurrent = mousePos;
-                    }
-                }
+                dragLauncher.handleMousePressed(*mouse);
             }
 
-            // Mouse moved
             if (const auto* move =
                 event->getIf<sf::Event::MouseMoved>()) {
-
-                if (isDragging) {
-                    dragCurrent = Vector2(
-                        move->position.x,
-                        move->position.y
-                    );
-                }
+                dragLauncher.handleMouseMoved(*move);
             }
 
-            // Mouse released
             if (const auto* mouse =
                 event->getIf<sf::Event::MouseButtonReleased>()) {
-
-                if (
-                    mouse->button == sf::Mouse::Button::Left &&
-                    isDragging
-                ) {
-                    Vector2 releasePos(
-                        mouse->position.x,
-                        mouse->position.y
-                    );
-
-                    Vector2 launchVector =
-                        dragStart - releasePos;
-
-                    ball.wakeUp();
-
-                    ball.velocity =
-                        launchVector * powerScale;
-
-                    isDragging = false;
-                }
+                dragLauncher.handleMouseReleased(*mouse);
             }
         }
 
@@ -189,25 +140,12 @@ int main() {
         );
 
         // Update drag line + trajectory
-        if (isDragging) {
-            dragLine[0].position =
-                sf::Vector2f(
-                    ball.position.x,
-                    ball.position.y
-                );
+        if (dragLauncher.isDragging()) {
+            dragLauncher.updateLine(dragLine);
 
-            dragLine[1].position =
-                sf::Vector2f(
-                    dragCurrent.x,
-                    dragCurrent.y
-                );
+            Vector2 launchVector = dragLauncher.currentDragVector();
 
-            dragLine[0].color = sf::Color::Green;
-            dragLine[1].color = sf::Color::Green;
-
-            Vector2 launchVector = dragStart - dragCurrent;
-
-            Vector2 predictedVelocity = launchVector * powerScale;
+            Vector2 predictedVelocity = launchVector * 5.0f;
 
             Vector2 predictedPosition = ball.position;
 
@@ -261,7 +199,7 @@ int main() {
         window.draw(hitboxShape);
         window.draw(ballShape);
 
-        if (isDragging) {
+        if (dragLauncher.isDragging()) {
             window.draw(dragLine);
 
             for (auto& dot : trajectoryDots) {
