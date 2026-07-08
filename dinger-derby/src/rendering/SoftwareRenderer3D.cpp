@@ -1,5 +1,18 @@
 #include "SoftwareRenderer3D.h"
 
+#include <algorithm>
+#include <vector>
+
+namespace {
+
+struct RenderTriangle3D {
+    sf::Vector2f points[3];
+    float averageDepth = 0.0f;
+    sf::Color color;
+};
+
+}
+
 SoftwareRenderer3D::SoftwareRenderer3D(sf::RenderWindow& window)
     : window(window) {}
 
@@ -104,6 +117,8 @@ void SoftwareRenderer3D::drawMeshTriangles(
     const Matrix4& transform,
     sf::Color fallbackColor
 ) {
+    std::vector<RenderTriangle3D> renderTriangles;
+
     for (int i = 0; i < mesh.triangles.size(); i++) {
         const Triangle3D& triangle = mesh.triangles[i];
         sf::Color color = fallbackColor;
@@ -116,6 +131,56 @@ void SoftwareRenderer3D::drawMeshTriangles(
         Vector3 b = transform.transformPoint(mesh.vertices[triangle.b]);
         Vector3 c = transform.transformPoint(mesh.vertices[triangle.c]);
 
-        drawTriangle(a, b, c, color);
+        ProjectedPoint3D projectedA =
+            camera.projectPoint(a, window.getSize().x, window.getSize().y);
+        ProjectedPoint3D projectedB =
+            camera.projectPoint(b, window.getSize().x, window.getSize().y);
+        ProjectedPoint3D projectedC =
+            camera.projectPoint(c, window.getSize().x, window.getSize().y);
+
+        if (!projectedA.visible || !projectedB.visible || !projectedC.visible) {
+            continue;
+        }
+
+        Vector3 cameraA = a - camera.position;
+        Vector3 cameraB = b - camera.position;
+        Vector3 cameraC = c - camera.position;
+
+        RenderTriangle3D renderTriangle;
+        renderTriangle.points[0] = sf::Vector2f(
+            projectedA.position.x,
+            projectedA.position.y
+        );
+        renderTriangle.points[1] = sf::Vector2f(
+            projectedB.position.x,
+            projectedB.position.y
+        );
+        renderTriangle.points[2] = sf::Vector2f(
+            projectedC.position.x,
+            projectedC.position.y
+        );
+        renderTriangle.averageDepth =
+            (cameraA.z + cameraB.z + cameraC.z) / 3.0f;
+        renderTriangle.color = color;
+
+        renderTriangles.push_back(renderTriangle);
+    }
+
+    std::sort(
+        renderTriangles.begin(),
+        renderTriangles.end(),
+        [](const RenderTriangle3D& a, const RenderTriangle3D& b) {
+            return a.averageDepth > b.averageDepth;
+        }
+    );
+
+    for (const RenderTriangle3D& triangle : renderTriangles) {
+        sf::ConvexShape shape(3);
+        shape.setPoint(0, triangle.points[0]);
+        shape.setPoint(1, triangle.points[1]);
+        shape.setPoint(2, triangle.points[2]);
+        shape.setFillColor(triangle.color);
+
+        window.draw(shape);
     }
 }
