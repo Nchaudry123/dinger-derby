@@ -71,20 +71,12 @@ void PhysicsWorld2D::step(float dt) {
         }
     }
 
-    //Resolve body-to-body collisions multiple times for stability
+    // Resolve body-to-body collisions multiple times for stability
     int iterations = 5;
 
     for (int k = 0; k < iterations; k++) {
-        for (int i = 0; i < bodies.size(); i++) {
-            for (int j = i + 1; j < bodies.size(); j++) {
-                Body2D* a = bodies[i];
-                Body2D* b = bodies[j];
-
-                if (circleCircleCollision(*a, *b)) {
-                    resolveCircleCollision(*a,*b);
-                }
-            }
-        }
+        collectContacts();
+        resolveContacts();
     }
 }
 
@@ -93,4 +85,25 @@ void PhysicsWorld2D::setBounds(float width, float height) {
     ceilingY = 0.0f;
     rightWall = width;
     groundY = height;
+}
+
+void PhysicsWorld2D::collectContacts() {
+    contacts.clear();
+
+    for (int i = 0; i < bodies.size(); i++) {
+        for (int j = i + 1; j < bodies.size(); j++) {
+            CollisionManifold manifold =
+                findCircleCircleCollision(*bodies[i], *bodies[j]);
+
+            if (manifold.colliding) {
+                contacts.push_back(Contact2D{bodies[i], bodies[j], manifold});
+            }
+        }
+    }
+}
+
+void PhysicsWorld2D::resolveContacts() {
+    for (Contact2D& contact : contacts) {
+        resolveCircleCollision(*contact.a, *contact.b, contact.manifold);
+    }
 }

@@ -1,7 +1,14 @@
 #pragma once
 #include <vector>
+#include "../collision/Collision2D.h"
 #include "Body2D.h"
 #include "../math/Vector2.h"
+
+struct Contact2D {
+    Body2D* a = nullptr;
+    Body2D* b = nullptr;
+    CollisionManifold manifold;
+};
 
 class PhysicsWorld2D {
 public:
@@ -21,4 +28,8 @@ public:
 
 private:
     std::vector<Body2D*> bodies;
+    std::vector<Contact2D> contacts;
+
+    void collectContacts();
+    void resolveContacts();
 };
