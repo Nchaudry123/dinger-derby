@@ -65,11 +65,18 @@ inline void rasterizeMeshTriangles(
         }
 
         Vector3 worldA = worldVertices[triangle.a];
-        Vector3 worldB = worldVertices[triangle.b];
-        Vector3 worldC = worldVertices[triangle.c];
 
         if (cullBackFaces) {
-            Vector3 normal = (worldB - worldA).cross(worldC - worldA);
+            Vector3 normal;
+
+            if (i < mesh.triangleNormals.size()) {
+                normal = transform.transformDirection(mesh.triangleNormals[i]);
+            } else {
+                Vector3 worldB = worldVertices[triangle.b];
+                Vector3 worldC = worldVertices[triangle.c];
+                normal = (worldB - worldA).cross(worldC - worldA);
+            }
+
             Vector3 cameraToTriangle = worldA - camera.position;
 
             if (normal.dot(cameraToTriangle) >= 0.0f) {

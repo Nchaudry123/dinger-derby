@@ -16,6 +16,8 @@ void testCubeMeshShape() {
     assert(cube.edges.size() == 12);
     assert(cube.triangles.size() == 12);
     assert(cube.triangleColors.size() == cube.triangles.size());
+    assert(cube.triangleNormals.size() == cube.triangles.size());
+    assert(nearlyEqual(cube.triangleNormals[0].magnitude(), 1.0f));
     assert(nearlyEqual(cube.vertices[0].x, -1.0f));
     assert(nearlyEqual(cube.vertices[0].y, -1.0f));
     assert(nearlyEqual(cube.vertices[0].z, -1.0f));

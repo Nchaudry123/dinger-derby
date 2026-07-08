@@ -39,6 +39,8 @@ Mesh3D Mesh3D::cube(float size) {
         sf::Color(70, 200, 210), sf::Color(70, 200, 210)
     };
 
+    mesh.buildTriangleNormals();
+
     return mesh;
 }
 
@@ -58,4 +60,16 @@ Mesh3D Mesh3D::axes(float length) {
     };
 
     return mesh;
+}
+
+void Mesh3D::buildTriangleNormals() {
+    triangleNormals.clear();
+    triangleNormals.reserve(triangles.size());
+
+    for (const Triangle3D& triangle : triangles) {
+        Vector3 a = vertices[triangle.a];
+        Vector3 b = vertices[triangle.b];
+        Vector3 c = vertices[triangle.c];
+        triangleNormals.push_back((b - a).cross(c - a).normalized());
+    }
 }

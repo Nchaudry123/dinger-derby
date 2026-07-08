@@ -22,7 +22,11 @@ public:
     std::vector<Edge3D> edges;
     std::vector<Triangle3D> triangles;
     std::vector<sf::Color> triangleColors;
+    std::vector<Vector3> triangleNormals;
 
     static Mesh3D cube(float size = 2.0f);
     static Mesh3D axes(float length = 1.5f);
+
+private:
+    void buildTriangleNormals();
 };
