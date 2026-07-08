@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <SFML/Graphics/Color.hpp>
 
 #include "../math/Vector3.h"
 
@@ -20,6 +21,7 @@ public:
     std::vector<Vector3> vertices;
     std::vector<Edge3D> edges;
     std::vector<Triangle3D> triangles;
+    std::vector<sf::Color> triangleColors;
 
     static Mesh3D cube(float size = 2.0f);
     static Mesh3D axes(float length = 1.5f);

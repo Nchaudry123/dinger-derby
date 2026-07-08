@@ -30,6 +30,15 @@ Mesh3D Mesh3D::cube(float size) {
         {0, 4, 7}, {0, 7, 3}
     };
 
+    mesh.triangleColors = {
+        sf::Color(190, 70, 70), sf::Color(190, 70, 70),
+        sf::Color(70, 190, 120), sf::Color(70, 190, 120),
+        sf::Color(70, 120, 220), sf::Color(70, 120, 220),
+        sf::Color(220, 190, 70), sf::Color(220, 190, 70),
+        sf::Color(200, 90, 210), sf::Color(200, 90, 210),
+        sf::Color(70, 200, 210), sf::Color(70, 200, 210)
+    };
+
     return mesh;
 }
 

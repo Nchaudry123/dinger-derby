@@ -98,3 +98,24 @@ void SoftwareRenderer3D::drawMeshEdges(
         drawLine(a, b, color);
     }
 }
+
+void SoftwareRenderer3D::drawMeshTriangles(
+    const Mesh3D& mesh,
+    const Matrix4& transform,
+    sf::Color fallbackColor
+) {
+    for (int i = 0; i < mesh.triangles.size(); i++) {
+        const Triangle3D& triangle = mesh.triangles[i];
+        sf::Color color = fallbackColor;
+
+        if (i < mesh.triangleColors.size()) {
+            color = mesh.triangleColors[i];
+        }
+
+        Vector3 a = transform.transformPoint(mesh.vertices[triangle.a]);
+        Vector3 b = transform.transformPoint(mesh.vertices[triangle.b]);
+        Vector3 c = transform.transformPoint(mesh.vertices[triangle.c]);
+
+        drawTriangle(a, b, c, color);
+    }
+}

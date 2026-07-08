@@ -23,6 +23,11 @@ public:
         const Matrix4& transform,
         sf::Color color
     );
+    void drawMeshTriangles(
+        const Mesh3D& mesh,
+        const Matrix4& transform,
+        sf::Color fallbackColor
+    );
 
     Camera3D camera;
 
