@@ -5,6 +5,7 @@
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
 #include "../src/rendering/Camera3D.h"
+#include "../src/rendering/Mesh3D.h"
 
 struct ProjectedPoint {
     sf::Vector2f position;
@@ -76,10 +77,11 @@ inline void drawPoint3D(
 }
 
 inline void drawAxes(sf::RenderWindow& window, const Matrix4& transform) {
-    Vector3 origin = transform.transformPoint(Vector3(0.0f, 0.0f, 0.0f));
-    Vector3 x = transform.transformPoint(Vector3(1.5f, 0.0f, 0.0f));
-    Vector3 y = transform.transformPoint(Vector3(0.0f, 1.5f, 0.0f));
-    Vector3 z = transform.transformPoint(Vector3(0.0f, 0.0f, 1.5f));
+    Mesh3D axes = Mesh3D::axes();
+    Vector3 origin = transform.transformPoint(axes.vertices[0]);
+    Vector3 x = transform.transformPoint(axes.vertices[1]);
+    Vector3 y = transform.transformPoint(axes.vertices[2]);
+    Vector3 z = transform.transformPoint(axes.vertices[3]);
 
     drawLine3D(window, origin, x, sf::Color(240, 80, 80));
     drawLine3D(window, origin, y, sf::Color(80, 220, 120));
@@ -91,26 +93,11 @@ inline void drawWireCube(
     const Matrix4& transform,
     sf::Color color
 ) {
-    Vector3 vertices[8] = {
-        Vector3(-1.0f, -1.0f, -1.0f),
-        Vector3(1.0f, -1.0f, -1.0f),
-        Vector3(1.0f, 1.0f, -1.0f),
-        Vector3(-1.0f, 1.0f, -1.0f),
-        Vector3(-1.0f, -1.0f, 1.0f),
-        Vector3(1.0f, -1.0f, 1.0f),
-        Vector3(1.0f, 1.0f, 1.0f),
-        Vector3(-1.0f, 1.0f, 1.0f)
-    };
+    Mesh3D cube = Mesh3D::cube();
 
-    int edges[12][2] = {
-        {0, 1}, {1, 2}, {2, 3}, {3, 0},
-        {4, 5}, {5, 6}, {6, 7}, {7, 4},
-        {0, 4}, {1, 5}, {2, 6}, {3, 7}
-    };
-
-    for (int i = 0; i < 12; i++) {
-        Vector3 a = transform.transformPoint(vertices[edges[i][0]]);
-        Vector3 b = transform.transformPoint(vertices[edges[i][1]]);
+    for (const Edge3D& edge : cube.edges) {
+        Vector3 a = transform.transformPoint(cube.vertices[edge.start]);
+        Vector3 b = transform.transformPoint(cube.vertices[edge.end]);
         drawLine3D(window, a, b, color);
     }
 }
