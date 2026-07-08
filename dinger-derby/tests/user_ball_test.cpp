@@ -23,7 +23,7 @@ int main() {
 
     // Create controllable ball
     Body2D ball(Vector2(400, 300), 1.0f);
-    ball.radius = 20.0f;
+    ball.setRadius(20.0f);
     ball.restitution = 0.7f;
 
     world.addBody(&ball);

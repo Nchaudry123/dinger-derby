@@ -59,7 +59,7 @@ int main() {
                     float y = radius + std::rand() % static_cast<int>(size.y - radius * 2);
 
                     Body2D ball(Vector2(x, y), 1.0f);
-                    ball.radius = radius;
+                    ball.setRadius(radius);
                     ball.restitution = 0.65f;
                     ball.velocity = Vector2(
                         static_cast<float>((std::rand() % 500) - 250),

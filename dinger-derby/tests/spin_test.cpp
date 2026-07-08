@@ -21,7 +21,7 @@ int main() {
     // Create spinning ball
     Body2D ball(Vector2(640, 300), 1.0f);
 
-    ball.radius = 40.0f;
+    ball.setRadius(40.0f);
     ball.restitution = 0.8f;
 
     world.addBody(&ball);

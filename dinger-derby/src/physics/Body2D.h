@@ -23,8 +23,13 @@ public:
     Body2D();
     Body2D(Vector2 startPosition, float mass);
 
+    void setMass(float newMass);
+    void setRadius(float newRadius);
     void applyForce(const Vector2& force);
     void applyTorque(float torque);
     void update(float dt);
     void wakeUp();
+
+private:
+    void updateMomentOfInertia();
 };

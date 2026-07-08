@@ -5,8 +5,8 @@ Body2D::Body2D() {
     velocity = Vector2(0, 0);
     acceleration = Vector2(0, 0);
 
-    mass = 1.0f;
     radius = 1.0f;
+    mass = 1.0f;
     restitution = 0.7f;
 
     rotation = 0.0f;
@@ -14,7 +14,7 @@ Body2D::Body2D() {
     angularAcceleration = 0.0f;
     torque = 0.0f;
 
-    momentOfInertia = 0.5f * mass * radius * radius;
+    updateMomentOfInertia();
 
     isSleeping = false;
     sleepTimer = 0.0f;
@@ -25,8 +25,8 @@ Body2D::Body2D(Vector2 startPosition, float mass) {
     velocity = Vector2(0, 0);
     acceleration = Vector2(0, 0);
 
-    this->mass = mass;
     radius = 1.0f;
+    this->mass = mass;
     restitution = 0.7f;
 
     rotation = 0.0f;
@@ -34,10 +34,20 @@ Body2D::Body2D(Vector2 startPosition, float mass) {
     angularAcceleration = 0.0f;
     torque = 0.0f;
 
-    momentOfInertia = 0.5f * mass * radius * radius;
+    updateMomentOfInertia();
 
     isSleeping = false;
     sleepTimer = 0.0f;
+}
+
+void Body2D::setMass(float newMass) {
+    mass = newMass;
+    updateMomentOfInertia();
+}
+
+void Body2D::setRadius(float newRadius) {
+    radius = newRadius;
+    updateMomentOfInertia();
 }
 
 void Body2D::applyForce(const Vector2& force) {
@@ -60,9 +70,6 @@ void Body2D::update(float dt) {
     if (isSleeping) {
         return;
     }
-
-    // Keep rotational inertia in sync with any runtime radius changes.
-    momentOfInertia = 0.5f * mass * radius * radius;
 
     velocity += acceleration * dt;
 
@@ -103,4 +110,8 @@ void Body2D::update(float dt) {
 void Body2D::wakeUp() {
     isSleeping = false;
     sleepTimer = 0.0f;
+}
+
+void Body2D::updateMomentOfInertia() {
+    momentOfInertia = 0.5f * mass * radius * radius;
 }
