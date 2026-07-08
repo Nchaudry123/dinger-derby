@@ -4,35 +4,8 @@
 
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
-#include "../src/rendering/Camera3D.h"
 #include "../src/rendering/Mesh3D.h"
-
-struct ProjectedPoint {
-    sf::Vector2f position;
-    bool visible = false;
-};
-
-inline ProjectedPoint projectPoint(
-    const Vector3& point,
-    sf::Vector2u screenSize
-) {
-    Camera3D camera;
-    ProjectedPoint3D projected3D =
-        camera.projectPoint(point, screenSize.x, screenSize.y);
-
-    if (!projected3D.visible) {
-        return ProjectedPoint{};
-    }
-
-    ProjectedPoint projected;
-    projected.position = sf::Vector2f(
-        projected3D.position.x,
-        projected3D.position.y
-    );
-    projected.visible = true;
-
-    return projected;
-}
+#include "../src/rendering/SoftwareRenderer3D.h"
 
 inline void drawLine3D(
     sf::RenderWindow& window,
@@ -40,20 +13,8 @@ inline void drawLine3D(
     const Vector3& b,
     sf::Color color
 ) {
-    ProjectedPoint projectedA = projectPoint(a, window.getSize());
-    ProjectedPoint projectedB = projectPoint(b, window.getSize());
-
-    if (!projectedA.visible || !projectedB.visible) {
-        return;
-    }
-
-    sf::VertexArray line(sf::PrimitiveType::Lines, 2);
-    line[0].position = projectedA.position;
-    line[0].color = color;
-    line[1].position = projectedB.position;
-    line[1].color = color;
-
-    window.draw(line);
+    SoftwareRenderer3D renderer(window);
+    renderer.drawLine(a, b, color);
 }
 
 inline void drawPoint3D(
@@ -62,18 +23,8 @@ inline void drawPoint3D(
     float radius,
     sf::Color color
 ) {
-    ProjectedPoint projected = projectPoint(point, window.getSize());
-
-    if (!projected.visible) {
-        return;
-    }
-
-    sf::CircleShape shape(radius);
-    shape.setOrigin(sf::Vector2f(radius, radius));
-    shape.setPosition(projected.position);
-    shape.setFillColor(color);
-
-    window.draw(shape);
+    SoftwareRenderer3D renderer(window);
+    renderer.drawPoint(point, radius, color);
 }
 
 inline void drawAxes(sf::RenderWindow& window, const Matrix4& transform) {
@@ -93,11 +44,6 @@ inline void drawWireCube(
     const Matrix4& transform,
     sf::Color color
 ) {
-    Mesh3D cube = Mesh3D::cube();
-
-    for (const Edge3D& edge : cube.edges) {
-        Vector3 a = transform.transformPoint(cube.vertices[edge.start]);
-        Vector3 b = transform.transformPoint(cube.vertices[edge.end]);
-        drawLine3D(window, a, b, color);
-    }
+    SoftwareRenderer3D renderer(window);
+    renderer.drawMeshEdges(Mesh3D::cube(), transform, color);
 }

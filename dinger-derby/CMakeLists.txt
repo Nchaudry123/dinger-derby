@@ -14,6 +14,7 @@ set(ENGINE_SOURCES
     src/math/Matrix4.cpp
     src/rendering/Camera3D.cpp
     src/rendering/Mesh3D.cpp
+    src/rendering/SoftwareRenderer3D.cpp
     src/physics/Body2D.cpp
     src/physics/PhysicsWorld2D.cpp
     src/collision/Collision2D.cpp
@@ -24,6 +25,7 @@ add_library(dinger_engine STATIC
 )
 
 target_include_directories(dinger_engine PUBLIC src)
+target_link_libraries(dinger_engine PUBLIC SFML::Graphics)
 
 function(add_dinger_demo target source)
     add_executable(${target} ${source})
