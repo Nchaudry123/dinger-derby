@@ -54,6 +54,37 @@ void testCircleCircleManifold() {
     assert(nearlyEqual(manifold.penetration, 5.0f));
 }
 
+void testCircleCircleManifoldWhenSeparated() {
+    Body2D a(Vector2(0.0f, 0.0f), 1.0f);
+    Body2D b(Vector2(30.0f, 0.0f), 1.0f);
+
+    a.setRadius(10.0f);
+    b.setRadius(10.0f);
+
+    CollisionManifold manifold = findCircleCircleCollision(a, b);
+
+    assert(!manifold.colliding);
+    assert(nearlyEqual(manifold.penetration, 0.0f));
+}
+
+void testCircleCollisionResponseUsesManifoldNormal() {
+    Body2D a(Vector2(0.0f, 0.0f), 1.0f);
+    Body2D b(Vector2(15.0f, 0.0f), 1.0f);
+
+    a.setRadius(10.0f);
+    b.setRadius(10.0f);
+    a.velocity = Vector2(10.0f, 0.0f);
+    b.velocity = Vector2(-10.0f, 0.0f);
+
+    CollisionManifold manifold = findCircleCircleCollision(a, b);
+    resolveCircleCollision(a, b, manifold);
+
+    assert(a.velocity.x < 0.0f);
+    assert(b.velocity.x > 0.0f);
+    assert(a.position.x < 0.0f);
+    assert(b.position.x > 15.0f);
+}
+
 void testCircleRectangleBounce() {
     Body2D ball(Vector2(50.0f, 45.0f), 1.0f);
     ball.setRadius(10.0f);
@@ -77,6 +108,8 @@ int main() {
     testGravityIsMassIndependent();
     testOverlappingCirclesSeparate();
     testCircleCircleManifold();
+    testCircleCircleManifoldWhenSeparated();
+    testCircleCollisionResponseUsesManifoldNormal();
     testCircleRectangleBounce();
 
     return 0;
