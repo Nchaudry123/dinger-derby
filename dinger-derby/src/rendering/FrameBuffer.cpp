@@ -1,6 +1,7 @@
 #include "FrameBuffer.h"
 
 #include <SFML/Graphics/Sprite.hpp>
+#include <algorithm>
 #include <limits>
 
 FrameBuffer::FrameBuffer() = default;
@@ -21,6 +22,11 @@ void FrameBuffer::resize(int newWidth, int newHeight) {
 }
 
 void FrameBuffer::clear(sf::Color color) {
+    if (color.r == color.g && color.g == color.b && color.b == color.a) {
+        std::fill(pixels.begin(), pixels.end(), color.r);
+        return;
+    }
+
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             int index = pixelIndex(x, y);
@@ -33,9 +39,7 @@ void FrameBuffer::clear(sf::Color color) {
 }
 
 void FrameBuffer::clearDepth(float value) {
-    for (float& depth : depthBuffer) {
-        depth = value;
-    }
+    std::fill(depthBuffer.begin(), depthBuffer.end(), value);
 }
 
 bool FrameBuffer::setPixel(int x, int y, sf::Color color, float depth) {

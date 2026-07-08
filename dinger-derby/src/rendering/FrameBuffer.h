@@ -16,6 +16,23 @@ public:
     void clear(sf::Color color);
     void clearDepth(float value);
     bool setPixel(int x, int y, sf::Color color, float depth);
+    bool setPixelFast(int x, int y, sf::Color color, float depth) {
+        int dIndex = y * width + x;
+
+        if (depth >= depthBuffer[dIndex]) {
+            return false;
+        }
+
+        depthBuffer[dIndex] = depth;
+
+        int pIndex = dIndex * 4;
+        pixels[pIndex] = color.r;
+        pixels[pIndex + 1] = color.g;
+        pixels[pIndex + 2] = color.b;
+        pixels[pIndex + 3] = color.a;
+
+        return true;
+    }
 
     int getWidth() const;
     int getHeight() const;

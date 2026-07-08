@@ -32,26 +32,52 @@ void Rasterizer3D::drawTriangle(
         return;
     }
 
+    float inverseArea = 1.0f / area;
+    bool positiveArea = area > 0.0f;
+
+    float stepAX = c.y - b.y;
+    float stepAY = -(c.x - b.x);
+    float stepBX = a.y - c.y;
+    float stepBY = -(a.x - c.x);
+    float stepCX = b.y - a.y;
+    float stepCY = -(b.x - a.x);
+
+    float rowStartX = startX + 0.5f;
+    float rowStartY = startY + 0.5f;
+    float rowA = edgeFunction(b, c, rowStartX, rowStartY);
+    float rowB = edgeFunction(c, a, rowStartX, rowStartY);
+    float rowC = edgeFunction(a, b, rowStartX, rowStartY);
+
     for (int y = startY; y <= endY; y++) {
+        float edgeA = rowA;
+        float edgeB = rowB;
+        float edgeC = rowC;
+
         for (int x = startX; x <= endX; x++) {
-            float sampleX = x + 0.5f;
-            float sampleY = y + 0.5f;
+            bool inside = positiveArea
+                ? edgeA >= 0.0f && edgeB >= 0.0f && edgeC >= 0.0f
+                : edgeA <= 0.0f && edgeB <= 0.0f && edgeC <= 0.0f;
 
-            float weightA = edgeFunction(b, c, sampleX, sampleY) / area;
-            float weightB = edgeFunction(c, a, sampleX, sampleY) / area;
-            float weightC = edgeFunction(a, b, sampleX, sampleY) / area;
-
-            if (weightA < 0.0f || weightB < 0.0f || weightC < 0.0f) {
+            if (!inside) {
+                edgeA += stepAX;
+                edgeB += stepBX;
+                edgeC += stepCX;
                 continue;
             }
 
             float depth =
-                a.z * weightA +
-                b.z * weightB +
-                c.z * weightC;
+                (a.z * edgeA + b.z * edgeB + c.z * edgeC) * inverseArea;
 
-            frameBuffer.setPixel(x, y, color, depth);
+            frameBuffer.setPixelFast(x, y, color, depth);
+
+            edgeA += stepAX;
+            edgeB += stepBX;
+            edgeC += stepCX;
         }
+
+        rowA += stepAY;
+        rowB += stepBY;
+        rowC += stepCY;
     }
 }
 
