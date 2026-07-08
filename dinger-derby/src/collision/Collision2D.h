@@ -2,6 +2,17 @@
 
 #include "../physics/Body2D.h"
 
+struct CollisionManifold {
+    bool colliding = false;
+    Vector2 normal;
+    float penetration = 0.0f;
+};
+
+CollisionManifold findCircleCircleCollision(
+    const Body2D& a,
+    const Body2D& b
+);
+
 // Checks if two circular bodies are colliding
 bool circleCircleCollision(
     const Body2D& a,

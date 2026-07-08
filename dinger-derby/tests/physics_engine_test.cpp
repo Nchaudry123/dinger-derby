@@ -39,6 +39,21 @@ void testOverlappingCirclesSeparate() {
     assert((b.position - a.position).magnitude() > 0.0f);
 }
 
+void testCircleCircleManifold() {
+    Body2D a(Vector2(0.0f, 0.0f), 1.0f);
+    Body2D b(Vector2(15.0f, 0.0f), 1.0f);
+
+    a.setRadius(10.0f);
+    b.setRadius(10.0f);
+
+    CollisionManifold manifold = findCircleCircleCollision(a, b);
+
+    assert(manifold.colliding);
+    assert(nearlyEqual(manifold.normal.x, 1.0f));
+    assert(nearlyEqual(manifold.normal.y, 0.0f));
+    assert(nearlyEqual(manifold.penetration, 5.0f));
+}
+
 void testCircleRectangleBounce() {
     Body2D ball(Vector2(50.0f, 45.0f), 1.0f);
     ball.setRadius(10.0f);
@@ -61,6 +76,7 @@ void testCircleRectangleBounce() {
 int main() {
     testGravityIsMassIndependent();
     testOverlappingCirclesSeparate();
+    testCircleCircleManifold();
     testCircleRectangleBounce();
 
     return 0;

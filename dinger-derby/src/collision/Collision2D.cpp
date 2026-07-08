@@ -2,13 +2,31 @@
 #include <algorithm>
 #include <cmath>
 
-bool circleCircleCollision(const Body2D& a, const Body2D& b) {
+CollisionManifold findCircleCircleCollision(const Body2D& a, const Body2D& b) {
     Vector2 difference = b.position - a.position;
 
     float distance = difference.magnitude();
     float radiusSum = a.radius + b.radius;
 
-    return distance <= radiusSum;
+    if (distance > radiusSum) {
+        return CollisionManifold{};
+    }
+
+    CollisionManifold manifold;
+    manifold.colliding = true;
+    manifold.penetration = radiusSum - distance;
+
+    if (distance == 0.0f) {
+        manifold.normal = Vector2(1.0f, 0.0f);
+    } else {
+        manifold.normal = difference * (1.0f / distance);
+    }
+
+    return manifold;
+}
+
+bool circleCircleCollision(const Body2D& a, const Body2D& b) {
+    return findCircleCircleCollision(a, b).colliding;
 }
 
 void resolveCircleCollision(Body2D& a, Body2D& b) {
