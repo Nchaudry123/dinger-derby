@@ -19,21 +19,51 @@ inline sf::Vector2u rasterSizeForWindow(sf::Vector2u windowSize) {
     );
 }
 
+struct RasterMeshRenderCache {
+    std::vector<Vector3> worldVertices;
+    std::vector<Vector3> screenVertices;
+    std::vector<bool> visibleVertices;
+
+    void reserveFor(const Mesh3D& mesh) {
+        worldVertices.clear();
+        screenVertices.clear();
+        visibleVertices.clear();
+
+        worldVertices.reserve(mesh.vertices.size());
+        screenVertices.reserve(mesh.vertices.size());
+        visibleVertices.reserve(mesh.vertices.size());
+    }
+};
+
 inline void rasterizeMeshTriangles(
     FrameBuffer& frameBuffer,
     const Camera3D& camera,
     const Mesh3D& mesh,
     const Matrix4& transform,
     sf::Color fallbackColor,
+    RasterMeshRenderCache& cache,
     bool cullBackFaces = true
 ) {
-    std::vector<Vector3> worldVertices;
-    std::vector<Vector3> screenVertices;
-    std::vector<bool> visibleVertices;
+    BoundingSphere3D localSphere = mesh.localBoundingSphere();
+    Vector3 worldCenter = transform.transformPoint(localSphere.center);
+    float worldRadius = std::max({
+        transform.transformDirection(Vector3(localSphere.radius, 0.0f, 0.0f)).magnitude(),
+        transform.transformDirection(Vector3(0.0f, localSphere.radius, 0.0f)).magnitude(),
+        transform.transformDirection(Vector3(0.0f, 0.0f, localSphere.radius)).magnitude()
+    });
 
-    worldVertices.reserve(mesh.vertices.size());
-    screenVertices.reserve(mesh.vertices.size());
-    visibleVertices.reserve(mesh.vertices.size());
+    if (
+        !camera.canSeeSphere(
+            worldCenter,
+            worldRadius,
+            frameBuffer.getWidth(),
+            frameBuffer.getHeight()
+        )
+    ) {
+        return;
+    }
+
+    cache.reserveFor(mesh);
 
     for (const Vector3& vertex : mesh.vertices) {
         Vector3 world = transform.transformPoint(vertex);
@@ -44,27 +74,27 @@ inline void rasterizeMeshTriangles(
         );
         Vector3 cameraSpace = world - camera.position;
 
-        worldVertices.push_back(world);
-        screenVertices.push_back(Vector3(
+        cache.worldVertices.push_back(world);
+        cache.screenVertices.push_back(Vector3(
             projected.position.x,
             projected.position.y,
             cameraSpace.z
         ));
-        visibleVertices.push_back(projected.visible);
+        cache.visibleVertices.push_back(projected.visible);
     }
 
     for (int i = 0; i < mesh.triangles.size(); i++) {
         const Triangle3D& triangle = mesh.triangles[i];
 
         if (
-            !visibleVertices[triangle.a] ||
-            !visibleVertices[triangle.b] ||
-            !visibleVertices[triangle.c]
+            !cache.visibleVertices[triangle.a] ||
+            !cache.visibleVertices[triangle.b] ||
+            !cache.visibleVertices[triangle.c]
         ) {
             continue;
         }
 
-        Vector3 worldA = worldVertices[triangle.a];
+        Vector3 worldA = cache.worldVertices[triangle.a];
 
         if (cullBackFaces) {
             Vector3 normal;
@@ -72,8 +102,8 @@ inline void rasterizeMeshTriangles(
             if (i < mesh.triangleNormals.size()) {
                 normal = transform.transformDirection(mesh.triangleNormals[i]);
             } else {
-                Vector3 worldB = worldVertices[triangle.b];
-                Vector3 worldC = worldVertices[triangle.c];
+                Vector3 worldB = cache.worldVertices[triangle.b];
+                Vector3 worldC = cache.worldVertices[triangle.c];
                 normal = (worldB - worldA).cross(worldC - worldA);
             }
 
@@ -91,10 +121,30 @@ inline void rasterizeMeshTriangles(
 
         Rasterizer3D::drawTriangle(
             frameBuffer,
-            screenVertices[triangle.a],
-            screenVertices[triangle.b],
-            screenVertices[triangle.c],
+            cache.screenVertices[triangle.a],
+            cache.screenVertices[triangle.b],
+            cache.screenVertices[triangle.c],
             color
         );
     }
+}
+
+inline void rasterizeMeshTriangles(
+    FrameBuffer& frameBuffer,
+    const Camera3D& camera,
+    const Mesh3D& mesh,
+    const Matrix4& transform,
+    sf::Color fallbackColor,
+    bool cullBackFaces = true
+) {
+    RasterMeshRenderCache cache;
+    rasterizeMeshTriangles(
+        frameBuffer,
+        camera,
+        mesh,
+        transform,
+        fallbackColor,
+        cache,
+        cullBackFaces
+    );
 }

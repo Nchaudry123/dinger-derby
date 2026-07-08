@@ -16,6 +16,11 @@ struct Triangle3D {
     int c = 0;
 };
 
+struct BoundingSphere3D {
+    Vector3 center;
+    float radius = 0.0f;
+};
+
 class Mesh3D {
 public:
     std::vector<Vector3> vertices;
@@ -26,6 +31,7 @@ public:
 
     static Mesh3D cube(float size = 2.0f);
     static Mesh3D axes(float length = 1.5f);
+    BoundingSphere3D localBoundingSphere() const;
 
 private:
     void buildTriangleNormals();

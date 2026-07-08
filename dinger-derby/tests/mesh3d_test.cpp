@@ -40,11 +40,22 @@ void testAxesMeshShape() {
     assert(nearlyEqual(axes.vertices[3].z, 3.0f));
 }
 
+void testCubeBoundingSphere() {
+    Mesh3D cube = Mesh3D::cube(2.0f);
+    BoundingSphere3D sphere = cube.localBoundingSphere();
+
+    assert(nearlyEqual(sphere.center.x, 0.0f));
+    assert(nearlyEqual(sphere.center.y, 0.0f));
+    assert(nearlyEqual(sphere.center.z, 0.0f));
+    assert(nearlyEqual(sphere.radius, std::sqrt(3.0f)));
+}
+
 }
 
 int main() {
     testCubeMeshShape();
     testAxesMeshShape();
+    testCubeBoundingSphere();
 
     return 0;
 }

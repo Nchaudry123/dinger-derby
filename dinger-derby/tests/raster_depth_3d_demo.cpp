@@ -24,6 +24,7 @@ int main() {
     Camera3D camera;
     Mesh3D cubeA = Mesh3D::cube();
     Mesh3D cubeB = Mesh3D::cube();
+    RasterMeshRenderCache renderCache;
     sf::Clock clock;
 
     while (window.isOpen()) {
@@ -70,14 +71,14 @@ int main() {
 
         frameBuffer.clear(sf::Color(7, 9, 14));
         frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
-        Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
 
         rasterizeMeshTriangles(
             frameBuffer,
             camera,
             cubeB,
             transformB,
-            sf::Color(80, 140, 245)
+            sf::Color(80, 140, 245),
+            renderCache
         );
 
         rasterizeMeshTriangles(
@@ -85,7 +86,8 @@ int main() {
             camera,
             cubeA,
             transformA,
-            sf::Color(245, 110, 80)
+            sf::Color(245, 110, 80),
+            renderCache
         );
 
         window.clear();

@@ -1,5 +1,7 @@
 #include "Mesh3D.h"
 
+#include <algorithm>
+
 Mesh3D Mesh3D::cube(float size) {
     float halfSize = size * 0.5f;
 
@@ -72,4 +74,32 @@ void Mesh3D::buildTriangleNormals() {
         Vector3 c = vertices[triangle.c];
         triangleNormals.push_back((b - a).cross(c - a).normalized());
     }
+}
+
+BoundingSphere3D Mesh3D::localBoundingSphere() const {
+    BoundingSphere3D sphere;
+
+    if (vertices.empty()) {
+        return sphere;
+    }
+
+    Vector3 minimum = vertices[0];
+    Vector3 maximum = vertices[0];
+
+    for (const Vector3& vertex : vertices) {
+        minimum.x = std::min(minimum.x, vertex.x);
+        minimum.y = std::min(minimum.y, vertex.y);
+        minimum.z = std::min(minimum.z, vertex.z);
+        maximum.x = std::max(maximum.x, vertex.x);
+        maximum.y = std::max(maximum.y, vertex.y);
+        maximum.z = std::max(maximum.z, vertex.z);
+    }
+
+    sphere.center = (minimum + maximum) * 0.5f;
+
+    for (const Vector3& vertex : vertices) {
+        sphere.radius = std::max(sphere.radius, (vertex - sphere.center).magnitude());
+    }
+
+    return sphere;
 }

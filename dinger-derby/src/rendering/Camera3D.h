@@ -22,4 +22,11 @@ public:
         float screenWidth,
         float screenHeight
     ) const;
+
+    bool canSeeSphere(
+        const Vector3& center,
+        float radius,
+        float screenWidth,
+        float screenHeight
+    ) const;
 };

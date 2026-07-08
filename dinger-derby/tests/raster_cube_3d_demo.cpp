@@ -23,6 +23,7 @@ int main() {
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
     Camera3D camera;
     Mesh3D cube = Mesh3D::cube();
+    RasterMeshRenderCache renderCache;
     sf::Clock clock;
 
     while (window.isOpen()) {
@@ -62,13 +63,13 @@ int main() {
 
         frameBuffer.clear(sf::Color(9, 11, 16));
         frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
-        Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
         rasterizeMeshTriangles(
             frameBuffer,
             camera,
             cube,
             transform,
-            sf::Color(180, 180, 180)
+            sf::Color(180, 180, 180),
+            renderCache
         );
 
         window.clear();
