@@ -17,10 +17,12 @@ void resolveCircleCollision(Body2D& a, Body2D& b) {
     float distance = normal.magnitude();
 
     if (distance == 0) {
-        return;
+        // Pick a stable fallback normal so perfectly overlapping bodies can separate.
+        normal = Vector2(1.0f, 0.0f);
+        distance = 0.0001f;
+    } else {
+        normal = normal.normalized();
     }
-
-    normal = normal.normalized();
 
     Vector2 relativeVelocity = b.velocity - a.velocity;
 

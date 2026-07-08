@@ -34,7 +34,8 @@ void PhysicsWorld2D::addBody(Body2D* body) {
 void PhysicsWorld2D::step(float dt) {
     // Apply forces, update movement, and handle wall collisions
     for (Body2D* body : bodies) {
-        body->applyForce(gravity);
+        // Treat world gravity as acceleration so all bodies fall consistently.
+        body->applyForce(gravity * body->mass);
         body->update(dt);
 
         // Ground

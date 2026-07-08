@@ -61,6 +61,9 @@ void Body2D::update(float dt) {
         return;
     }
 
+    // Keep rotational inertia in sync with any runtime radius changes.
+    momentOfInertia = 0.5f * mass * radius * radius;
+
     velocity += acceleration * dt;
 
     float dragCoefficient = 0.2f;

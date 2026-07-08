@@ -57,23 +57,23 @@ int main() {
         // Handle events
         while (const std::optional event = window.pollEvent()) {
 
-            // Close window
-            if (event->is<sf::Event::Closed>()) {
-                window.close();
-            }
+        // Close window
+        if (event->is<sf::Event::Closed>()) {
+            window.close();
+        }
+        // Press SPACE to launch and spin
+        if (const auto* key = event->getIf<sf::Event::KeyPressed>()) {
 
-            // Press SPACE to add spin
-            if (const auto* key =
-                event->getIf<sf::Event::KeyPressed>()) {
+            if (key->code == sf::Keyboard::Key::Space) {
 
-                if (key->code == sf::Keyboard::Key::Space) {
+                ball.wakeUp();
 
-                    ball.wakeUp();
+                ball.velocity = Vector2(500.0f, 0.0f);
 
-                    ball.angularVelocity += 15.0f;
-                }
+                ball.angularVelocity = 20.0f;
             }
         }
+    }
 
         // Update physics
         world.step(dt);
@@ -86,7 +86,7 @@ int main() {
         spinLine.setPosition(
             sf::Vector2f(ball.position.x, ball.position.y)
         );
-
+ 
         spinLine.setRotation(
             sf::radians(ball.rotation)
         );
