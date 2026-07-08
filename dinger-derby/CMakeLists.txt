@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(SFML 3 REQUIRED COMPONENTS Graphics Window System)
 
+enable_testing()
+
 set(ENGINE_SOURCES
     src/math/Vector2.cpp
     src/physics/Body2D.cpp
@@ -34,3 +36,7 @@ add_dinger_demo(user_ball_test tests/user_ball_test.cpp)
 add_dinger_demo(random_spawn_test tests/random_spawn_test.cpp)
 add_dinger_demo(bat_test tests/bat_test.cpp)
 add_dinger_demo(spin_test tests/spin_test.cpp)
+
+add_executable(physics_engine_test tests/physics_engine_test.cpp)
+target_link_libraries(physics_engine_test PRIVATE dinger_engine)
+add_test(NAME physics_engine_test COMMAND physics_engine_test)
