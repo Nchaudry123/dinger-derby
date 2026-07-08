@@ -104,6 +104,97 @@ inline int clipTriangleAgainstNearPlane(
     return outputCount;
 }
 
+inline Vector3 intersectScreenX(const Vector3& a, const Vector3& b, float x) {
+    float t = (x - a.x) / (b.x - a.x);
+    return a + (b - a) * t;
+}
+
+inline Vector3 intersectScreenY(const Vector3& a, const Vector3& b, float y) {
+    float t = (y - a.y) / (b.y - a.y);
+    return a + (b - a) * t;
+}
+
+template <typename IsInside, typename Intersect>
+inline int clipScreenPolygonEdge(
+    const std::array<Vector3, 12>& input,
+    int inputCount,
+    std::array<Vector3, 12>& output,
+    IsInside isInside,
+    Intersect intersect
+) {
+    if (inputCount == 0) {
+        return 0;
+    }
+
+    int outputCount = 0;
+
+    for (int i = 0; i < inputCount; i++) {
+        const Vector3& current = input[i];
+        const Vector3& previous = input[(i + inputCount - 1) % inputCount];
+        bool currentInside = isInside(current);
+        bool previousInside = isInside(previous);
+
+        if (currentInside != previousInside) {
+            output[outputCount] = intersect(previous, current);
+            outputCount++;
+        }
+
+        if (currentInside) {
+            output[outputCount] = current;
+            outputCount++;
+        }
+    }
+
+    return outputCount;
+}
+
+inline int clipScreenPolygonToFrameBuffer(
+    const std::array<Vector3, 12>& input,
+    int inputCount,
+    const FrameBuffer& frameBuffer,
+    std::array<Vector3, 12>& clipped
+) {
+    std::array<Vector3, 12> scratchA = input;
+    std::array<Vector3, 12> scratchB;
+    int count = inputCount;
+    float maxX = static_cast<float>(frameBuffer.getWidth() - 1);
+    float maxY = static_cast<float>(frameBuffer.getHeight() - 1);
+
+    count = clipScreenPolygonEdge(
+        scratchA,
+        count,
+        scratchB,
+        [](const Vector3& point) { return point.x >= 0.0f; },
+        [](const Vector3& a, const Vector3& b) { return intersectScreenX(a, b, 0.0f); }
+    );
+
+    count = clipScreenPolygonEdge(
+        scratchB,
+        count,
+        scratchA,
+        [maxX](const Vector3& point) { return point.x <= maxX; },
+        [maxX](const Vector3& a, const Vector3& b) { return intersectScreenX(a, b, maxX); }
+    );
+
+    count = clipScreenPolygonEdge(
+        scratchA,
+        count,
+        scratchB,
+        [](const Vector3& point) { return point.y >= 0.0f; },
+        [](const Vector3& a, const Vector3& b) { return intersectScreenY(a, b, 0.0f); }
+    );
+
+    count = clipScreenPolygonEdge(
+        scratchB,
+        count,
+        clipped,
+        [maxY](const Vector3& point) { return point.y <= maxY; },
+        [maxY](const Vector3& a, const Vector3& b) { return intersectScreenY(a, b, maxY); }
+    );
+
+    return count;
+}
+
 inline void rasterizeMeshTriangles(
     FrameBuffer& frameBuffer,
     const Camera3D& camera,
@@ -205,30 +296,36 @@ inline void rasterizeMeshTriangles(
             color = mesh.triangleColors[i];
         }
 
-        Vector3 screenA = projectCameraPointToScreen(clippedCameraPoints[0], camera, frameBuffer);
-        Vector3 screenB = projectCameraPointToScreen(clippedCameraPoints[1], camera, frameBuffer);
-        Vector3 screenC = projectCameraPointToScreen(clippedCameraPoints[2], camera, frameBuffer);
-
-        Rasterizer3D::drawTriangle(
-            frameBuffer,
-            screenA,
-            screenB,
-            screenC,
-            color
-        );
-
-        if (stats) {
-            stats->trianglesDrawn++;
+        std::array<Vector3, 12> screenPolygon;
+        for (int point = 0; point < clippedCount; point++) {
+            screenPolygon[point] = projectCameraPointToScreen(
+                clippedCameraPoints[point],
+                camera,
+                frameBuffer
+            );
         }
 
-        if (clippedCount == 4) {
-            Vector3 screenD = projectCameraPointToScreen(clippedCameraPoints[3], camera, frameBuffer);
+        std::array<Vector3, 12> clippedScreenPolygon;
+        int screenPointCount = clipScreenPolygonToFrameBuffer(
+            screenPolygon,
+            clippedCount,
+            frameBuffer,
+            clippedScreenPolygon
+        );
 
+        if (screenPointCount < 3) {
+            if (stats) {
+                stats->trianglesSkipped++;
+            }
+            continue;
+        }
+
+        for (int point = 1; point < screenPointCount - 1; point++) {
             Rasterizer3D::drawTriangle(
                 frameBuffer,
-                screenA,
-                screenC,
-                screenD,
+                clippedScreenPolygon[0],
+                clippedScreenPolygon[point],
+                clippedScreenPolygon[point + 1],
                 color
             );
 
