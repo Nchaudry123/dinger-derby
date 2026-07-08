@@ -18,6 +18,7 @@ Body2D::Body2D() {
 
     isSleeping = false;
     sleepTimer = 0.0f;
+    type = BodyType::Dynamic;
 }
 
 Body2D::Body2D(Vector2 startPosition, float mass) {
@@ -38,6 +39,19 @@ Body2D::Body2D(Vector2 startPosition, float mass) {
 
     isSleeping = false;
     sleepTimer = 0.0f;
+    type = BodyType::Dynamic;
+}
+
+bool Body2D::isStatic() const {
+    return type == BodyType::Static;
+}
+
+float Body2D::inverseMass() const {
+    if (isStatic()) {
+        return 0.0f;
+    }
+
+    return 1.0f / mass;
 }
 
 void Body2D::setMass(float newMass) {
@@ -50,16 +64,33 @@ void Body2D::setRadius(float newRadius) {
     updateMomentOfInertia();
 }
 
+void Body2D::setStatic() {
+    type = BodyType::Static;
+    velocity = Vector2(0, 0);
+    acceleration = Vector2(0, 0);
+    angularVelocity = 0.0f;
+    angularAcceleration = 0.0f;
+    torque = 0.0f;
+    isSleeping = false;
+    sleepTimer = 0.0f;
+}
+
+void Body2D::setDynamic(float newMass) {
+    type = BodyType::Dynamic;
+    setMass(newMass);
+    wakeUp();
+}
+
 void Body2D::applyForce(const Vector2& force) {
-    if (isSleeping) {
+    if (isSleeping || isStatic()) {
         return;
     }
 
-    acceleration += force * (1.0f / mass);
+    acceleration += force * inverseMass();
 }
 
 void Body2D::applyTorque(float torqueAmount) {
-    if (isSleeping) {
+    if (isSleeping || isStatic()) {
         return;
     }
 
@@ -67,7 +98,7 @@ void Body2D::applyTorque(float torqueAmount) {
 }
 
 void Body2D::update(float dt) {
-    if (isSleeping) {
+    if (isSleeping || isStatic()) {
         return;
     }
 

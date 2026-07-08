@@ -26,6 +26,22 @@ void testGravityIsMassIndependent() {
     assert(nearlyEqual(light.velocity.y, heavy.velocity.y));
 }
 
+void testStaticBodyIgnoresForcesAndIntegration() {
+    Body2D body(Vector2(10.0f, 10.0f), 1.0f);
+    body.setStatic();
+
+    body.applyForce(Vector2(100.0f, 0.0f));
+    body.applyTorque(20.0f);
+    body.update(1.0f);
+
+    assert(body.isStatic());
+    assert(nearlyEqual(body.inverseMass(), 0.0f));
+    assert(nearlyEqual(body.position.x, 10.0f));
+    assert(nearlyEqual(body.position.y, 10.0f));
+    assert(nearlyEqual(body.velocity.x, 0.0f));
+    assert(nearlyEqual(body.angularVelocity, 0.0f));
+}
+
 void testOverlappingCirclesSeparate() {
     Body2D a(Vector2(100.0f, 100.0f), 1.0f);
     Body2D b(Vector2(100.0f, 100.0f), 1.0f);
@@ -123,6 +139,7 @@ void testGroundCollisionBouncesBody() {
 
 int main() {
     testGravityIsMassIndependent();
+    testStaticBodyIgnoresForcesAndIntegration();
     testOverlappingCirclesSeparate();
     testCircleCircleManifold();
     testCircleCircleManifoldWhenSeparated();
