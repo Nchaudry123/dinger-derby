@@ -1,6 +1,9 @@
 #pragma once
 
 #include <SFML/Graphics/Color.hpp>
+#include <SFML/Graphics/Image.hpp>
+#include <SFML/Graphics/RenderWindow.hpp>
+#include <SFML/Graphics/Texture.hpp>
 #include <cstdint>
 #include <vector>
 
@@ -18,12 +21,14 @@ public:
     int getHeight() const;
     const std::vector<std::uint8_t>& getPixels() const;
     float getDepth(int x, int y) const;
+    void present(sf::RenderWindow& window);
 
 private:
     int width = 0;
     int height = 0;
     std::vector<std::uint8_t> pixels;
     std::vector<float> depthBuffer;
+    sf::Texture texture;
 
     int pixelIndex(int x, int y) const;
     int depthIndex(int x, int y) const;

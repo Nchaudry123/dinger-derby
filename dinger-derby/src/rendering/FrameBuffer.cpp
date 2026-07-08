@@ -1,5 +1,6 @@
 #include "FrameBuffer.h"
 
+#include <SFML/Graphics/Sprite.hpp>
 #include <limits>
 
 FrameBuffer::FrameBuffer() = default;
@@ -13,6 +14,8 @@ void FrameBuffer::resize(int newWidth, int newHeight) {
     height = newHeight;
     pixels.resize(width * height * 4);
     depthBuffer.resize(width * height);
+    bool resized = texture.resize(sf::Vector2u(width, height));
+    (void)resized;
     clear(sf::Color::Black);
     clearDepth(std::numeric_limits<float>::infinity());
 }
@@ -71,6 +74,12 @@ const std::vector<std::uint8_t>& FrameBuffer::getPixels() const {
 
 float FrameBuffer::getDepth(int x, int y) const {
     return depthBuffer[depthIndex(x, y)];
+}
+
+void FrameBuffer::present(sf::RenderWindow& window) {
+    texture.update(pixels.data());
+    sf::Sprite sprite(texture);
+    window.draw(sprite);
 }
 
 int FrameBuffer::pixelIndex(int x, int y) const {

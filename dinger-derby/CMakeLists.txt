@@ -49,6 +49,7 @@ add_dinger_demo(wire_cube_3d_demo tests/wire_cube_3d_demo.cpp)
 add_dinger_demo(transform_stack_3d_demo tests/transform_stack_3d_demo.cpp)
 add_dinger_demo(filled_cube_3d_demo tests/filled_cube_3d_demo.cpp)
 add_dinger_demo(depth_sort_3d_demo tests/depth_sort_3d_demo.cpp)
+add_dinger_demo(raster_cube_3d_demo tests/raster_cube_3d_demo.cpp)
 
 add_executable(physics_engine_test tests/physics_engine_test.cpp)
 target_link_libraries(physics_engine_test PRIVATE dinger_engine)
