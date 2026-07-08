@@ -101,6 +101,26 @@ void testCircleCollisionResponseUsesManifoldNormal() {
     assert(b.position.x > 15.0f);
 }
 
+void testDynamicStaticCollisionMovesOnlyDynamicBody() {
+    Body2D dynamicBody(Vector2(0.0f, 0.0f), 1.0f);
+    Body2D staticBody(Vector2(15.0f, 0.0f), 1.0f);
+
+    dynamicBody.setRadius(10.0f);
+    staticBody.setRadius(10.0f);
+    staticBody.setStatic();
+    dynamicBody.velocity = Vector2(10.0f, 0.0f);
+
+    CollisionManifold manifold =
+        findCircleCircleCollision(dynamicBody, staticBody);
+
+    resolveCircleCollision(dynamicBody, staticBody, manifold);
+
+    assert(dynamicBody.velocity.x < 0.0f);
+    assert(nearlyEqual(staticBody.velocity.x, 0.0f));
+    assert(dynamicBody.position.x < 0.0f);
+    assert(nearlyEqual(staticBody.position.x, 15.0f));
+}
+
 void testCircleRectangleBounce() {
     Body2D ball(Vector2(50.0f, 45.0f), 1.0f);
     ball.setRadius(10.0f);
@@ -144,6 +164,7 @@ int main() {
     testCircleCircleManifold();
     testCircleCircleManifoldWhenSeparated();
     testCircleCollisionResponseUsesManifoldNormal();
+    testDynamicStaticCollisionMovesOnlyDynamicBody();
     testCircleRectangleBounce();
     testGroundCollisionBouncesBody();
 

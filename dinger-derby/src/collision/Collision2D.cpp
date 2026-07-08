@@ -40,6 +40,13 @@ void resolveCircleCollision(
 
     Vector2 normal = manifold.normal;
     Vector2 relativeVelocity = b.velocity - a.velocity;
+    float inverseMassA = a.inverseMass();
+    float inverseMassB = b.inverseMass();
+    float inverseMassSum = inverseMassA + inverseMassB;
+
+    if (inverseMassSum == 0.0f) {
+        return;
+    }
 
     float velocityAlongNormal =
         relativeVelocity.x * normal.x + relativeVelocity.y * normal.y;
@@ -55,12 +62,12 @@ void resolveCircleCollision(
         float restitution = 0.6f;
 
         float impulseStrength = -(1 + restitution) * velocityAlongNormal;
-        impulseStrength /= (1 / a.mass) + (1 / b.mass);
+        impulseStrength /= inverseMassSum;
 
         Vector2 impulse = normal * impulseStrength;
 
-        a.velocity = a.velocity - impulse * (1 / a.mass);
-        b.velocity = b.velocity + impulse * (1 / b.mass);
+        a.velocity = a.velocity - impulse * inverseMassA;
+        b.velocity = b.velocity + impulse * inverseMassB;
 
         // Static and kinetic friction
         Vector2 tangent = relativeVelocity - normal * velocityAlongNormal;
@@ -72,7 +79,7 @@ void resolveCircleCollision(
                 relativeVelocity.x * tangent.x + relativeVelocity.y * tangent.y;
 
             float tangentImpulseMagnitude =
-                -tangentVelocity / ((1 / a.mass) + (1 / b.mass));
+                -tangentVelocity / inverseMassSum;
 
             float staticFriction = 0.6f;
             float kineticFriction = 0.3f;
@@ -85,8 +92,8 @@ void resolveCircleCollision(
                 frictionImpulse = tangent * (-impulseStrength * kineticFriction);
             }
 
-            a.velocity = a.velocity - frictionImpulse * (1 / a.mass);
-            b.velocity = b.velocity + frictionImpulse * (1 / b.mass);
+            a.velocity = a.velocity - frictionImpulse * inverseMassA;
+            b.velocity = b.velocity + frictionImpulse * inverseMassB;
         }
     }
 
@@ -96,12 +103,12 @@ void resolveCircleCollision(
 
     float correctionAmount =
         (manifold.penetration - slop > 0.0f ? manifold.penetration - slop : 0.0f)
-        / ((1 / a.mass) + (1 / b.mass)) * percent;
+        / inverseMassSum * percent;
 
     Vector2 correction = normal * correctionAmount;
 
-    a.position = a.position - correction * (1 / a.mass);
-    b.position = b.position + correction * (1 / b.mass);
+    a.position = a.position - correction * inverseMassA;
+    b.position = b.position + correction * inverseMassB;
 }
 
 void resolveCircleCollision(Body2D& a, Body2D& b) {
