@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(dinger-derby)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(SFML 3 REQUIRED COMPONENTS Graphics Window System)
 
@@ -12,50 +13,24 @@ set(ENGINE_SOURCES
     src/collision/Collision2D.cpp
 )
 
-add_executable(user_ball_test
-    tests/user_ball_test.cpp
+add_library(dinger_engine STATIC
     ${ENGINE_SOURCES}
 )
 
-add_executable(random_spawn_test
-    tests/random_spawn_test.cpp
-    ${ENGINE_SOURCES}
-)
+target_include_directories(dinger_engine PUBLIC src)
 
-add_executable(bat_test
-    tests/bat_test.cpp
-    ${ENGINE_SOURCES}
-)
+function(add_dinger_demo target source)
+    add_executable(${target} ${source})
+    target_link_libraries(${target}
+        PRIVATE
+            dinger_engine
+            SFML::Graphics
+            SFML::Window
+            SFML::System
+    )
+endfunction()
 
-add_executable(spin_test
-    tests/spin_test.cpp
-    ${ENGINE_SOURCES}
-)
-
-target_include_directories(user_ball_test PRIVATE src)
-target_include_directories(random_spawn_test PRIVATE src)
-target_include_directories(bat_test PRIVATE src)
-target_include_directories(spin_test PRIVATE src)
-target_link_libraries(user_ball_test
-    SFML::Graphics
-    SFML::Window
-    SFML::System
-)
-
-target_link_libraries(random_spawn_test
-    SFML::Graphics
-    SFML::Window
-    SFML::System
-)
-
-target_link_libraries(bat_test
-    SFML::Graphics
-    SFML::Window
-    SFML::System
-)
-
-target_link_libraries(spin_test
-    SFML::Graphics
-    SFML::Window
-    SFML::System
-)
+add_dinger_demo(user_ball_test tests/user_ball_test.cpp)
+add_dinger_demo(random_spawn_test tests/random_spawn_test.cpp)
+add_dinger_demo(bat_test tests/bat_test.cpp)
+add_dinger_demo(spin_test tests/spin_test.cpp)
