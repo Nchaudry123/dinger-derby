@@ -14,15 +14,17 @@ void testClearWritesAllPixels() {
 
     buffer.clear(sf::Color(10, 20, 30, 255));
 
-    const std::vector<std::uint8_t>& pixels = buffer.getPixels();
-    assert(pixels.size() == 16);
+    const std::vector<std::uint32_t>& pixels = buffer.getPixels();
+    assert(pixels.size() == 4);
 
-    for (int i = 0; i < 4; i++) {
-        int index = i * 4;
-        assert(pixels[index] == 10);
-        assert(pixels[index + 1] == 20);
-        assert(pixels[index + 2] == 30);
-        assert(pixels[index + 3] == 255);
+    for (int y = 0; y < buffer.getHeight(); y++) {
+        for (int x = 0; x < buffer.getWidth(); x++) {
+            sf::Color color = buffer.getPixelColor(x, y);
+            assert(color.r == 10);
+            assert(color.g == 20);
+            assert(color.b == 30);
+            assert(color.a == 255);
+        }
     }
 }
 
@@ -37,11 +39,10 @@ void testSetPixelUsesDepthTest() {
     assert(buffer.setPixel(1, 1, sf::Color::Green, 2.0f));
     assert(nearlyEqual(buffer.getDepth(1, 1), 2.0f));
 
-    const std::vector<std::uint8_t>& pixels = buffer.getPixels();
-    int index = (1 * buffer.getWidth() + 1) * 4;
-    assert(pixels[index] == sf::Color::Green.r);
-    assert(pixels[index + 1] == sf::Color::Green.g);
-    assert(pixels[index + 2] == sf::Color::Green.b);
+    sf::Color color = buffer.getPixelColor(1, 1);
+    assert(color.r == sf::Color::Green.r);
+    assert(color.g == sf::Color::Green.g);
+    assert(color.b == sf::Color::Green.b);
 }
 
 void testSetPixelRejectsOutOfBoundsWrites() {

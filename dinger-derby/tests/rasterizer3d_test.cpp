@@ -6,14 +6,7 @@
 namespace {
 
 sf::Color colorAt(const FrameBuffer& buffer, int x, int y) {
-    const std::vector<std::uint8_t>& pixels = buffer.getPixels();
-    int index = (y * buffer.getWidth() + x) * 4;
-    return sf::Color(
-        pixels[index],
-        pixels[index + 1],
-        pixels[index + 2],
-        pixels[index + 3]
-    );
+    return buffer.getPixelColor(x, y);
 }
 
 void testRasterizerFillsTriangleInterior() {

@@ -25,28 +25,27 @@ public:
 
         depthBuffer[dIndex] = depth;
 
-        int pIndex = dIndex * 4;
-        pixels[pIndex] = color.r;
-        pixels[pIndex + 1] = color.g;
-        pixels[pIndex + 2] = color.b;
-        pixels[pIndex + 3] = color.a;
+        pixels[dIndex] = packColor(color);
 
         return true;
     }
 
     int getWidth() const;
     int getHeight() const;
-    const std::vector<std::uint8_t>& getPixels() const;
+    const std::vector<std::uint32_t>& getPixels() const;
+    sf::Color getPixelColor(int x, int y) const;
     float getDepth(int x, int y) const;
     void present(sf::RenderWindow& window);
 
 private:
     int width = 0;
     int height = 0;
-    std::vector<std::uint8_t> pixels;
+    std::vector<std::uint32_t> pixels;
     std::vector<float> depthBuffer;
     sf::Texture texture;
 
+    static std::uint32_t packColor(sf::Color color);
+    static sf::Color unpackColor(std::uint32_t color);
     int pixelIndex(int x, int y) const;
     int depthIndex(int x, int y) const;
 };
