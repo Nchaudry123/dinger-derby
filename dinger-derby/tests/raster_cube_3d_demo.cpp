@@ -55,9 +55,10 @@ int main() {
 
         float time = clock.getElapsedTime().asSeconds();
         Matrix4 transform =
+            Matrix4::translation(Vector3(0.0f, 0.0f, 0.75f)) *
             Matrix4::rotationY(time * 0.75f) *
             Matrix4::rotationX(time * 0.45f) *
-            Matrix4::scale(Vector3(1.45f, 1.45f, 1.45f));
+            Matrix4::scale(Vector3(0.95f, 0.95f, 0.95f));
 
         frameBuffer.clear(sf::Color(9, 11, 16));
         frameBuffer.clearDepth(std::numeric_limits<float>::infinity());

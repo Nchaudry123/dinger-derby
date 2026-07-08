@@ -19,7 +19,7 @@ public:
     bool setPixelFast(int x, int y, sf::Color color, float depth) {
         int dIndex = y * width + x;
 
-        if (depth >= depthBuffer[dIndex]) {
+        if (depth > depthBuffer[dIndex] + depthEpsilon) {
             return false;
         }
 
@@ -32,7 +32,7 @@ public:
     bool blendPixelFast(int x, int y, sf::Color color, float depth, float coverage) {
         int dIndex = y * width + x;
 
-        if (depth >= depthBuffer[dIndex]) {
+        if (depth > depthBuffer[dIndex] + depthEpsilon) {
             return false;
         }
 
@@ -72,6 +72,7 @@ private:
     std::vector<float> depthBuffer;
     sf::Texture texture;
 
+    static constexpr float depthEpsilon = 0.0001f;
     static std::uint32_t packColor(sf::Color color);
     static sf::Color unpackColor(std::uint32_t color);
     int pixelIndex(int x, int y) const;

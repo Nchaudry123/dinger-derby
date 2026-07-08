@@ -36,7 +36,7 @@ bool FrameBuffer::setPixel(int x, int y, sf::Color color, float depth) {
 
     int dIndex = depthIndex(x, y);
 
-    if (depth >= depthBuffer[dIndex]) {
+    if (depth > depthBuffer[dIndex] + depthEpsilon) {
         return false;
     }
 

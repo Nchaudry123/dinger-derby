@@ -57,16 +57,16 @@ int main() {
         float time = clock.getElapsedTime().asSeconds();
 
         Matrix4 transformA =
-            Matrix4::translation(Vector3(-0.55f, 0.0f, -0.25f)) *
+            Matrix4::translation(Vector3(-0.85f, 0.0f, 0.15f)) *
             Matrix4::rotationY(time * 0.85f) *
             Matrix4::rotationX(time * 0.35f) *
-            Matrix4::scale(Vector3(1.35f, 1.35f, 1.35f));
+            Matrix4::scale(Vector3(0.9f, 0.9f, 0.9f));
 
         Matrix4 transformB =
-            Matrix4::translation(Vector3(0.55f, 0.0f, 0.35f)) *
+            Matrix4::translation(Vector3(0.85f, 0.0f, 0.85f)) *
             Matrix4::rotationY(-time * 0.65f) *
             Matrix4::rotationZ(time * 0.4f) *
-            Matrix4::scale(Vector3(1.35f, 1.35f, 1.35f));
+            Matrix4::scale(Vector3(0.9f, 0.9f, 0.9f));
 
         frameBuffer.clear(sf::Color(7, 9, 14));
         frameBuffer.clearDepth(std::numeric_limits<float>::infinity());

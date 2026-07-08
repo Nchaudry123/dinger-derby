@@ -45,6 +45,20 @@ void testSetPixelUsesDepthTest() {
     assert(color.b == sf::Color::Green.b);
 }
 
+void testSetPixelAllowsNearlyEqualDepth() {
+    FrameBuffer buffer(3, 3);
+    buffer.clear(sf::Color::Black);
+    buffer.clearDepth(100.0f);
+
+    assert(buffer.setPixel(1, 1, sf::Color::Red, 5.0f));
+    assert(buffer.setPixel(1, 1, sf::Color::Blue, 5.00005f));
+
+    sf::Color color = buffer.getPixelColor(1, 1);
+    assert(color.r == sf::Color::Blue.r);
+    assert(color.g == sf::Color::Blue.g);
+    assert(color.b == sf::Color::Blue.b);
+}
+
 void testSetPixelRejectsOutOfBoundsWrites() {
     FrameBuffer buffer(2, 2);
 
@@ -57,6 +71,7 @@ void testSetPixelRejectsOutOfBoundsWrites() {
 int main() {
     testClearWritesAllPixels();
     testSetPixelUsesDepthTest();
+    testSetPixelAllowsNearlyEqualDepth();
     testSetPixelRejectsOutOfBoundsWrites();
 
     return 0;
