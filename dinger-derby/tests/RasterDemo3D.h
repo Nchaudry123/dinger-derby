@@ -35,6 +35,24 @@ struct RasterMeshRenderCache {
     }
 };
 
+struct RasterRenderStats {
+    int objectsSubmitted = 0;
+    int objectsVisible = 0;
+    int objectsCulled = 0;
+    int trianglesSubmitted = 0;
+    int trianglesDrawn = 0;
+    int trianglesSkipped = 0;
+
+    void reset() {
+        objectsSubmitted = 0;
+        objectsVisible = 0;
+        objectsCulled = 0;
+        trianglesSubmitted = 0;
+        trianglesDrawn = 0;
+        trianglesSkipped = 0;
+    }
+};
+
 inline void rasterizeMeshTriangles(
     FrameBuffer& frameBuffer,
     const Camera3D& camera,
@@ -42,8 +60,15 @@ inline void rasterizeMeshTriangles(
     const Matrix4& transform,
     sf::Color fallbackColor,
     RasterMeshRenderCache& cache,
-    bool cullBackFaces = true
+    bool cullBackFaces = true,
+    bool cullObjects = true,
+    RasterRenderStats* stats = nullptr
 ) {
+    if (stats) {
+        stats->objectsSubmitted++;
+        stats->trianglesSubmitted += static_cast<int>(mesh.triangles.size());
+    }
+
     BoundingSphere3D localSphere = mesh.localBoundingSphere();
     Vector3 worldCenter = transform.transformPoint(localSphere.center);
     float worldRadius = std::max({
@@ -53,6 +78,7 @@ inline void rasterizeMeshTriangles(
     });
 
     if (
+        cullObjects &&
         !camera.canSeeSphere(
             worldCenter,
             worldRadius,
@@ -60,7 +86,15 @@ inline void rasterizeMeshTriangles(
             frameBuffer.getHeight()
         )
     ) {
+        if (stats) {
+            stats->objectsCulled++;
+            stats->trianglesSkipped += static_cast<int>(mesh.triangles.size());
+        }
         return;
+    }
+
+    if (stats) {
+        stats->objectsVisible++;
     }
 
     cache.reserveFor(mesh);
@@ -91,6 +125,9 @@ inline void rasterizeMeshTriangles(
             !cache.visibleVertices[triangle.b] ||
             !cache.visibleVertices[triangle.c]
         ) {
+            if (stats) {
+                stats->trianglesSkipped++;
+            }
             continue;
         }
 
@@ -110,6 +147,9 @@ inline void rasterizeMeshTriangles(
             Vector3 cameraToTriangle = worldA - camera.position;
 
             if (normal.dot(cameraToTriangle) >= 0.0f) {
+                if (stats) {
+                    stats->trianglesSkipped++;
+                }
                 continue;
             }
         }
@@ -126,6 +166,10 @@ inline void rasterizeMeshTriangles(
             cache.screenVertices[triangle.c],
             color
         );
+
+        if (stats) {
+            stats->trianglesDrawn++;
+        }
     }
 }
 
