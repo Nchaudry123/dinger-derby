@@ -15,6 +15,7 @@ set(ENGINE_SOURCES
     src/rendering/Camera3D.cpp
     src/rendering/FrameBuffer.cpp
     src/rendering/Mesh3D.cpp
+    src/rendering/Rasterizer3D.cpp
     src/rendering/SoftwareRenderer3D.cpp
     src/physics/Body2D.cpp
     src/physics/PhysicsWorld2D.cpp
@@ -68,3 +69,7 @@ add_test(NAME mesh3d_test COMMAND mesh3d_test)
 add_executable(framebuffer_test tests/framebuffer_test.cpp)
 target_link_libraries(framebuffer_test PRIVATE dinger_engine)
 add_test(NAME framebuffer_test COMMAND framebuffer_test)
+
+add_executable(rasterizer3d_test tests/rasterizer3d_test.cpp)
+target_link_libraries(rasterizer3d_test PRIVATE dinger_engine)
+add_test(NAME rasterizer3d_test COMMAND rasterizer3d_test)
