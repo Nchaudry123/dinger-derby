@@ -6,7 +6,18 @@
 #include "../src/rendering/FrameBuffer.h"
 #include "../src/rendering/Mesh3D.h"
 #include "../src/rendering/Rasterizer3D.h"
+#include <SFML/System/Vector2.hpp>
+#include <algorithm>
 #include <vector>
+
+inline sf::Vector2u rasterSizeForWindow(sf::Vector2u windowSize) {
+    const float renderScale = 0.75f;
+
+    return sf::Vector2u(
+        std::max(1u, static_cast<unsigned int>(windowSize.x * renderScale)),
+        std::max(1u, static_cast<unsigned int>(windowSize.y * renderScale))
+    );
+}
 
 inline void rasterizeMeshTriangles(
     FrameBuffer& frameBuffer,

@@ -83,6 +83,13 @@ float FrameBuffer::getDepth(int x, int y) const {
 void FrameBuffer::present(sf::RenderWindow& window) {
     texture.update(pixels.data());
     sf::Sprite sprite(texture);
+
+    sf::Vector2u windowSize = window.getSize();
+    sprite.setScale(sf::Vector2f(
+        static_cast<float>(windowSize.x) / width,
+        static_cast<float>(windowSize.y) / height
+    ));
+
     window.draw(sprite);
 }
 

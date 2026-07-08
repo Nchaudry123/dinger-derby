@@ -17,7 +17,8 @@ int main() {
     window.setFramerateLimit(60);
     DemoFpsCounter fpsCounter("3D Raster Cube Demo");
 
-    FrameBuffer frameBuffer(window.getSize().x, window.getSize().y);
+    sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
+    FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
     Camera3D camera;
     Mesh3D cube = Mesh3D::cube();
     sf::Clock clock;
@@ -33,7 +34,8 @@ int main() {
                     sf::Vector2f(0.0f, 0.0f),
                     sf::Vector2f(resized->size.x, resized->size.y)
                 )));
-                frameBuffer.resize(resized->size.x, resized->size.y);
+                rasterSize = rasterSizeForWindow(resized->size);
+                frameBuffer.resize(rasterSize.x, rasterSize.y);
             }
         }
 
