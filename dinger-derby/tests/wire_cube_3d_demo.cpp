@@ -1,0 +1,44 @@
+#include <SFML/Graphics.hpp>
+
+#include "Demo3D.h"
+#include "../src/math/Matrix4.h"
+#include "../src/math/Vector3.h"
+
+int main() {
+    sf::RenderWindow window(
+        sf::VideoMode(sf::Vector2u(1280, 720)),
+        "3D Wire Cube Demo"
+    );
+    window.setFramerateLimit(60);
+
+    sf::Clock clock;
+
+    while (window.isOpen()) {
+        while (const std::optional event = window.pollEvent()) {
+            if (event->is<sf::Event::Closed>()) {
+                window.close();
+            }
+
+            if (const auto* resized = event->getIf<sf::Event::Resized>()) {
+                window.setView(sf::View(sf::FloatRect(
+                    sf::Vector2f(0.0f, 0.0f),
+                    sf::Vector2f(resized->size.x, resized->size.y)
+                )));
+            }
+        }
+
+        float time = clock.getElapsedTime().asSeconds();
+        Matrix4 cubeTransform =
+            Matrix4::rotationY(time * 0.9f) *
+            Matrix4::rotationX(time * 0.55f) *
+            Matrix4::scale(Vector3(1.35f, 1.35f, 1.35f));
+
+        window.clear(sf::Color(12, 14, 18));
+        drawAxes(window, Matrix4::identity());
+        drawWireCube(window, cubeTransform, sf::Color(245, 245, 245));
+
+        window.display();
+    }
+
+    return 0;
+}
