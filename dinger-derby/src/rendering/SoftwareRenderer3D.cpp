@@ -52,6 +52,41 @@ void SoftwareRenderer3D::drawPoint(
     window.draw(shape);
 }
 
+void SoftwareRenderer3D::drawTriangle(
+    const Vector3& a,
+    const Vector3& b,
+    const Vector3& c,
+    sf::Color color
+) {
+    ProjectedPoint3D projectedA =
+        camera.projectPoint(a, window.getSize().x, window.getSize().y);
+    ProjectedPoint3D projectedB =
+        camera.projectPoint(b, window.getSize().x, window.getSize().y);
+    ProjectedPoint3D projectedC =
+        camera.projectPoint(c, window.getSize().x, window.getSize().y);
+
+    if (!projectedA.visible || !projectedB.visible || !projectedC.visible) {
+        return;
+    }
+
+    sf::ConvexShape triangle(3);
+    triangle.setPoint(
+        0,
+        sf::Vector2f(projectedA.position.x, projectedA.position.y)
+    );
+    triangle.setPoint(
+        1,
+        sf::Vector2f(projectedB.position.x, projectedB.position.y)
+    );
+    triangle.setPoint(
+        2,
+        sf::Vector2f(projectedC.position.x, projectedC.position.y)
+    );
+    triangle.setFillColor(color);
+
+    window.draw(triangle);
+}
+
 void SoftwareRenderer3D::drawMeshEdges(
     const Mesh3D& mesh,
     const Matrix4& transform,

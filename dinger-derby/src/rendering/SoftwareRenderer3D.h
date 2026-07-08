@@ -12,6 +12,12 @@ public:
 
     void drawLine(const Vector3& a, const Vector3& b, sf::Color color);
     void drawPoint(const Vector3& point, float radius, sf::Color color);
+    void drawTriangle(
+        const Vector3& a,
+        const Vector3& b,
+        const Vector3& c,
+        sf::Color color
+    );
     void drawMeshEdges(
         const Mesh3D& mesh,
         const Matrix4& transform,
