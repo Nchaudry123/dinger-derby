@@ -59,6 +59,7 @@ add_dinger_demo(raster_cube_3d_demo tests/raster_cube_3d_demo.cpp)
 add_dinger_demo(raster_depth_3d_demo tests/raster_depth_3d_demo.cpp)
 add_dinger_demo(soft_cube_3d_demo tests/soft_cube_3d_demo.cpp)
 add_dinger_demo(culling_stress_3d_demo tests/culling_stress_3d_demo.cpp)
+add_dinger_demo(demo_launcher tests/demo_launcher.cpp)
 
 add_executable(physics_engine_test tests/physics_engine_test.cpp)
 target_link_libraries(physics_engine_test PRIVATE dinger_engine)
