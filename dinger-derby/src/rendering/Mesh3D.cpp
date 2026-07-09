@@ -1,6 +1,13 @@
 #include "Mesh3D.h"
 
 #include <algorithm>
+#include <cmath>
+
+namespace {
+
+constexpr float pi = 3.1415926535f;
+
+}
 
 Mesh3D Mesh3D::cube(float size) {
     float halfSize = size * 0.5f;
@@ -60,6 +67,77 @@ Mesh3D Mesh3D::axes(float length) {
         {0, 2},
         {0, 3}
     };
+
+    return mesh;
+}
+
+Mesh3D Mesh3D::sphere(float radius, int rings, int segments) {
+    rings = std::max(rings, 3);
+    segments = std::max(segments, 6);
+
+    Mesh3D mesh;
+
+    for (int ring = 0; ring <= rings; ring++) {
+        float v = static_cast<float>(ring) / rings;
+        float phi = v * pi;
+        float y = std::cos(phi) * radius;
+        float ringRadius = std::sin(phi) * radius;
+
+        for (int segment = 0; segment < segments; segment++) {
+            float u = static_cast<float>(segment) / segments;
+            float theta = u * pi * 2.0f;
+
+            mesh.vertices.push_back(Vector3(
+                std::cos(theta) * ringRadius,
+                y,
+                std::sin(theta) * ringRadius
+            ));
+        }
+    }
+
+    for (int ring = 0; ring < rings; ring++) {
+        for (int segment = 0; segment < segments; segment++) {
+            int nextSegment = (segment + 1) % segments;
+            int a = ring * segments + segment;
+            int b = ring * segments + nextSegment;
+            int c = (ring + 1) * segments + segment;
+            int d = (ring + 1) * segments + nextSegment;
+
+            if (ring != 0) {
+                mesh.triangles.push_back({a, c, b});
+            }
+
+            if (ring != rings - 1) {
+                mesh.triangles.push_back({b, c, d});
+            }
+        }
+    }
+
+    for (int ring = 0; ring <= rings; ring++) {
+        for (int segment = 0; segment < segments; segment++) {
+            int current = ring * segments + segment;
+            int next = ring * segments + (segment + 1) % segments;
+            mesh.edges.push_back({current, next});
+
+            if (ring < rings) {
+                mesh.edges.push_back({current, current + segments});
+            }
+        }
+    }
+
+    mesh.triangleColors.reserve(mesh.triangles.size());
+    for (int i = 0; i < mesh.triangles.size(); i++) {
+        int band = (i / (segments * 2)) % 3;
+        if (band == 0) {
+            mesh.triangleColors.push_back(sf::Color(90, 180, 235));
+        } else if (band == 1) {
+            mesh.triangleColors.push_back(sf::Color(120, 220, 180));
+        } else {
+            mesh.triangleColors.push_back(sf::Color(225, 170, 85));
+        }
+    }
+
+    mesh.buildTriangleNormals();
 
     return mesh;
 }

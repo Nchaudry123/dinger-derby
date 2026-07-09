@@ -50,12 +50,25 @@ void testCubeBoundingSphere() {
     assert(nearlyEqual(sphere.radius, std::sqrt(3.0f)));
 }
 
+void testSphereMeshShape() {
+    Mesh3D sphere = Mesh3D::sphere(1.0f, 6, 8);
+
+    assert(!sphere.vertices.empty());
+    assert(!sphere.triangles.empty());
+    assert(sphere.triangleColors.size() == sphere.triangles.size());
+    assert(sphere.triangleNormals.size() == sphere.triangles.size());
+
+    BoundingSphere3D bounds = sphere.localBoundingSphere();
+    assert(nearlyEqual(bounds.radius, 1.0f));
+}
+
 }
 
 int main() {
     testCubeMeshShape();
     testAxesMeshShape();
     testCubeBoundingSphere();
+    testSphereMeshShape();
 
     return 0;
 }

@@ -30,6 +30,7 @@ public:
     std::vector<Vector3> triangleNormals;
 
     static Mesh3D cube(float size = 2.0f);
+    static Mesh3D sphere(float radius = 1.0f, int rings = 8, int segments = 12);
     static Mesh3D axes(float length = 1.5f);
     BoundingSphere3D localBoundingSphere() const;
 

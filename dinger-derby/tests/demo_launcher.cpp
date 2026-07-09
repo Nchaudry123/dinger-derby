@@ -27,7 +27,8 @@ std::vector<DemoEntry> makeDemoEntries() {
         {"Raster Cube 3D", "raster_cube_3d_demo", "Software rasterized cube"},
         {"Raster Depth 3D", "raster_depth_3d_demo", "Depth-buffered raster cubes"},
         {"Soft Cube 3D", "soft_cube_3d_demo", "Springy deformable mesh"},
-        {"Culling Stress 3D", "culling_stress_3d_demo", "Grid, culling, and triangle counters"}
+        {"Culling Stress 3D", "culling_stress_3d_demo", "Grid, culling, and triangle counters"},
+        {"Physics 3D", "physics3d_demo", "Rigid 3D sphere collisions and bounds"}
     };
 }
 
@@ -158,7 +159,7 @@ void launchDemo(
 
 int main(int argc, char** argv) {
     sf::RenderWindow window(
-        sf::VideoMode(sf::Vector2u(960, 720)),
+        sf::VideoMode(sf::Vector2u(1000, 780)),
         "Dinger Derby Demo Launcher"
     );
     window.setFramerateLimit(60);
@@ -204,7 +205,7 @@ int main(int argc, char** argv) {
 
         window.clear(sf::Color(5, 8, 14));
 
-        sf::RectangleShape header(sf::Vector2f(960.0f, 120.0f));
+        sf::RectangleShape header(sf::Vector2f(1000.0f, 120.0f));
         header.setPosition(sf::Vector2f(0.0f, 0.0f));
         header.setFillColor(sf::Color(18, 36, 50));
         window.draw(header);
@@ -240,7 +241,7 @@ int main(int argc, char** argv) {
             float y = top + i * rowHeight;
             bool isSelected = i == selected;
 
-            sf::RectangleShape row(sf::Vector2f(880.0f, 34.0f));
+            sf::RectangleShape row(sf::Vector2f(920.0f, 34.0f));
             row.setPosition(sf::Vector2f(40.0f, y));
             row.setFillColor(isSelected ? sf::Color(42, 94, 104) : sf::Color(13, 19, 29));
             row.setOutlineThickness(1.0f);
@@ -284,7 +285,7 @@ int main(int argc, char** argv) {
                 font,
                 "Selected: " + demos[selected].executable,
                 15,
-                sf::Vector2f(42.0f, 688.0f),
+                sf::Vector2f(42.0f, 748.0f),
                 sf::Color(125, 155, 165)
             );
         }

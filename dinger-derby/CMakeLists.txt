@@ -23,9 +23,12 @@ set(ENGINE_SOURCES
     src/rendering/SoftwareRenderer3D.cpp
     src/rendering/SpatialGrid3D.cpp
     src/physics/Body2D.cpp
+    src/physics/Body3D.cpp
     src/physics/PhysicsWorld2D.cpp
+    src/physics/PhysicsWorld3D.cpp
     src/physics/SoftBodyMesh3D.cpp
     src/collision/Collision2D.cpp
+    src/collision/Collision3D.cpp
 )
 
 add_library(dinger_engine STATIC
@@ -60,6 +63,7 @@ add_dinger_demo(raster_depth_3d_demo tests/raster_depth_3d_demo.cpp)
 add_dinger_demo(soft_cube_3d_demo tests/soft_cube_3d_demo.cpp)
 add_dinger_demo(culling_stress_3d_demo tests/culling_stress_3d_demo.cpp)
 add_dinger_demo(demo_launcher tests/demo_launcher.cpp)
+add_dinger_demo(physics3d_demo tests/physics3d_demo.cpp)
 
 add_executable(physics_engine_test tests/physics_engine_test.cpp)
 target_link_libraries(physics_engine_test PRIVATE dinger_engine)
@@ -96,3 +100,7 @@ add_test(NAME spatial_grid3d_test COMMAND spatial_grid3d_test)
 add_executable(raster_near_clip_test tests/raster_near_clip_test.cpp)
 target_link_libraries(raster_near_clip_test PRIVATE dinger_engine)
 add_test(NAME raster_near_clip_test COMMAND raster_near_clip_test)
+
+add_executable(physics3d_test tests/physics3d_test.cpp)
+target_link_libraries(physics3d_test PRIVATE dinger_engine)
+add_test(NAME physics3d_test COMMAND physics3d_test)
