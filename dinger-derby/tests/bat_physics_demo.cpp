@@ -1484,7 +1484,7 @@ int main() {
             derby.longestHrFeet = lastHit.distanceFeet;
         }
         noteDerbyExit();
-        hrBannerTimer = 2.8f;
+        hrBannerTimer = 3.4f;
         std::string q = lastHit.quality ? lastHit.quality : "";
         playHrAtmosphere(q == "Jaw Dropper" || q == "Moonball");
     };
@@ -1953,6 +1953,11 @@ int main() {
                                    col.surface == Stadium3D::HitSurface::Dugout ||
                                    col.surface == Stadium3D::HitSurface::Backstop) {
                             wallResolved = true;
+                            if (col.surface == Stadium3D::HitSurface::Fence ||
+                                col.surface == Stadium3D::HitSurface::Scoreboard ||
+                                col.surface == Stadium3D::HitSurface::FoulPole) {
+                                sfx.playWallBang(lastHit.exitMph);
+                            }
                             if (col.surface == Stadium3D::HitSurface::Fence) {
                                 const bool wasDinger = isDingerQuality(lastHit.quality);
                                 lastHit.hitsWallFace = true;
@@ -2435,21 +2440,42 @@ int main() {
             float w = static_cast<float>(window.getSize().x);
             float h = static_cast<float>(window.getSize().y);
             float pulse = 0.55f + 0.45f * std::sin(poseClock * 10.0f);
-            sf::Color banner(255, 220, 60, static_cast<std::uint8_t>(200 + pulse * 55));
+            float pop = std::clamp(hrBannerTimer / 3.4f, 0.0f, 1.0f);
+            // Scale-in on entry
+            float scaleIn = std::clamp(1.15f - (3.4f - hrBannerTimer) * 0.35f, 0.92f, 1.15f);
+            (void)scaleIn;
+            sf::RectangleShape card({520.0f, 118.0f});
+            card.setOrigin({260.0f, 59.0f});
+            card.setPosition({w * 0.5f, h * 0.22f});
+            card.setFillColor(sf::Color(8, 16, 12, static_cast<std::uint8_t>(170 + pop * 50)));
+            card.setOutlineColor(sf::Color(255, 220, 70, static_cast<std::uint8_t>(180 + pulse * 70)));
+            card.setOutlineThickness(2.5f);
+            window.draw(card);
+            sf::Color banner(255, 220, 60, static_cast<std::uint8_t>(210 + pulse * 45));
             const char* title = "HOME RUN";
             if (lastHit.quality && std::string(lastHit.quality) == "Moonball") {
                 title = "MOONBALL";
             } else if (lastHit.quality && std::string(lastHit.quality) == "Jaw Dropper") {
                 title = "JAW DROPPER";
             }
-            drawText(window, font, title, 48, {w * 0.5f - 160.0f, h * 0.18f}, banner);
+            unsigned titleSize = (std::string(title) == "JAW DROPPER") ? 40 : 52;
+            float titleW = (std::string(title).size() * titleSize * 0.32f);
+            drawText(
+                window, font, title, titleSize,
+                {w * 0.5f - titleW, h * 0.22f - 42.0f},
+                banner
+            );
             std::ostringstream d;
             d << std::fixed << std::setprecision(0) << lastHit.distanceFeet << " ft   "
-              << lastHit.exitMph << " mph";
+              << lastHit.exitMph << " mph   LA " << lastHit.launchDeg << " deg";
             if (lastHit.clearsWall) {
-                d << "   +" << lastHit.wallMarginFeet << " ft over";
+                d << "   CLEAR +" << lastHit.wallMarginFeet << " ft";
             }
-            drawText(window, font, d.str(), 22, {w * 0.5f - 120.0f, h * 0.18f + 56.0f}, sf::Color(255, 240, 180));
+            drawText(
+                window, font, d.str(), 20,
+                {w * 0.5f - 190.0f, h * 0.22f + 18.0f},
+                sf::Color(255, 240, 180)
+            );
         }
 
         // ROUND OVER celebration card
