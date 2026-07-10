@@ -2,6 +2,7 @@
 #include <cmath>
 
 #include "math/Matrix4.h"
+#include "math/Vector2.h"
 #include "math/Vector3.h"
 
 namespace {
@@ -14,6 +15,23 @@ void assertVectorNear(const Vector3& value, const Vector3& expected) {
     assert(nearlyEqual(value.x, expected.x));
     assert(nearlyEqual(value.y, expected.y));
     assert(nearlyEqual(value.z, expected.z));
+}
+
+void assertVector2Near(const Vector2& value, const Vector2& expected) {
+    assert(nearlyEqual(value.x, expected.x));
+    assert(nearlyEqual(value.y, expected.y));
+}
+
+void testVector2OperatorsAndDot() {
+    Vector2 a(3.0f, 4.0f);
+    Vector2 b(1.0f, 2.0f);
+
+    assert(nearlyEqual(a.dot(b), 11.0f));
+    assertVector2Near(a / 2.0f, Vector2(1.5f, 2.0f));
+
+    a -= b;
+    assertVector2Near(a, Vector2(2.0f, 2.0f));
+    assert(nearlyEqual(Vector2(3.0f, 4.0f).normalized().magnitude(), 1.0f));
 }
 
 void testVector3DotAndCross() {
@@ -53,6 +71,7 @@ void testMatrixRotationZ() {
 }
 
 int main() {
+    testVector2OperatorsAndDot();
     testVector3DotAndCross();
     testVector3Normalize();
     testMatrixTranslationAndScale();
