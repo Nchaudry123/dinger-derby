@@ -2249,13 +2249,14 @@ int main() {
             gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);
             gl.drawMesh(glStadiumLines, stadiumXform);
-            // Live scoreboard (pulses harder after dingers)
-            float excitement = (hrBannerTimer > 0.0f) ? 1.0f : 0.15f;
+            // Live CF scoreboard face (pulses with HRs / excitement)
+            float excitement = (hrBannerTimer > 0.0f) ? 1.0f : 0.12f;
+            excitement = std::min(1.0f, excitement + static_cast<float>(derby.hrCount) * 0.08f);
             if (derby.roundOver) {
-                excitement = std::max(excitement, 0.7f);
+                excitement = std::max(excitement, 0.75f);
             }
             float boardA = Stadium3D::scoreboardPulse(stadiumCheerTime, excitement);
-            gl.drawMesh(glStadiumBoard, stadiumXform, 0.55f + 0.45f * boardA);
+            gl.drawMesh(glStadiumBoard, stadiumXform, 0.50f + 0.50f * boardA);
             // Crowd cheer wave (stronger after a big hit / round end)
             float cheerBoost = crowdCheerBoost;
             if (hrBannerTimer > 0.0f) {
@@ -2366,6 +2367,64 @@ int main() {
                 flash.setPosition({p.position.x, p.position.y});
                 flash.setFillColor(sf::Color(255, 255, 120, 170));
                 window.draw(flash);
+            }
+        }
+
+        // Live stats projected onto the CF 3D scoreboard (park board, not just HUD).
+        if (fontOk && playMode == PlayMode::Derby) {
+            Vector3 boardWorld = stadiumLayout.scoreboardCenter() + Vector3(0.0f, 0.0f, 2.2f);
+            ProjectedPoint3D bp = camera.projectPoint(
+                boardWorld,
+                static_cast<float>(window.getSize().x),
+                static_cast<float>(window.getSize().y)
+            );
+            // Only when the board is in view and not tiny / behind.
+            if (bp.visible && bp.position.x > 40.0f && bp.position.x < static_cast<float>(window.getSize().x) - 40.0f) {
+                float px = bp.position.x;
+                float py = bp.position.y;
+                const float pw = 168.0f;
+                const float ph = 92.0f;
+                sf::RectangleShape panel({pw, ph});
+                panel.setOrigin({pw * 0.5f, ph * 0.5f});
+                panel.setPosition({px, py});
+                panel.setFillColor(sf::Color(8, 18, 12, 200));
+                panel.setOutlineColor(sf::Color(255, 220, 80, 200));
+                panel.setOutlineThickness(1.5f);
+                window.draw(panel);
+                drawText(
+                    window, font, "PARK BOARD", 11,
+                    {px - 52.0f, py - 40.0f},
+                    sf::Color(255, 220, 100)
+                );
+                std::ostringstream b1;
+                b1 << "HR  " << derby.hrCount;
+                drawText(
+                    window, font, b1.str(), 22,
+                    {px - 48.0f, py - 22.0f},
+                    sf::Color(120, 255, 160)
+                );
+                std::ostringstream b2;
+                b2 << std::fixed << std::setprecision(0) << "LONG  ";
+                if (derby.longestHrFeet > 0.5f) {
+                    b2 << derby.longestHrFeet << " ft";
+                } else {
+                    b2 << "--";
+                }
+                drawText(
+                    window, font, b2.str(), 14,
+                    {px - 60.0f, py + 6.0f},
+                    sf::Color(255, 230, 140)
+                );
+                std::ostringstream b3;
+                b3 << "SW  " << derby.swingsLeft << "/" << kDerbySwings;
+                if (derby.bestExitMph > 0.5f) {
+                    b3 << "  EV " << std::fixed << std::setprecision(0) << derby.bestExitMph;
+                }
+                drawText(
+                    window, font, b3.str(), 12,
+                    {px - 70.0f, py + 28.0f},
+                    sf::Color(200, 230, 255)
+                );
             }
         }
 

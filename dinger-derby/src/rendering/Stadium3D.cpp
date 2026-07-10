@@ -1090,6 +1090,12 @@ Vector3 Layout::parkCenter() const {
     return Vector3(0.0f, 4.0f, plateZ() - maxWallR() * 0.42f);
 }
 
+Vector3 Layout::scoreboardCenter() const {
+    float cfR = wallRAtAngle(0.0f);
+    float cfH = wallHeightAtAngle(0.0f);
+    return fromHome(cfR + 8.0f, 0.0f, cfH + 10.0f);
+}
+
 void Layout::polarFromHome(const Vector3& worldPos, float& radiusOut, float& angleRadOut) const {
     float dx = worldPos.x;
     float dz = worldPos.z - plateZ();

@@ -66,6 +66,8 @@ struct Layout {
     Vector3 mound() const { return Vector3(0.0f, 0.0f, moundZ()); }
     Vector3 cfWall() const { return wallPoint(0.0f, 1.0f); }
     Vector3 parkCenter() const;
+    // CF scoreboard chassis center (for overlays / camera aim).
+    Vector3 scoreboardCenter() const;
 
     // True diamond bases (1 unit ≈ feetPerUnit feet; basePath = 90 ft side).
     // Foul lines at ±foulAngle; 1B/3B sit on those lines at basePath.
