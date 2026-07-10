@@ -964,17 +964,17 @@ sf::Keyboard::Key pitchKeyForProfile(const PitchProfile& pitch) {
 }
 
 int main() {
+    // macOS: SFML's graphics module needs a legacy (OpenGL 2.1) context.
+    // A Core 3.2 profile makes all SFML 2D draws (UI, strike zone, text) invisible.
+    // The GPU mesh path uses GLSL 1.20 so it works on that same legacy context.
     sf::ContextSettings glSettings;
     glSettings.depthBits = 24;
     glSettings.stencilBits = 8;
     glSettings.antiAliasingLevel = 4;
-    glSettings.majorVersion = 3;
-    glSettings.minorVersion = 2;
-    glSettings.attributeFlags = sf::ContextSettings::Attribute::Core;
 
     sf::RenderWindow window(
         sf::VideoMode(sf::Vector2u(1280, 720)),
-        "Pitching Simulator | OpenGL | R throw",
+        "Pitching Simulator | R throw",
         sf::Style::Default,
         sf::State::Windowed,
         glSettings

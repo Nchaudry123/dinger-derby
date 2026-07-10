@@ -1,65 +1,24 @@
 #include "GlRenderer.h"
 
-// macOS: use OpenGL 3 core headers (VAOs, etc.). SFML's OpenGL.hpp pulls legacy gl.h.
 #define GL_SILENCE_DEPRECATION
 #if defined(__APPLE__)
-#include <OpenGL/gl3.h>
+// Compatibility / 2.1 headers — SFML graphics on macOS requires a legacy
+// context, so the GPU path must not depend on Core-only VAOs.
+#include <OpenGL/gl.h>
+#include <OpenGL/glext.h>
 #else
 #include <SFML/OpenGL.hpp>
 #endif
 
 #include <cmath>
-#include <cstring>
 #include <iostream>
 #include <utility>
 
 namespace {
 
-// Prefer core GLSL 150 when available; fallback path uses same shader with #version 120.
-const char* kVertCore = R"GLSL(
-#version 150 core
-in vec3 aPos;
-in vec3 aNormal;
-in vec3 aColor;
-out vec3 vWorldPos;
-out vec3 vNormal;
-out vec3 vColor;
-uniform mat4 uMVP;
-uniform mat4 uModel;
-uniform mat3 uNormalMat;
-void main() {
-    vec4 world = uModel * vec4(aPos, 1.0);
-    vWorldPos = world.xyz;
-    vNormal = normalize(uNormalMat * aNormal);
-    vColor = aColor;
-    gl_Position = uMVP * vec4(aPos, 1.0);
-}
-)GLSL";
-
-const char* kFragCore = R"GLSL(
-#version 150 core
-in vec3 vWorldPos;
-in vec3 vNormal;
-in vec3 vColor;
-out vec4 fragColor;
-uniform vec3 uLightDir;
-uniform vec3 uViewPos;
-uniform float uAlpha;
-void main() {
-    vec3 n = normalize(vNormal);
-    vec3 l = normalize(uLightDir);
-    float ndotl = max(dot(n, l), 0.0);
-    float ambient = 0.38;
-    float diffuse = 0.62 * ndotl;
-    vec3 viewDir = normalize(uViewPos - vWorldPos);
-    vec3 halfV = normalize(l + viewDir);
-    float spec = pow(max(dot(n, halfV), 0.0), 32.0) * 0.18 * ndotl;
-    vec3 lit = vColor * (ambient + diffuse) + vec3(spec);
-    fragColor = vec4(clamp(lit, 0.0, 1.0), uAlpha);
-}
-)GLSL";
-
-const char* kVertCompat = R"GLSL(
+// GLSL 1.20 works on macOS OpenGL 2.1 (SFML-compatible legacy context) and
+// on compatibility profiles elsewhere.
+const char* kVertSrc = R"GLSL(
 #version 120
 attribute vec3 aPos;
 attribute vec3 aNormal;
@@ -79,7 +38,7 @@ void main() {
 }
 )GLSL";
 
-const char* kFragCompat = R"GLSL(
+const char* kFragSrc = R"GLSL(
 #version 120
 varying vec3 vWorldPos;
 varying vec3 vNormal;
@@ -89,19 +48,17 @@ uniform vec3 uViewPos;
 uniform float uAlpha;
 void main() {
     vec3 n = normalize(vNormal);
-    vec3 l = normalize(uLightDir);
-    float ndotl = max(dot(n, l), 0.0);
-    float ambient = 0.38;
-    float diffuse = 0.62 * ndotl;
+    float ndotl = abs(dot(n, normalize(uLightDir)));
+    float ambient = 0.42;
+    float diffuse = 0.58 * ndotl;
     vec3 viewDir = normalize(uViewPos - vWorldPos);
-    vec3 halfV = normalize(l + viewDir);
-    float spec = pow(max(dot(n, halfV), 0.0), 32.0) * 0.18 * ndotl;
+    vec3 halfV = normalize(normalize(uLightDir) + viewDir);
+    float spec = pow(max(dot(n, halfV), 0.0), 28.0) * 0.15 * ndotl;
     vec3 lit = vColor * (ambient + diffuse) + vec3(spec);
     gl_FragColor = vec4(clamp(lit, 0.0, 1.0), uAlpha);
 }
 )GLSL";
 
-// Our Matrix4 is row-major (row * column). OpenGL wants column-major — transpose.
 void uploadMat4(int loc, const Matrix4& m) {
     if (loc < 0) {
         return;
@@ -122,16 +79,33 @@ void uploadMat3(int loc, const float* colMajor9) {
     glUniformMatrix3fv(loc, 1, GL_FALSE, colMajor9);
 }
 
-// Upper 3x3 of model as normal matrix (ignore non-uniform scale for now).
 void normalMatrixFromModel(const Matrix4& model, float outColMajor[9]) {
-    // Extract row-major 3x3 then transpose to column-major.
     float r0[3] = {model.values[0], model.values[1], model.values[2]};
     float r1[3] = {model.values[4], model.values[5], model.values[6]};
     float r2[3] = {model.values[8], model.values[9], model.values[10]};
-    // For pure rotation/uniform scale this is fine as transpose = inverse.
     outColMajor[0] = r0[0]; outColMajor[1] = r1[0]; outColMajor[2] = r2[0];
     outColMajor[3] = r0[1]; outColMajor[4] = r1[1]; outColMajor[5] = r2[1];
     outColMajor[6] = r0[2]; outColMajor[7] = r1[2]; outColMajor[8] = r2[2];
+}
+
+void bindMeshAttribs(unsigned int vbo, unsigned int ebo) {
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    const GLsizei stride = 9 * static_cast<GLsizei>(sizeof(float));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(6 * sizeof(float)));
+}
+
+void unbindMeshAttribs() {
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
 
 } // namespace
@@ -169,10 +143,8 @@ void GlMesh::destroy() {
         glDeleteBuffers(1, &vbo_);
         vbo_ = 0;
     }
-    if (vao_) {
-        glDeleteVertexArrays(1, &vao_);
-        vao_ = 0;
-    }
+    // vao unused on the compatibility path (kept in the header for ABI stability).
+    vao_ = 0;
     indexCount_ = 0;
     vertexCount_ = 0;
 }
@@ -188,12 +160,11 @@ void GlMesh::packMesh(
 ) {
     interleaved.clear();
     indices.clear();
-    // Expand to unique vertices per triangle corner so per-triangle colors work.
     interleaved.reserve(mesh.triangles.size() * 3 * 9);
     indices.reserve(mesh.triangles.size() * 3);
 
     auto pushVert = [&](int vi, sf::Color color, const Vector3& n) {
-        const Vector3& p = mesh.vertices[vi];
+        const Vector3& p = mesh.vertices[static_cast<size_t>(vi)];
         interleaved.push_back(p.x);
         interleaved.push_back(p.y);
         interleaved.push_back(p.z);
@@ -206,17 +177,22 @@ void GlMesh::packMesh(
     };
 
     for (int t = 0; t < static_cast<int>(mesh.triangles.size()); t++) {
-        const Triangle3D& tri = mesh.triangles[t];
+        const Triangle3D& tri = mesh.triangles[static_cast<size_t>(t)];
         sf::Color color = (t < static_cast<int>(mesh.triangleColors.size()))
-            ? mesh.triangleColors[t]
+            ? mesh.triangleColors[static_cast<size_t>(t)]
             : sf::Color(200, 200, 200);
 
         Vector3 nFlat(0.0f, 1.0f, 0.0f);
         if (t < static_cast<int>(mesh.triangleNormals.size())) {
-            nFlat = mesh.triangleNormals[t];
-        } else if (tri.a < mesh.vertices.size() && tri.b < mesh.vertices.size() && tri.c < mesh.vertices.size()) {
-            Vector3 e1 = mesh.vertices[tri.b] - mesh.vertices[tri.a];
-            Vector3 e2 = mesh.vertices[tri.c] - mesh.vertices[tri.a];
+            nFlat = mesh.triangleNormals[static_cast<size_t>(t)];
+        } else if (
+            tri.a >= 0 && tri.b >= 0 && tri.c >= 0 &&
+            tri.a < static_cast<int>(mesh.vertices.size()) &&
+            tri.b < static_cast<int>(mesh.vertices.size()) &&
+            tri.c < static_cast<int>(mesh.vertices.size())
+        ) {
+            Vector3 e1 = mesh.vertices[static_cast<size_t>(tri.b)] - mesh.vertices[static_cast<size_t>(tri.a)];
+            Vector3 e2 = mesh.vertices[static_cast<size_t>(tri.c)] - mesh.vertices[static_cast<size_t>(tri.a)];
             nFlat = e1.cross(e2);
             float nm = nFlat.magnitude();
             if (nm > 1e-8f) {
@@ -225,8 +201,8 @@ void GlMesh::packMesh(
         }
 
         auto normalFor = [&](int vi) {
-            if (vi < static_cast<int>(mesh.vertexNormals.size())) {
-                Vector3 n = mesh.vertexNormals[vi];
+            if (vi >= 0 && vi < static_cast<int>(mesh.vertexNormals.size())) {
+                Vector3 n = mesh.vertexNormals[static_cast<size_t>(vi)];
                 float nm = n.magnitude();
                 return nm > 1e-8f ? n * (1.0f / nm) : nFlat;
             }
@@ -255,13 +231,18 @@ void GlMesh::upload(const Mesh3D& mesh) {
     vertexCount_ = static_cast<int>(data.size() / 9);
     indexCount_ = static_cast<int>(indices.size());
 
-    glGenVertexArrays(1, &vao_);
     glGenBuffers(1, &vbo_);
     glGenBuffers(1, &ebo_);
+    // Mark valid without a VAO (valid() checks vao_ || we change valid()).
+    vao_ = 1; // non-zero sentinel: buffers exist
 
-    glBindVertexArray(vao_);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(data.size() * sizeof(float)), data.data(), GL_DYNAMIC_DRAW);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(data.size() * sizeof(float)),
+        data.data(),
+        GL_DYNAMIC_DRAW
+    );
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
     glBufferData(
         GL_ELEMENT_ARRAY_BUFFER,
@@ -269,16 +250,8 @@ void GlMesh::upload(const Mesh3D& mesh) {
         indices.data(),
         GL_STATIC_DRAW
     );
-
-    const GLsizei stride = 9 * sizeof(float);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(3 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(6 * sizeof(float)));
-
-    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
 
 void GlMesh::updatePositionsNormals(const Mesh3D& mesh) {
@@ -294,7 +267,12 @@ void GlMesh::updatePositionsNormals(const Mesh3D& mesh) {
         return;
     }
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(data.size() * sizeof(float)), data.data());
+    glBufferSubData(
+        GL_ARRAY_BUFFER,
+        0,
+        static_cast<GLsizeiptr>(data.size() * sizeof(float)),
+        data.data()
+    );
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
@@ -302,9 +280,9 @@ void GlMesh::draw() const {
     if (!valid()) {
         return;
     }
-    glBindVertexArray(vao_);
+    bindMeshAttribs(vbo_, ebo_);
     glDrawElements(GL_TRIANGLES, indexCount_, GL_UNSIGNED_INT, nullptr);
-    glBindVertexArray(0);
+    unbindMeshAttribs();
 }
 
 // ── GlRenderer ──────────────────────────────────────────────────────────
@@ -331,46 +309,34 @@ unsigned int GlRenderer::compileShader(unsigned int type, const char* source, st
 
 bool GlRenderer::compileShaders() {
     std::string log;
-    // Try core first (macOS), then compat.
-    auto tryBuild = [&](const char* vsSrc, const char* fsSrc) -> bool {
-        unsigned int vs = compileShader(GL_VERTEX_SHADER, vsSrc, log);
-        if (!vs) {
-            std::cerr << "GL vertex shader: " << log << "\n";
-            return false;
-        }
-        unsigned int fs = compileShader(GL_FRAGMENT_SHADER, fsSrc, log);
-        if (!fs) {
-            std::cerr << "GL fragment shader: " << log << "\n";
-            glDeleteShader(vs);
-            return false;
-        }
-        program_ = glCreateProgram();
-        glAttachShader(program_, vs);
-        glAttachShader(program_, fs);
-        glBindAttribLocation(program_, 0, "aPos");
-        glBindAttribLocation(program_, 1, "aNormal");
-        glBindAttribLocation(program_, 2, "aColor");
-        glLinkProgram(program_);
+    unsigned int vs = compileShader(GL_VERTEX_SHADER, kVertSrc, log);
+    if (!vs) {
+        std::cerr << "GL vertex shader: " << log << std::endl;
+        return false;
+    }
+    unsigned int fs = compileShader(GL_FRAGMENT_SHADER, kFragSrc, log);
+    if (!fs) {
+        std::cerr << "GL fragment shader: " << log << std::endl;
         glDeleteShader(vs);
-        glDeleteShader(fs);
-        int ok = 0;
-        glGetProgramiv(program_, GL_LINK_STATUS, &ok);
-        if (!ok) {
-            char buf[1024];
-            glGetProgramInfoLog(program_, 1024, nullptr, buf);
-            std::cerr << "GL link: " << buf << "\n";
-            glDeleteProgram(program_);
-            program_ = 0;
-            return false;
-        }
-        return true;
-    };
-
-    if (tryBuild(kVertCore, kFragCore)) {
-        useCore_ = true;
-    } else if (tryBuild(kVertCompat, kFragCompat)) {
-        useCore_ = false;
-    } else {
+        return false;
+    }
+    program_ = glCreateProgram();
+    glAttachShader(program_, vs);
+    glAttachShader(program_, fs);
+    glBindAttribLocation(program_, 0, "aPos");
+    glBindAttribLocation(program_, 1, "aNormal");
+    glBindAttribLocation(program_, 2, "aColor");
+    glLinkProgram(program_);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    int ok = 0;
+    glGetProgramiv(program_, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char buf[1024];
+        glGetProgramInfoLog(program_, 1024, nullptr, buf);
+        std::cerr << "GL link: " << buf << std::endl;
+        glDeleteProgram(program_);
+        program_ = 0;
         return false;
     }
 
@@ -381,6 +347,18 @@ bool GlRenderer::compileShaders() {
     locViewPos_ = glGetUniformLocation(program_, "uViewPos");
     locAlpha_ = glGetUniformLocation(program_, "uAlpha");
     return true;
+}
+
+void GlRenderer::queryDrawableSize(sf::RenderWindow& window, int& outW, int& outH) {
+    sf::Vector2u size = window.getSize();
+    outW = static_cast<int>(size.x);
+    outH = static_cast<int>(size.y);
+    if (outW < 1) {
+        outW = 1;
+    }
+    if (outH < 1) {
+        outH = 1;
+    }
 }
 
 bool GlRenderer::initialize(sf::RenderWindow& window) {
@@ -403,37 +381,24 @@ bool GlRenderer::initialize(sf::RenderWindow& window) {
         return false;
     }
 
-    // Ground quad (xz plane, y=0)
     float ground[] = {
-        // pos            normal         color
-        -4.0f, 0.0f, -2.0f,  0,1,0,  0.08f,0.10f,0.14f,
-         4.0f, 0.0f, -2.0f,  0,1,0,  0.08f,0.10f,0.14f,
-         4.0f, 0.0f, 40.0f,  0,1,0,  0.10f,0.14f,0.10f,
-        -4.0f, 0.0f, -2.0f,  0,1,0,  0.08f,0.10f,0.14f,
-         4.0f, 0.0f, 40.0f,  0,1,0,  0.10f,0.14f,0.10f,
-        -4.0f, 0.0f, 40.0f,  0,1,0,  0.10f,0.14f,0.10f,
+        -6.0f, 0.0f, -4.0f,  0,1,0,  0.07f,0.09f,0.12f,
+         6.0f, 0.0f, -4.0f,  0,1,0,  0.07f,0.09f,0.12f,
+         6.0f, 0.0f, 40.0f,  0,1,0,  0.09f,0.13f,0.09f,
+        -6.0f, 0.0f, -4.0f,  0,1,0,  0.07f,0.09f,0.12f,
+         6.0f, 0.0f, 40.0f,  0,1,0,  0.09f,0.13f,0.09f,
+        -6.0f, 0.0f, 40.0f,  0,1,0,  0.09f,0.13f,0.09f,
     };
-    glGenVertexArrays(1, &groundVao_);
     glGenBuffers(1, &groundVbo_);
-    glBindVertexArray(groundVao_);
     glBindBuffer(GL_ARRAY_BUFFER, groundVbo_);
     glBufferData(GL_ARRAY_BUFFER, sizeof(ground), ground, GL_STATIC_DRAW);
-    GLsizei stride = 9 * sizeof(float);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(3 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(6 * sizeof(float)));
-    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    groundVao_ = 1; // sentinel
 
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
+    queryDrawableSize(window, fbWidth_, fbHeight_);
     ready_ = true;
+    std::cerr << "GL: compatibility present path ready (" << fbWidth_ << "x" << fbHeight_ << ")"
+              << std::endl;
     return true;
 }
 
@@ -442,10 +407,7 @@ void GlRenderer::shutdown() {
         glDeleteBuffers(1, &groundVbo_);
         groundVbo_ = 0;
     }
-    if (groundVao_) {
-        glDeleteVertexArrays(1, &groundVao_);
-        groundVao_ = 0;
-    }
+    groundVao_ = 0;
     if (program_) {
         glDeleteProgram(program_);
         program_ = 0;
@@ -454,31 +416,26 @@ void GlRenderer::shutdown() {
 }
 
 Matrix4 GlRenderer::viewFromCamera(const Camera3D& camera) {
-    // Match Camera3D::worldToCameraPoint: T(-pos) then Ry(-ry) Rx(-rx) Rz(-rz).
-    return Matrix4::rotationZ(-camera.rotation.z) *
+    // Software camera looks down +Z. OpenGL eye looks down -Z → flip Z.
+    Matrix4 toCamera =
+        Matrix4::rotationZ(-camera.rotation.z) *
         Matrix4::rotationX(-camera.rotation.x) *
         Matrix4::rotationY(-camera.rotation.y) *
         Matrix4::translation(Vector3(-camera.position.x, -camera.position.y, -camera.position.z));
+    return Matrix4::scale(Vector3(1.0f, 1.0f, -1.0f)) * toCamera;
 }
 
 Matrix4 GlRenderer::perspectiveFromCamera(const Camera3D& camera, float width, float height) {
-    // Software projector: scale = fieldOfView / z  (focal length in pixels ≈ fieldOfView).
-    // Equivalent vertical FOV: 2 * atan((height/2) / fieldOfView).
     float fovY = 2.0f * std::atan((height * 0.5f) / std::max(camera.fieldOfView, 1.0f));
     float aspect = width / std::max(height, 1.0f);
     float nearZ = std::max(camera.nearPlane, 0.05f);
-    float farZ = 200.0f;
+    float farZ = 250.0f;
     float f = 1.0f / std::tan(fovY * 0.5f);
 
     Matrix4 p;
     for (int i = 0; i < 16; i++) {
         p.values[i] = 0.0f;
     }
-    // Column-vector clip-space, row-major storage for our Matrix4 conventions:
-    // We store so transformPoint would work if used; for MVP we upload transposed.
-    // Standard OpenGL perspective (column-major logical):
-    // [f/aspect 0 0 0; 0 f 0 0; 0 0 (f+n)/(n-f) 2fn/(n-f); 0 0 -1 0]
-    // In our row-major layout matching transformPoint (row * col):
     p.values[0] = f / aspect;
     p.values[5] = f;
     p.values[10] = (farZ + nearZ) / (nearZ - farZ);
@@ -492,16 +449,32 @@ void GlRenderer::beginFrame(sf::RenderWindow& window, const Camera3D& camera, sf
     if (!ready_) {
         return;
     }
-    (void)window.setActive(true);
-    sf::Vector2u size = window.getSize();
-    glViewport(0, 0, static_cast<GLsizei>(size.x), static_cast<GLsizei>(size.y));
+    if (!window.setActive(true)) {
+        return;
+    }
+
+    queryDrawableSize(window, fbWidth_, fbHeight_);
+    glViewport(0, 0, fbWidth_, fbHeight_);
+    glDisable(GL_SCISSOR_TEST);
     glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_ALPHA_TEST);
+
     glClearColor(clearColor.r / 255.0f, clearColor.g / 255.0f, clearColor.b / 255.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    sf::Vector2u logical = window.getSize();
+    float projW = static_cast<float>(logical.x > 0 ? logical.x : fbWidth_);
+    float projH = static_cast<float>(logical.y > 0 ? logical.y : fbHeight_);
+
     view_ = viewFromCamera(camera);
-    proj_ = perspectiveFromCamera(camera, static_cast<float>(size.x), static_cast<float>(size.y));
+    proj_ = perspectiveFromCamera(camera, projW, projH);
     viewPos_ = camera.position;
 
     glUseProgram(program_);
@@ -531,11 +504,9 @@ void GlRenderer::drawMesh(const GlMesh& mesh, const Matrix4& model, float alpha)
 }
 
 void GlRenderer::drawGround(float halfWidth, float zNear, float zFar, sf::Color color) {
-    if (!ready_ || !groundVao_) {
+    if (!ready_ || !groundVbo_) {
         return;
     }
-    // Rebuild ground colors/extents quickly via model scale+tint in shader (use white mesh * color via model only).
-    // Simpler: draw with identity model; ground VBO already has colors. Ignore args colors for now.
     (void)halfWidth;
     (void)zNear;
     (void)zFar;
@@ -544,26 +515,41 @@ void GlRenderer::drawGround(float halfWidth, float zNear, float zFar, sf::Color 
     Matrix4 mvp = proj_ * view_ * model;
     uploadMat4(locMvp_, mvp);
     uploadMat4(locModel_, model);
-    float nrm[9] = {1,0,0, 0,1,0, 0,0,1};
+    float nrm[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
     uploadMat3(locNormalMat_, nrm);
     if (locAlpha_ >= 0) {
         glUniform1f(locAlpha_, 1.0f);
     }
-    glDisable(GL_CULL_FACE);
-    glBindVertexArray(groundVao_);
+
+    glBindBuffer(GL_ARRAY_BUFFER, groundVbo_);
+    const GLsizei stride = 9 * static_cast<GLsizei>(sizeof(float));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(6 * sizeof(float)));
     glDrawArrays(GL_TRIANGLES, 0, 6);
-    glBindVertexArray(0);
-    glEnable(GL_CULL_FACE);
+    unbindMeshAttribs();
 }
 
 void GlRenderer::endFrame(sf::RenderWindow& window) {
     if (!ready_) {
         return;
     }
-    glBindVertexArray(0);
     glUseProgram(0);
+    unbindMeshAttribs();
+
+    // Preserve color (3D scene); clear depth so SFML 2D always passes.
+    glDepthMask(GL_TRUE);
+    glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
-    // Let SFML take over for 2D UI / overlay.
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    (void)window.setActive(true);
     window.resetGLStates();
+    window.setView(window.getDefaultView());
 }
