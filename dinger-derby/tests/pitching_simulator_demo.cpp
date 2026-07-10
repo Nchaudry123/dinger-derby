@@ -785,10 +785,10 @@ std::array<PitchProfile, 5> makePitchProfiles() {
     //   glove sidespin ω≈(−Y) → break toward −X (3B / glove)
     // Tuned so path shapes read clearly while iterative aim still hits the glove.
     return {{
-        // Four-seam: high backspin ride, almost pure vertical spin.
+        // Four-seam: pure backspin ride (no sidespin — sidespin walked pitches left).
         PitchProfile{
             'F', "Four-Seam", 96.1f, 1.2f,
-            2420.0f, Vector3(-1.0f, 0.04f, 0.02f), 0.99f, 1.10f,
+            2420.0f, Vector3(-1.0f, 0.0f, 0.0f), 0.99f, 1.10f,
             0.29f, 0.86f, sf::Color(245, 235, 180)
         },
         // Splitter: low useful spin, more drag → late tumble / die.
@@ -965,7 +965,7 @@ Vector3 calculateLaunchVelocity(
     const float airDensity = pitchAirDensity * variation.dragScale;
     const float gain = 0.92f; // under-relax for stability
 
-    for (int iter = 0; iter < 8; iter++) {
+    for (int iter = 0; iter < 10; iter++) {
         Vector3 plateHit;
         bool ok = simulatePlateCrossing(
             pitch,
@@ -985,7 +985,7 @@ Vector3 calculateLaunchVelocity(
 
         float errX = aimPoint.x - plateHit.x;
         float errY = aimPoint.y - plateHit.y;
-        if (errX * errX + errY * errY < 0.0004f) { // ~0.02 m / ~0.8"
+        if (errX * errX + errY * errY < 0.0001f) { // ~0.01 m / ~0.4"
             break;
         }
 
@@ -1424,12 +1424,20 @@ int main() {
         );
         showLastResultMarkers = false;
         lastThrownMph = currentPitchSpeedMph;
-        // Small whip assist — capped so it doesn't blow aim on four-seams.
-        float whip = handVelocity.magnitude();
-        float whipCap = pitches[selectedPitch].hotkey == 'F' ? 1.2f : 2.2f;
-        if (whip > 0.8f && whip < 40.0f) {
-            Vector3 whipDir = handVelocity * (1.0f / whip);
-            baseball.velocity = baseball.velocity + whipDir * std::min(whip * 0.05f, whipCap);
+        // Whip must NOT add lateral velocity — that walks every pitch glove-side
+        // (catcher's left) after the iterative aim solve has already zeroed miss.
+        // Only a tiny boost along the already-aimed flight direction is allowed.
+        {
+            float vMag = baseball.velocity.magnitude();
+            float whip = handVelocity.magnitude();
+            if (vMag > 1.0f && whip > 0.8f && whip < 40.0f) {
+                Vector3 flightDir = baseball.velocity * (1.0f / vMag);
+                // Project hand whip onto flight dir (drop side components).
+                float along = handVelocity.dot(flightDir);
+                float whipCap = pitches[selectedPitch].hotkey == 'F' ? 0.6f : 1.1f;
+                float boost = std::clamp(along * 0.04f, 0.0f, whipCap);
+                baseball.velocity = baseball.velocity + flightDir * boost;
+            }
         }
         ballReleased = true;
         phase = PitchPhase::Flying;
