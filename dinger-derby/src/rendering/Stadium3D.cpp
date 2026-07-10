@@ -511,15 +511,32 @@ Mesh3D buildField(const Layout& L) {
                     stripe
                 );
             }
-            // Warning track inside fence
-            addQuad(
-                m,
-                L.fromHome(rOut0 - 3.5f, ang0, 0.018f),
-                L.fromHome(rOut1 - 3.5f, ang1, 0.018f),
-                L.fromHome(rOut1, ang1, 0.018f),
-                L.fromHome(rOut0, ang0, 0.018f),
-                track
-            );
+            // Warning track inside fence (banded dirt for read from field)
+            {
+                const float trackW = 3.8f;
+                for (int b = 0; b < 3; b++) {
+                    float t0 = static_cast<float>(b) / 3.0f;
+                    float t1 = static_cast<float>(b + 1) / 3.0f;
+                    float ri0 = rOut0 - trackW + trackW * t0;
+                    float ri1 = rOut1 - trackW + trackW * t1;
+                    float ro0 = rOut0 - trackW + trackW * t1;
+                    float ro1 = rOut1 - trackW + trackW * ((b + 1) / 3.0f);
+                    // fix band edges
+                    ri0 = rOut0 - trackW * (1.0f - t0);
+                    ro0 = rOut0 - trackW * (1.0f - t1);
+                    ri1 = rOut1 - trackW * (1.0f - t0);
+                    ro1 = rOut1 - trackW * (1.0f - t1);
+                    sf::Color tc = shadeColor(track, (b % 2) ? 0.92f : 1.05f);
+                    addQuad(
+                        m,
+                        L.fromHome(ri0, ang0, 0.018f + b * 0.001f),
+                        L.fromHome(ri1, ang1, 0.018f + b * 0.001f),
+                        L.fromHome(ro1, ang1, 0.018f + b * 0.001f),
+                        L.fromHome(ro0, ang0, 0.018f + b * 0.001f),
+                        tc
+                    );
+                }
+            }
             // Apron: fence → stands (matches bowl, no void)
             float wall0 = L.wallRAtAngle(ang0);
             float wall1 = L.wallRAtAngle(ang1);
@@ -562,8 +579,21 @@ Mesh3D buildField(const Layout& L) {
             }
         }
     }
-    (void)aL;
-    (void)aR;
+    // ── Foul-line dirt strips (inside fair side of chalk) ──────────────
+    // Thin dirt apron along each foul line from home out past the infield.
+    {
+        const float lineDirtHw = 0.85f;
+        const float lineDirtY = 0.021f;
+        float foulLen = L.wallRAtAngle(aR) * 0.42f; // past diamond into OF
+        foulLen = std::max(foulLen, bp * 1.6f);
+        Vector3 flEnd = L.fromHome(foulLen, aL, 0.0f);
+        Vector3 frEnd = L.fromHome(foulLen, aR, 0.0f);
+        addDirtPath(m, home, flEnd, lineDirtHw, lineDirtY, shadeColor(dirt, 0.96f));
+        addDirtPath(m, home, frEnd, lineDirtHw, lineDirtY, shadeColor(dirt, 0.96f));
+        // Slightly darker packed edge under chalk
+        addDirtPath(m, home, flEnd, lineDirtHw * 0.28f, lineDirtY + 0.002f, dirtDark);
+        addDirtPath(m, home, frEnd, lineDirtHw * 0.28f, lineDirtY + 0.002f, dirtDark);
+    }
 
     // ── Classic skinned infield ────────────────────────────────────────
     // Dirt = paths + circles + thin diamond lip (not a giant brown slab).
