@@ -33,12 +33,17 @@ void PhysicsWorld2D::step(float dt) {
         body->applyForce(gravity * body->mass);
         body->update(dt);
 
+        // Static bodies are immovable anchors; skip world-bound response like 3D.
+        if (body->isStatic()) {
+            continue;
+        }
+
         // Ground
         if (body->position.y + body->radius > groundY) {
             body->position.y = groundY - body->radius;
             body->velocity.y *= -body->restitution;
 
-            applySurfaceResponse(body, Vector2(0, -1));
+            applySurfaceResponse(body, Vector2(0.0f, -1.0f));
         }
 
         // Ceiling
@@ -46,28 +51,28 @@ void PhysicsWorld2D::step(float dt) {
             body->position.y = ceilingY + body->radius;
             body->velocity.y *= -body->restitution;
 
-            applySurfaceResponse(body, Vector2(0, 1));
+            applySurfaceResponse(body, Vector2(0.0f, 1.0f));
         }
 
-        //Left wall
+        // Left wall
         if (body->position.x - body->radius < leftWall) {
             body->position.x = leftWall + body->radius;
             body->velocity.x *= -body->restitution;
 
-            applySurfaceResponse(body, Vector2(1, 0));
+            applySurfaceResponse(body, Vector2(1.0f, 0.0f));
         }
 
-        //Right wall
+        // Right wall
         if (body->position.x + body->radius > rightWall) {
             body->position.x = rightWall - body->radius;
             body->velocity.x *= -body->restitution;
 
-            applySurfaceResponse(body, Vector2(-1, 0));
+            applySurfaceResponse(body, Vector2(-1.0f, 0.0f));
         }
     }
 
     // Resolve body-to-body collisions multiple times for stability
-    int iterations = 5;
+    const int iterations = 5;
 
     for (int k = 0; k < iterations; k++) {
         collectContacts();

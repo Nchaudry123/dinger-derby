@@ -1,9 +1,12 @@
 #include "Body2D.h"
+
+#include <algorithm>
 #include <cmath>
+
 Body2D::Body2D() {
-    position = Vector2(0, 0);
-    velocity = Vector2(0, 0);
-    acceleration = Vector2(0, 0);
+    position = Vector2(0.0f, 0.0f);
+    velocity = Vector2(0.0f, 0.0f);
+    acceleration = Vector2(0.0f, 0.0f);
 
     radius = 1.0f;
     mass = 1.0f;
@@ -23,11 +26,11 @@ Body2D::Body2D() {
 
 Body2D::Body2D(Vector2 startPosition, float mass) {
     position = startPosition;
-    velocity = Vector2(0, 0);
-    acceleration = Vector2(0, 0);
+    velocity = Vector2(0.0f, 0.0f);
+    acceleration = Vector2(0.0f, 0.0f);
 
     radius = 1.0f;
-    this->mass = mass;
+    this->mass = std::max(mass, 0.001f);
     restitution = 0.7f;
 
     rotation = 0.0f;
@@ -55,19 +58,19 @@ float Body2D::inverseMass() const {
 }
 
 void Body2D::setMass(float newMass) {
-    mass = newMass;
+    mass = std::max(newMass, 0.001f);
     updateMomentOfInertia();
 }
 
 void Body2D::setRadius(float newRadius) {
-    radius = newRadius;
+    radius = std::max(newRadius, 0.001f);
     updateMomentOfInertia();
 }
 
 void Body2D::setStatic() {
     type = Body2DType::Static;
-    velocity = Vector2(0, 0);
-    acceleration = Vector2(0, 0);
+    velocity = Vector2(0.0f, 0.0f);
+    acceleration = Vector2(0.0f, 0.0f);
     angularVelocity = 0.0f;
     angularAcceleration = 0.0f;
     torque = 0.0f;
@@ -117,7 +120,7 @@ void Body2D::update(float dt) {
 
     rotation += angularVelocity * dt;
 
-    acceleration = Vector2(0, 0);
+    acceleration = Vector2(0.0f, 0.0f);
     torque = 0.0f;
 
     float speed = velocity.magnitude();
@@ -126,8 +129,8 @@ void Body2D::update(float dt) {
         sleepTimer += dt;
 
         if (sleepTimer > 1.0f) {
-            velocity = Vector2(0, 0);
-            acceleration = Vector2(0, 0);
+            velocity = Vector2(0.0f, 0.0f);
+            acceleration = Vector2(0.0f, 0.0f);
             angularVelocity = 0.0f;
             angularAcceleration = 0.0f;
             torque = 0.0f;
