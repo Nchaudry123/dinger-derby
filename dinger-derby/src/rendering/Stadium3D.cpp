@@ -107,6 +107,16 @@ void addArcWall(
 }
 
 // Fence with distance + height varying by spray angle (asymmetric park).
+// Vertical bands on the fence for a brick/panel texture (no real textures).
+sf::Color shadeColor(sf::Color c, float mul) {
+    return sf::Color(
+        static_cast<std::uint8_t>(std::clamp(c.r * mul, 0.0f, 255.0f)),
+        static_cast<std::uint8_t>(std::clamp(c.g * mul, 0.0f, 255.0f)),
+        static_cast<std::uint8_t>(std::clamp(c.b * mul, 0.0f, 255.0f)),
+        c.a
+    );
+}
+
 void addAsymmetricOutfieldWall(
     Mesh3D& m,
     const Layout& L,
@@ -116,6 +126,7 @@ void addAsymmetricOutfieldWall(
     sf::Color face,
     sf::Color top
 ) {
+    const int vBands = 4; // horizontal panel rows on wall face
     for (int i = 0; i < segs; i++) {
         float t0 = static_cast<float>(i) / segs;
         float t1 = static_cast<float>(i + 1) / segs;
@@ -125,16 +136,25 @@ void addAsymmetricOutfieldWall(
         float r1 = L.wallRAtAngle(ang1);
         float h0 = L.wallHeightAtAngle(ang0);
         float h1 = L.wallHeightAtAngle(ang1);
-        Vector3 b0 = L.fromHome(r0, ang0, 0.0f);
-        Vector3 b1 = L.fromHome(r1, ang1, 0.0f);
-        Vector3 tA = L.fromHome(r0, ang0, h0);
-        Vector3 tB = L.fromHome(r1, ang1, h1);
-        addQuad(m, b0, b1, tB, tA, face);
-        addQuad(m, b1, b0, tA, tB, face);
+        float faceMul = (i % 2 == 0) ? 1.0f : 0.88f;
+        for (int v = 0; v < vBands; v++) {
+            float u0 = static_cast<float>(v) / vBands;
+            float u1 = static_cast<float>(v + 1) / vBands;
+            float rowMul = faceMul * (0.92f + 0.12f * static_cast<float>(v % 2));
+            sf::Color rowCol = shadeColor(face, rowMul);
+            Vector3 b0 = L.fromHome(r0, ang0, h0 * u0);
+            Vector3 b1 = L.fromHome(r1, ang1, h1 * u0);
+            Vector3 tA = L.fromHome(r0, ang0, h0 * u1);
+            Vector3 tB = L.fromHome(r1, ang1, h1 * u1);
+            addQuad(m, b0, b1, tB, tA, rowCol);
+            addQuad(m, b1, b0, tA, tB, shadeColor(rowCol, 0.85f));
+        }
+        Vector3 topA = L.fromHome(r0, ang0, h0);
+        Vector3 topB = L.fromHome(r1, ang1, h1);
         Vector3 outer0 = L.fromHome(r0 + 1.8f, ang0, h0);
         Vector3 outer1 = L.fromHome(r1 + 1.8f, ang1, h1);
-        addQuad(m, tA, tB, outer1, outer0, top);
-        addQuad(m, tB, tA, outer0, outer1, top);
+        addQuad(m, topA, topB, outer1, outer0, top);
+        addQuad(m, topB, topA, outer0, outer1, shadeColor(top, 0.9f));
     }
 }
 
@@ -241,7 +261,7 @@ Mesh3D buildField(const Layout& L) {
     const float aR = L.foulAngleRad();
     const float plateZ = L.plateZ();
     const float bp = L.basePath();
-    const int ringSegs = 80;
+    const int ringSegs = 144; // high-res field disk
 
     const Vector3 home = L.home();
     const Vector3 b1 = L.firstBase();
@@ -295,20 +315,26 @@ Mesh3D buildField(const Layout& L) {
         );
 
         if (fair) {
-            // Mowing stripes (mid-OF dark bands) — only beyond diamond.
-            float stripeIn = bp * 1.35f;
-            float mid0 = std::max(stripeIn, rOut0 * 0.52f);
-            float mid1 = std::max(stripeIn, rOut1 * 0.52f);
-            float mid0b = std::min(rOut0 - 4.0f, rOut0 * 0.66f);
-            float mid1b = std::min(rOut1 - 4.0f, rOut1 * 0.66f);
-            if (mid0b > mid0 + 0.5f) {
+            // Multi-band mowing stripes beyond diamond (vertex "texture").
+            float stripeIn = bp * 1.30f;
+            for (int s = 0; s < 5; s++) {
+                float u0 = 0.42f + s * 0.09f;
+                float u1 = u0 + 0.045f;
+                float mid0 = std::max(stripeIn, rOut0 * u0);
+                float mid1 = std::max(stripeIn, rOut1 * u0);
+                float mid0b = std::min(rOut0 - 3.8f, rOut0 * u1);
+                float mid1b = std::min(rOut1 - 3.8f, rOut1 * u1);
+                if (mid0b <= mid0 + 0.4f) {
+                    continue;
+                }
+                sf::Color stripe = (s % 2 == 0) ? grassDark : shadeColor(grass, 0.95f);
                 addQuad(
                     m,
-                    L.fromHome(mid0, ang0, 0.012f),
-                    L.fromHome(mid1, ang1, 0.012f),
-                    L.fromHome(mid1b, ang1, 0.012f),
-                    L.fromHome(mid0b, ang0, 0.012f),
-                    grassDark
+                    L.fromHome(mid0, ang0, 0.012f + s * 0.001f),
+                    L.fromHome(mid1, ang1, 0.012f + s * 0.001f),
+                    L.fromHome(mid1b, ang1, 0.012f + s * 0.001f),
+                    L.fromHome(mid0b, ang0, 0.012f + s * 0.001f),
+                    stripe
                 );
             }
             // Warning track inside fence
@@ -366,11 +392,11 @@ Mesh3D buildField(const Layout& L) {
     addDirtPath(m, b3, home, pathHw, 0.038f, dirtPath);
     addDirtPath(m, L.mound(), b2, pathHw * 0.6f, 0.038f, dirtPath);
 
-    addDisk(m, L.mound(), 6.5f, 0.042f, 28, dirt);
-    addDisk(m, home, 7.5f, 0.042f, 28, dirt);
-    addDisk(m, b1, 3.0f, 0.046f, 16, dirt);
-    addDisk(m, b2, 3.0f, 0.046f, 16, dirt);
-    addDisk(m, b3, 3.0f, 0.046f, 16, dirt);
+    addDisk(m, L.mound(), 6.5f, 0.042f, 40, dirt);
+    addDisk(m, home, 7.5f, 0.042f, 40, dirt);
+    addDisk(m, b1, 3.0f, 0.046f, 24, dirt);
+    addDisk(m, b2, 3.0f, 0.046f, 24, dirt);
+    addDisk(m, b3, 3.0f, 0.046f, 24, dirt);
 
     // Raised mound
     {
@@ -442,7 +468,7 @@ Mesh3D buildWalls(const Layout& L) {
     Mesh3D m;
     const float aL = -L.foulAngleRad();
     const float aR = L.foulAngleRad();
-    const int segs = 64;
+    const int segs = 112; // denser fence silhouette
 
     // Main fence — Citizens Bank–style distances (329 LF … 404 deep … 330 RF).
     sf::Color wall(55, 70, 95);
@@ -590,13 +616,13 @@ Mesh3D buildStands(const Layout& L) {
     sf::Color concourse(70, 75, 85);
     sf::Color upper(100, 75, 80);
 
-    // Full 360° lower bowl + upper deck
-    const int angSegs = 72;
-    const int lowerRows = 14;
-    const int upperRows = 8;
-    const float rowDepth = 2.6f;
-    const float rowRise = 1.05f;
-    const float upperGap = 3.5f;
+    // Full 360° lower bowl + upper deck (higher angular + row density)
+    const int angSegs = 120;
+    const int lowerRows = 18;
+    const int upperRows = 12;
+    const float rowDepth = 2.15f;
+    const float rowRise = 0.92f;
+    const float upperGap = 3.2f;
 
     for (int i = 0; i < angSegs; i++) {
         float t0 = static_cast<float>(i) / angSegs;
@@ -607,8 +633,8 @@ Mesh3D buildStands(const Layout& L) {
         float rIn = bowlInnerRadius(L, angM);
         float yBase = bowlBaseHeight(L, angM);
 
-        // Aisle every 6 sectors
-        bool isAisle = (i % 6) == 0;
+        // Aisle every 8 sectors
+        bool isAisle = (i % 8) == 0;
         sf::Color rowSeat = isAisle ? aisle : ((i % 2) ? seat : seatAlt);
 
         for (int row = 0; row < lowerRows; row++) {
@@ -616,16 +642,16 @@ Mesh3D buildStands(const Layout& L) {
             float r1 = r0 + rowDepth * 0.92f;
             float y0 = yBase + row * rowRise;
             float y1 = y0 + rowRise * 0.85f;
-            // Seat tread
+            // Subtle per-row color variation (fabric texture feel)
+            sf::Color seatCol = shadeColor(rowSeat, 0.94f + 0.08f * static_cast<float>((row + i) % 3) / 2.0f);
             addQuad(
                 m,
                 L.fromHome(r0, ang0, y1),
                 L.fromHome(r0, ang1, y1),
                 L.fromHome(r1, ang1, y1),
                 L.fromHome(r1, ang0, y1),
-                rowSeat
+                seatCol
             );
-            // Riser
             addQuad(
                 m,
                 L.fromHome(r0, ang0, y0),
@@ -720,12 +746,12 @@ Mesh3D buildStands(const Layout& L) {
 // Build low-poly fans in kFanSectors angular wedges for cheer animation.
 std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     std::vector<Mesh3D> sectors(kFanSectorCount);
-    const int angSamples = 120; // denser angular packing
-    const int lowerRows = 14;
-    const int upperRows = 8;
-    const float rowDepth = 2.6f;
-    const float rowRise = 1.05f;
-    const float upperGap = 3.5f;
+    const int angSamples = 160; // denser angular packing
+    const int lowerRows = 18;
+    const int upperRows = 12;
+    const float rowDepth = 2.15f;
+    const float rowRise = 0.92f;
+    const float upperGap = 3.2f;
 
     int fanId = 0;
     for (int i = 0; i < angSamples; i++) {
@@ -740,7 +766,7 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             if ((i + row * 2) % 5 == 0) {
                 continue; // sparse empty seats
             }
-            if (i % 6 == 0) {
+            if (i % 8 == 0) {
                 continue; // aisle
             }
             float r = rIn + (row + 0.45f) * rowDepth;
@@ -858,19 +884,19 @@ Mesh3D buildCity(const Layout& L) {
     sf::Color trunk(70, 50, 30);
 
     // Suburb ground starts just outside the max fence (overlaps stand apron slightly).
-    addAnnulusSector(m, L, baseR + 1.0f, baseR + 220.0f, -pi, pi, -0.02f, 72, grassFar);
+    addAnnulusSector(m, L, baseR + 1.0f, baseR + 220.0f, -pi, pi, -0.02f, 96, grassFar);
     // Subtle outer grass darkening for depth
-    addAnnulusSector(m, L, baseR + 160.0f, baseR + 220.0f, -pi, pi, -0.01f, 48, grassFarDark);
+    addAnnulusSector(m, L, baseR + 160.0f, baseR + 220.0f, -pi, pi, -0.01f, 64, grassFarDark);
     // Outer ring road
     addAnnulusSector(
-        m, L, baseR + 55.0f, baseR + 62.0f, -pi, pi, 0.01f, 64, road
+        m, L, baseR + 55.0f, baseR + 62.0f, -pi, pi, 0.01f, 80, road
     );
     addAnnulusSector(
-        m, L, baseR + 120.0f, baseR + 128.0f, -pi, pi, 0.01f, 64, road
+        m, L, baseR + 120.0f, baseR + 128.0f, -pi, pi, 0.01f, 80, road
     );
 
     // Buildings full 360° so every camera sees a skyline.
-    const int buildingCount = 96;
+    const int buildingCount = 140;
     for (int i = 0; i < buildingCount; i++) {
         float t = static_cast<float>(i) / buildingCount;
         float ang = -pi + t * (2.0f * pi);
@@ -1125,6 +1151,269 @@ float Layout::bowlBaseHeight(float ang) const {
     float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
     u2 = u2 * u2 * (3.0f - 2.0f * u2);
     return 2.2f + u2 * 5.5f;
+}
+
+namespace {
+
+void killOutwardVelocity(Vector3& vel, const Vector3& outwardNormal, bool stick) {
+    if (stick) {
+        vel = Vector3();
+        return;
+    }
+    float vn = vel.x * outwardNormal.x + vel.y * outwardNormal.y + vel.z * outwardNormal.z;
+    if (vn > 0.0f) {
+        vel = vel - outwardNormal * (vn * 1.15f);
+    }
+}
+
+bool resolveAabbSphere(
+    Vector3& pos,
+    Vector3& vel,
+    float radius,
+    const Vector3& boxCenter,
+    const Vector3& halfExtents,
+    bool stick,
+    BallCollisionHit& hit,
+    HitSurface surface
+) {
+    Vector3 local = pos - boxCenter;
+    Vector3 closest(
+        std::clamp(local.x, -halfExtents.x, halfExtents.x),
+        std::clamp(local.y, -halfExtents.y, halfExtents.y),
+        std::clamp(local.z, -halfExtents.z, halfExtents.z)
+    );
+    Vector3 delta = local - closest;
+    float d2 = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+    if (d2 > radius * radius && d2 > 1e-10f) {
+        return false;
+    }
+    // Inside or penetrating
+    Vector3 n;
+    if (d2 < 1e-8f) {
+        // Deep inside — push out along smallest axis penetration.
+        float px = halfExtents.x - std::abs(local.x);
+        float py = halfExtents.y - std::abs(local.y);
+        float pz = halfExtents.z - std::abs(local.z);
+        if (px <= py && px <= pz) {
+            n = Vector3(local.x >= 0.0f ? 1.0f : -1.0f, 0, 0);
+            pos.x = boxCenter.x + n.x * (halfExtents.x + radius);
+        } else if (py <= pz) {
+            n = Vector3(0, local.y >= 0.0f ? 1.0f : -1.0f, 0);
+            pos.y = boxCenter.y + n.y * (halfExtents.y + radius);
+        } else {
+            n = Vector3(0, 0, local.z >= 0.0f ? 1.0f : -1.0f);
+            pos.z = boxCenter.z + n.z * (halfExtents.z + radius);
+        }
+    } else {
+        float d = std::sqrt(d2);
+        n = delta * (1.0f / d);
+        pos = boxCenter + closest + n * radius;
+    }
+    killOutwardVelocity(vel, n, stick);
+    hit.surface = surface;
+    hit.impactY = pos.y;
+    if (stick) {
+        hit.stuck = true;
+        vel = Vector3();
+    }
+    return true;
+}
+
+} // namespace
+
+BallCollisionHit collideBall(
+    const Layout& layout,
+    Vector3& position,
+    Vector3& velocity,
+    float radius,
+    bool stickOnContact
+) {
+    BallCollisionHit hit;
+    const float plateZ = layout.plateZ();
+    const float fa = layout.foulAngleRad();
+
+    // ── Ground ────────────────────────────────────────────────────────
+    const float groundY = radius + 0.01f;
+    if (position.y < groundY) {
+        position.y = groundY;
+        if (velocity.y < 0.0f) {
+            hit.surface = HitSurface::Ground;
+            hit.impactY = groundY;
+            if (stickOnContact) {
+                velocity = Vector3();
+                hit.stuck = true;
+            } else {
+                velocity.y = -velocity.y * 0.15f;
+                velocity.x *= 0.7f;
+                velocity.z *= 0.7f;
+            }
+        }
+    }
+
+    float r = 0.0f;
+    float ang = 0.0f;
+    layout.polarFromHome(position, r, ang);
+    hit.sprayDeg = ang * (180.0f / pi);
+    bool fair = std::abs(ang) <= fa + 0.02f;
+
+    // ── Asymmetric OF fence (solid face below wall top) ────────────────
+    if (fair && r > 1.0f) {
+        float wallR = layout.wallRAtAngle(ang);
+        float wallH = layout.wallHeightAtAngle(ang);
+        hit.wallTopY = wallH;
+        hit.fenceFeet = layout.wallFeetAtAngle(ang);
+        if (r + radius > wallR) {
+            if (position.y <= wallH + radius * 0.35f) {
+                // Hit fence face — push back into the field.
+                Vector3 onWall = layout.fromHome(wallR - radius - 0.02f, ang, position.y);
+                onWall.y = std::clamp(position.y, groundY, wallH - 0.02f);
+                // Radial outward normal (from home toward ball).
+                Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
+                position = onWall;
+                killOutwardVelocity(velocity, n, stickOnContact);
+                hit.surface = HitSurface::Fence;
+                hit.impactY = position.y;
+                if (stickOnContact) {
+                    velocity = Vector3();
+                    hit.stuck = true;
+                }
+            } else {
+                // Over the top — free flight, mark clear.
+                hit.surface = HitSurface::FenceTopClear;
+                hit.impactY = position.y;
+            }
+        }
+    }
+
+    // ── Foul poles (thin vertical cylinders) ───────────────────────────
+    auto collidePole = [&](float poleAng) {
+        Vector3 poleBase = layout.wallPoint(poleAng, 0.0f);
+        float poleH = layout.wallHeightAtAngle(poleAng) * 3.4f;
+        float pr = 0.55f;
+        Vector3 d(position.x - poleBase.x, 0.0f, position.z - poleBase.z);
+        float dist = std::sqrt(d.x * d.x + d.z * d.z);
+        if (position.y < 0.0f || position.y > poleH + 2.0f) {
+            return;
+        }
+        if (dist < pr + radius && dist > 1e-5f) {
+            Vector3 n = d * (1.0f / dist);
+            position.x = poleBase.x + n.x * (pr + radius);
+            position.z = poleBase.z + n.z * (pr + radius);
+            killOutwardVelocity(velocity, n, stickOnContact);
+            hit.surface = HitSurface::FoulPole;
+            hit.impactY = position.y;
+            if (stickOnContact) {
+                velocity = Vector3();
+                hit.stuck = true;
+            }
+        }
+    };
+    collidePole(fa);
+    collidePole(-fa);
+
+    // ── Backstop (arc behind home) ─────────────────────────────────────
+    {
+        float backR = 12.5f;
+        float backH = 9.0f;
+        // Behind home: angles near ±pi
+        float aAbs = std::abs(ang);
+        if (aAbs > fa + 0.2f && r + radius > backR && position.y < backH + radius) {
+            // Only when mostly behind the plate (ang toward +Z from home = π)
+            float behind = -std::cos(ang); // 1 at catcher side
+            if (behind > 0.35f) {
+                Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
+                position = layout.fromHome(backR - radius - 0.02f, ang, std::min(position.y, backH));
+                position.y = std::max(position.y, groundY);
+                killOutwardVelocity(velocity, n, stickOnContact);
+                hit.surface = HitSurface::Backstop;
+                hit.impactY = position.y;
+                if (stickOnContact) {
+                    velocity = Vector3();
+                    hit.stuck = true;
+                }
+            }
+        }
+    }
+
+    // ── Lower bowl / stands face (ball cannot enter seating bowl) ──────
+    {
+        float rBowl = layout.bowlInnerRadius(ang) - 0.4f;
+        float yTop = layout.bowlBaseHeight(ang) + 16.0f;
+        if (r + radius > rBowl && position.y < yTop && position.y > -0.1f) {
+            // In fair territory only beyond the fence (don't clip infield).
+            float wallR = fair ? layout.wallRAtAngle(ang) : 0.0f;
+            bool pastFence = !fair || r > wallR - 0.5f;
+            if (pastFence) {
+                Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
+                position = layout.fromHome(rBowl - radius - 0.02f, ang, position.y);
+                position.y = std::max(position.y, groundY);
+                killOutwardVelocity(velocity, n, stickOnContact);
+                hit.surface = HitSurface::Stands;
+                hit.impactY = position.y;
+                if (stickOnContact) {
+                    velocity = Vector3();
+                    hit.stuck = true;
+                }
+            }
+        }
+    }
+
+    // ── Dugouts (foul-side boxes along baselines) ──────────────────────
+    {
+        Vector3 home = layout.home();
+        Vector3 b1 = layout.firstBase();
+        Vector3 b3 = layout.thirdBase();
+        Vector3 mid1 = (home + b1) * 0.5f;
+        Vector3 mid3 = (home + b3) * 0.5f;
+        auto foulN = [](const Vector3& along, float preferX) {
+            Vector3 n(-along.z, 0.0f, along.x);
+            float nm = n.magnitude();
+            if (nm > 1e-4f) {
+                n = n * (1.0f / nm);
+            }
+            if (n.x * preferX < 0.0f) {
+                n = n * -1.0f;
+            }
+            return n;
+        };
+        Vector3 n1 = foulN(b1 - home, +1.0f);
+        Vector3 n3 = foulN(b3 - home, -1.0f);
+        Vector3 c1 = Vector3(mid1.x, 1.0f, mid1.z) + n1 * 10.0f;
+        Vector3 c3 = Vector3(mid3.x, 1.0f, mid3.z) + n3 * 10.0f;
+        resolveAabbSphere(
+            position, velocity, radius, c1, Vector3(7.0f, 1.1f, 2.2f), stickOnContact, hit,
+            HitSurface::Dugout
+        );
+        resolveAabbSphere(
+            position, velocity, radius, c3, Vector3(7.0f, 1.1f, 2.2f), stickOnContact, hit,
+            HitSurface::Dugout
+        );
+    }
+
+    // ── CF scoreboard chassis ──────────────────────────────────────────
+    {
+        float cfR = layout.wallRAtAngle(0.0f);
+        float cfH = layout.wallHeightAtAngle(0.0f);
+        Vector3 cf = layout.fromHome(cfR + 8.0f, 0.0f, cfH + 10.0f);
+        resolveAabbSphere(
+            position, velocity, radius, cf, Vector3(16.5f, 8.5f, 2.0f), stickOnContact, hit,
+            HitSurface::Scoreboard
+        );
+    }
+
+    // Re-clamp ground after other resolves
+    if (position.y < groundY) {
+        position.y = groundY;
+        if (stickOnContact) {
+            velocity = Vector3();
+            hit.stuck = true;
+            if (hit.surface == HitSurface::None) {
+                hit.surface = HitSurface::Ground;
+            }
+        }
+    }
+
+    return hit;
 }
 
 WallClearResult evaluateWallClear(

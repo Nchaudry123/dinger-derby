@@ -111,6 +111,38 @@ WallClearResult evaluateWallClear(
     float dragK = 0.012f
 );
 
+// Solid stadium collision for a sphere (fence, backstop, dugouts, board, ground).
+// Mutates pos/vel so the ball cannot travel through park geometry.
+enum class HitSurface {
+    None = 0,
+    Ground,
+    Fence,
+    FenceTopClear, // crossed fence above wall height (not a bounce)
+    Backstop,
+    Dugout,
+    Scoreboard,
+    Stands,
+    FoulPole
+};
+
+struct BallCollisionHit {
+    HitSurface surface = HitSurface::None;
+    bool stuck = false;       // velocity zeroed (land/wall stick)
+    float impactY = 0.0f;     // ball Y at contact
+    float wallTopY = 0.0f;    // fence top when relevant
+    float sprayDeg = 0.0f;
+    float fenceFeet = 0.0f;
+};
+
+// stickOnContact: true for HR-derby landings (no bounce/roll).
+BallCollisionHit collideBall(
+    const Layout& layout,
+    Vector3& position,
+    Vector3& velocity,
+    float radius,
+    bool stickOnContact = true
+);
+
 // Fan sections for cheer-wave animation (draw each with a small Y bob).
 constexpr int kFanSectorCount = 16;
 // Flags around the park (draw with flagSwayYaw for wind).

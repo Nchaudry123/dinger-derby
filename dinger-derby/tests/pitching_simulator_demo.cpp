@@ -1712,6 +1712,14 @@ int main() {
                 Vector3 wake = residualTurbulence(currentVariation, baseball.position, pitchAge);
                 baseball.applyForce(wake * baseball.mass);
                 world.step(fixedStep);
+                // Park solids (ground/backstop/dugouts) — light bounce, no stick.
+                Stadium3D::collideBall(
+                    stadiumLayout,
+                    baseball.position,
+                    baseball.velocity,
+                    baseball.radius,
+                    false
+                );
                 bool reachedPlate = freezePitchAtPlate(baseball, previousPosition, trail);
                 if (reachedPlate) {
                     const PitchProfile& thrown = pitches[activePitch];
