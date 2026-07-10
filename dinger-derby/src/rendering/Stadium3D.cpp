@@ -1001,17 +1001,59 @@ Mesh3D buildWalls(const Layout& L) {
         sf::Color(200, 200, 190, 180)
     );
 
-    // Distance markers on wall (readable from field)
-    auto mark = [&](float angDeg, const char* /*label*/) {
+    // Distance markers on wall — larger white plates + bar "digits" for field read.
+    auto mark = [&](float angDeg, int hundreds, int tens, int ones) {
         float ang = angDeg * pi / 180.0f;
         float r = L.wallRAtAngle(ang);
         float h = L.wallHeightAtAngle(ang);
-        Vector3 c = L.fromHome(r - 0.6f, ang, h * 0.55f);
-        addBox(m, c, 2.4f, 1.6f, 0.35f, sf::Color(250, 250, 245));
+        Vector3 c = L.fromHome(r - 0.55f, ang, h * 0.62f);
+        // Plate
+        addBox(m, c, 4.2f, 2.6f, 0.45f, sf::Color(252, 252, 248));
+        // Dark border frame
+        addBox(m, c + Vector3(0, 0, 0.05f), 4.5f, 2.9f, 0.2f, sf::Color(40, 45, 50));
+        // Simple 7-seg style bars for three digits (readable as block numerals)
+        auto digit = [&](float xOff, int d) {
+            Vector3 o = c + Vector3(xOff, 0.0f, 0.28f);
+            sf::Color ink(25, 30, 35);
+            // Always draw a chunky block "numeral" using horizontal/vertical bars
+            // based on digit value patterns (rough but legible at distance).
+            bool segs[7] = {false, false, false, false, false, false, false};
+            // 0-9 seven-seg
+            switch (d) {
+                case 0: segs[0]=segs[1]=segs[2]=segs[3]=segs[4]=segs[5]=true; break;
+                case 1: segs[1]=segs[2]=true; break;
+                case 2: segs[0]=segs[1]=segs[6]=segs[4]=segs[3]=true; break;
+                case 3: segs[0]=segs[1]=segs[6]=segs[2]=segs[3]=true; break;
+                case 4: segs[5]=segs[6]=segs[1]=segs[2]=true; break;
+                case 5: segs[0]=segs[5]=segs[6]=segs[2]=segs[3]=true; break;
+                case 6: segs[0]=segs[5]=segs[6]=segs[2]=segs[3]=segs[4]=true; break;
+                case 7: segs[0]=segs[1]=segs[2]=true; break;
+                case 8: segs[0]=segs[1]=segs[2]=segs[3]=segs[4]=segs[5]=segs[6]=true; break;
+                case 9: segs[0]=segs[1]=segs[2]=segs[3]=segs[5]=segs[6]=true; break;
+                default: break;
+            }
+            const float bw = 0.55f;
+            const float bh = 0.14f;
+            const float bv = 0.55f;
+            if (segs[0]) addBox(m, o + Vector3(0, 0.75f, 0), bw, bh, 0.12f, ink);           // top
+            if (segs[6]) addBox(m, o + Vector3(0, 0.0f, 0), bw, bh, 0.12f, ink);            // mid
+            if (segs[3]) addBox(m, o + Vector3(0, -0.75f, 0), bw, bh, 0.12f, ink);          // bot
+            if (segs[5]) addBox(m, o + Vector3(-0.28f, 0.38f, 0), bh, bv, 0.12f, ink);      // UL
+            if (segs[1]) addBox(m, o + Vector3(0.28f, 0.38f, 0), bh, bv, 0.12f, ink);       // UR
+            if (segs[4]) addBox(m, o + Vector3(-0.28f, -0.38f, 0), bh, bv, 0.12f, ink);     // LL
+            if (segs[2]) addBox(m, o + Vector3(0.28f, -0.38f, 0), bh, bv, 0.12f, ink);      // LR
+        };
+        digit(-1.2f, hundreds);
+        digit(0.0f, tens);
+        digit(1.2f, ones);
+        // Accent bar under plate
+        addBox(m, c + Vector3(0, -1.55f, 0.2f), 3.6f, 0.2f, 0.15f, sf::Color(200, 40, 50));
     };
-    mark(-45.0f, "329");
-    mark(0.0f, "401");
-    mark(45.0f, "330");
+    mark(-45.0f, 3, 2, 9); // LF 329
+    mark(-18.0f, 3, 7, 4); // LCF ~374
+    mark(0.0f, 4, 0, 1);   // CF 401
+    mark(18.0f, 3, 6, 9);  // RCF ~369
+    mark(45.0f, 3, 3, 0);  // RF 330
 
     // CF scoreboard chassis (screen face is a separate mesh for pulse).
     float cfR = L.wallRAtAngle(0.0f);
