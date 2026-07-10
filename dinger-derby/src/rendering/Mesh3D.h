@@ -28,6 +28,8 @@ public:
     std::vector<Triangle3D> triangles;
     std::vector<sf::Color> triangleColors;
     std::vector<Vector3> triangleNormals;
+    // Optional smooth shading. Empty => flat triangle colors at draw time.
+    std::vector<Vector3> vertexNormals;
 
     static Mesh3D cube(float size = 2.0f);
     static Mesh3D sphere(float radius = 1.0f, int rings = 8, int segments = 12);
@@ -36,4 +38,5 @@ public:
 
 private:
     void buildTriangleNormals();
+    void buildSphereVertexNormals(float radius);
 };

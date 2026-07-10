@@ -18,6 +18,17 @@ public:
         sf::Color color
     );
 
+    // Gouraud: interpolate vertex colors with the same coverage AA path.
+    static void drawTriangle(
+        FrameBuffer& frameBuffer,
+        const Vector3& a,
+        const Vector3& b,
+        const Vector3& c,
+        sf::Color colorA,
+        sf::Color colorB,
+        sf::Color colorC
+    );
+
 private:
     static float edgeFunction(
         const Vector3& a,

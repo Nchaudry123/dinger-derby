@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 namespace {
 
@@ -10,8 +11,7 @@ struct SampleOffset {
     float y;
 };
 
-// 4x4 ordered grid for coverage AA. Enough for clean silhouettes at native /
-// supersampled resolution without any extra GPU/API dependencies.
+// 4x4 ordered grid for coverage AA.
 const SampleOffset coverageSamples[16] = {
     {0.125f, 0.125f}, {0.375f, 0.125f}, {0.625f, 0.125f}, {0.875f, 0.125f},
     {0.125f, 0.375f}, {0.375f, 0.375f}, {0.625f, 0.375f}, {0.875f, 0.375f},
@@ -22,6 +22,25 @@ const SampleOffset coverageSamples[16] = {
 constexpr float sampleCoverage = 1.0f / 16.0f;
 
 bool antiAliasingEnabled = true;
+
+sf::Color interpolateColor(
+    sf::Color colorA,
+    sf::Color colorB,
+    sf::Color colorC,
+    float weightA,
+    float weightB,
+    float weightC
+) {
+    float red = colorA.r * weightA + colorB.r * weightB + colorC.r * weightC;
+    float green = colorA.g * weightA + colorB.g * weightB + colorC.g * weightC;
+    float blue = colorA.b * weightA + colorB.b * weightB + colorC.b * weightC;
+
+    return sf::Color(
+        static_cast<std::uint8_t>(std::clamp(red, 0.0f, 255.0f)),
+        static_cast<std::uint8_t>(std::clamp(green, 0.0f, 255.0f)),
+        static_cast<std::uint8_t>(std::clamp(blue, 0.0f, 255.0f))
+    );
+}
 
 }
 
@@ -39,6 +58,18 @@ void Rasterizer3D::drawTriangle(
     const Vector3& b,
     const Vector3& c,
     sf::Color color
+) {
+    drawTriangle(frameBuffer, a, b, c, color, color, color);
+}
+
+void Rasterizer3D::drawTriangle(
+    FrameBuffer& frameBuffer,
+    const Vector3& a,
+    const Vector3& b,
+    const Vector3& c,
+    sf::Color colorA,
+    sf::Color colorB,
+    sf::Color colorC
 ) {
     float minX = std::min({a.x, b.x, c.x});
     float maxX = std::max({a.x, b.x, c.x});
@@ -90,9 +121,18 @@ void Rasterizer3D::drawTriangle(
                     : edgeA <= 0.0f && edgeB <= 0.0f && edgeC <= 0.0f;
 
                 if (inside) {
-                    float depth =
-                        (a.z * edgeA + b.z * edgeB + c.z * edgeC) *
-                        inverseArea;
+                    float weightA = edgeA * inverseArea;
+                    float weightB = edgeB * inverseArea;
+                    float weightC = edgeC * inverseArea;
+                    float depth = a.z * weightA + b.z * weightB + c.z * weightC;
+                    sf::Color color = interpolateColor(
+                        colorA,
+                        colorB,
+                        colorC,
+                        weightA,
+                        weightB,
+                        weightC
+                    );
                     frameBuffer.setPixelFast(x, y, color, depth);
                 }
 
@@ -104,6 +144,9 @@ void Rasterizer3D::drawTriangle(
 
             int coveredSamples = 0;
             float depthSum = 0.0f;
+            float redSum = 0.0f;
+            float greenSum = 0.0f;
+            float blueSum = 0.0f;
 
             for (const SampleOffset& sample : coverageSamples) {
                 float offsetX = sample.x - 0.5f;
@@ -120,11 +163,13 @@ void Rasterizer3D::drawTriangle(
                     continue;
                 }
 
-                float depth =
-                    (a.z * sampleA + b.z * sampleB + c.z * sampleC) *
-                    inverseArea;
-
-                depthSum += depth;
+                float weightA = sampleA * inverseArea;
+                float weightB = sampleB * inverseArea;
+                float weightC = sampleC * inverseArea;
+                depthSum += a.z * weightA + b.z * weightB + c.z * weightC;
+                redSum += colorA.r * weightA + colorB.r * weightB + colorC.r * weightC;
+                greenSum += colorA.g * weightA + colorB.g * weightB + colorC.g * weightC;
+                blueSum += colorA.b * weightA + colorB.b * weightB + colorC.b * weightC;
                 coveredSamples++;
             }
 
@@ -136,7 +181,13 @@ void Rasterizer3D::drawTriangle(
             }
 
             float coverage = coveredSamples * sampleCoverage;
-            float depth = depthSum / coveredSamples;
+            float inverseSamples = 1.0f / static_cast<float>(coveredSamples);
+            float depth = depthSum * inverseSamples;
+            sf::Color color(
+                static_cast<std::uint8_t>(std::clamp(redSum * inverseSamples, 0.0f, 255.0f)),
+                static_cast<std::uint8_t>(std::clamp(greenSum * inverseSamples, 0.0f, 255.0f)),
+                static_cast<std::uint8_t>(std::clamp(blueSum * inverseSamples, 0.0f, 255.0f))
+            );
 
             frameBuffer.blendPixelFast(x, y, color, depth, coverage);
 

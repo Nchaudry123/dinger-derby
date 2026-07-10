@@ -87,11 +87,12 @@ Mesh3D Mesh3D::sphere(float radius, int rings, int segments) {
             float u = static_cast<float>(segment) / segments;
             float theta = u * pi * 2.0f;
 
-            mesh.vertices.push_back(Vector3(
+            Vector3 point(
                 std::cos(theta) * ringRadius,
                 y,
                 std::sin(theta) * ringRadius
-            ));
+            );
+            mesh.vertices.push_back(point);
         }
     }
 
@@ -138,8 +139,19 @@ Mesh3D Mesh3D::sphere(float radius, int rings, int segments) {
     }
 
     mesh.buildTriangleNormals();
+    mesh.buildSphereVertexNormals(radius);
 
     return mesh;
+}
+
+void Mesh3D::buildSphereVertexNormals(float radius) {
+    vertexNormals.clear();
+    vertexNormals.reserve(vertices.size());
+
+    float inverseRadius = radius > 0.0f ? 1.0f / radius : 1.0f;
+    for (const Vector3& vertex : vertices) {
+        vertexNormals.push_back(vertex * inverseRadius);
+    }
 }
 
 void Mesh3D::buildTriangleNormals() {
