@@ -190,7 +190,8 @@ float horizontalAimDeltaForCamera(PitchCameraMode mode, float screenDirection) {
 }
 
 Mesh3D makeBaseballMesh() {
-    Mesh3D mesh = Mesh3D::sphere(1.0f, 28, 56);
+    // Tessellation smooths silhouette facets; AA handles remaining edge stair-steps.
+    Mesh3D mesh = Mesh3D::sphere(1.0f, 36, 72);
     mesh.triangleColors.clear();
     mesh.triangleColors.reserve(mesh.triangles.size());
 
@@ -974,7 +975,15 @@ int main() {
     sf::Font font;
     bool fontLoaded = loadUiFont(font);
 
-    sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
+    auto resizeRaster = [&](sf::Vector2u windowSize) {
+        sf::Vector2u rasterSize = rasterSizeForWindow(
+            windowSize,
+            rasterScaleForAntiAliasing(antiAliasingEnabled)
+        );
+        return rasterSize;
+    };
+
+    sf::Vector2u rasterSize = resizeRaster(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
     Camera3D camera;
     PitchCameraMode cameraMode = PitchCameraMode::Overview;
@@ -1051,6 +1060,8 @@ int main() {
                 if (key->code == sf::Keyboard::Key::A) {
                     antiAliasingEnabled = !antiAliasingEnabled;
                     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
+                    rasterSize = resizeRaster(window.getSize());
+                    frameBuffer.resize(rasterSize.x, rasterSize.y);
                     fpsCounter.setTitle(
                         antiAliasingEnabled
                             ? "Pitching Simulator | R throws | AA on"
@@ -1155,7 +1166,7 @@ int main() {
                     sf::Vector2f(0.0f, 0.0f),
                     sf::Vector2f(resized->size.x, resized->size.y)
                 )));
-                rasterSize = rasterSizeForWindow(resized->size);
+                rasterSize = resizeRaster(resized->size);
                 frameBuffer.resize(rasterSize.x, rasterSize.y);
             }
         }
