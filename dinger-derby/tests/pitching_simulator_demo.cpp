@@ -425,8 +425,8 @@ int main() {
     sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
     Camera3D camera;
-    lookAt(camera, Vector3(0.0f, 1.52f, -3.05f), Vector3(0.0f, 1.28f, plateZ));
-    camera.fieldOfView = 34.0f;
+    lookAt(camera, Vector3(0.0f, 1.38f, 6.85f), Vector3(0.0f, 1.28f, plateZ));
+    camera.fieldOfView = 950.0f;
 
     Mesh3D baseballMesh = makeBaseballMesh();
     std::vector<SeamPoint> seamA = makeSeamLoop(false);
