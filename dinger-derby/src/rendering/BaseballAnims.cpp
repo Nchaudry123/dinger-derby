@@ -66,27 +66,50 @@ const std::vector<float> kT = {
 };
 
 // Arm helpers (hang-bind). Root is already sideways (~54° closed).
-Quaternion setThrowShoulder() { return eul(-1.20f, 0.90f, 0.20f); }
-Quaternion setThrowElbow() { return eul(1.48f, 0.0f, 0.10f); }
-Quaternion setGloveShoulder() { return eul(-1.15f, 0.85f, 0.15f); }
-Quaternion setGloveElbow() { return eul(1.45f, 0.0f, -0.05f); }
+// Rotations are written for a clavicle→shoulder→elbow→wrist chain so the
+// arm reads as a long whip instead of two hinged tubes.
+Quaternion setThrowShoulder() { return eul(-1.15f, 0.95f, 0.18f); }
+Quaternion setThrowElbow() { return eul(1.55f, 0.05f, 0.08f); }
+Quaternion setGloveShoulder() { return eul(-1.10f, 0.90f, 0.12f); }
+Quaternion setGloveElbow() { return eul(1.52f, -0.02f, -0.04f); }
 
-Quaternion kickThrowShoulder() { return eul(-1.28f, 0.88f, 0.22f); }
-Quaternion kickThrowElbow() { return eul(1.52f, 0.0f, 0.10f); }
-Quaternion kickGloveShoulder() { return eul(-1.22f, 0.82f, 0.15f); }
-Quaternion kickGloveElbow() { return eul(1.48f, 0.0f, -0.05f); }
+Quaternion kickThrowShoulder() { return eul(-1.22f, 0.92f, 0.20f); }
+Quaternion kickThrowElbow() { return eul(1.60f, 0.05f, 0.08f); }
+Quaternion kickGloveShoulder() { return eul(-1.18f, 0.88f, 0.14f); }
+Quaternion kickGloveElbow() { return eul(1.56f, -0.02f, -0.04f); }
 
-Quaternion laybackThrowShoulder() { return eul(-2.90f, -0.50f, 0.70f); }
-Quaternion laybackThrowElbow() { return eul(1.48f, 0.15f, 0.0f); }
+// Early cock: hand starts peeling back while elbow stays high.
+Quaternion earlyCockShoulder() { return eul(-1.55f, 0.25f, 0.35f); }
+Quaternion earlyCockElbow() { return eul(1.58f, 0.12f, 0.06f); }
 
-Quaternion releaseThrowShoulder() { return eul(-1.85f, -0.35f, 0.20f); }
-Quaternion releaseThrowElbow() { return eul(0.05f, 0.0f, 0.0f); }
+// Full scapular load / max external rotation — elbow up, hand deep behind.
+Quaternion laybackThrowShoulder() { return eul(-2.75f, -0.55f, 0.85f); }
+Quaternion laybackThrowElbow() { return eul(1.62f, 0.22f, 0.05f); }
 
-Quaternion releaseGloveShoulder() { return eul(-0.55f, 0.25f, -0.10f); }
-Quaternion releaseGloveElbow() { return eul(0.95f, 0.0f, 0.0f); }
+// Acceleration frame: elbow leads the hand (kinetic chain).
+Quaternion accelThrowShoulder() { return eul(-2.35f, -0.40f, 0.45f); }
+Quaternion accelThrowElbow() { return eul(1.05f, 0.10f, 0.02f); }
 
-Quaternion breakThrowShoulder() { return eul(-1.80f, -0.15f, 0.15f); }
-Quaternion breakThrowElbow() { return eul(1.50f, 0.10f, 0.05f); }
+// High 3/4 release — long lever, slight downhill, hand above shoulder line.
+Quaternion releaseThrowShoulder() { return eul(-1.95f, -0.22f, 0.18f); }
+Quaternion releaseThrowElbow() { return eul(0.02f, 0.02f, -0.04f); }
+
+// Pronated finish across the body.
+Quaternion followThrowShoulder() { return eul(-1.05f, 0.65f, 0.55f); }
+Quaternion followThrowElbow() { return eul(-0.12f, 0.05f, 0.08f); }
+
+Quaternion releaseGloveShoulder() { return eul(-0.50f, 0.22f, -0.12f); }
+Quaternion releaseGloveElbow() { return eul(0.90f, 0.0f, 0.0f); }
+
+Quaternion breakThrowShoulder() { return eul(-1.70f, -0.05f, 0.28f); }
+Quaternion breakThrowElbow() { return eul(1.55f, 0.14f, 0.06f); }
+
+// Clavicle shrug / reach — small but sells shoulder girdle motion.
+Quaternion clavSet() { return eul(0.02f, 0.0f, 0.04f); }
+Quaternion clavKick() { return eul(0.04f, 0.0f, 0.06f); }
+Quaternion clavLayback() { return eul(-0.08f, -0.12f, 0.14f); }
+Quaternion clavRelease() { return eul(0.10f, 0.08f, 0.06f); }
+Quaternion clavFollow() { return eul(0.04f, 0.10f, 0.02f); }
 
 // Static set pose used by idle (no fidget).
 void pushStaticSetPose(AnimationClip& clip, const SkinnedModel3D& model, const std::vector<float>& times) {
@@ -106,11 +129,15 @@ void pushStaticSetPose(AnimationClip& clip, const SkinnedModel3D& model, const s
     // Head already looks plate-ward in bind; keep still.
     pushRot(clip, J("Head"), times, sameR(eul(0.0f, 0.0f, 0.0f)));
 
+    pushRot(clip, J("Clavicle_R"), times, sameR(clavSet()));
+    pushRot(clip, J("Clavicle_L"), times, sameR(eul(0.02f, 0.0f, -0.04f)));
     pushRot(clip, J("Shoulder_R"), times, sameR(setThrowShoulder()));
     pushRot(clip, J("Elbow_R"), times, sameR(setThrowElbow()));
-    pushRot(clip, J("Wrist_R"), times, sameR(eul(0.10f, 0.0f, 0.0f)));
+    pushRot(clip, J("Wrist_R"), times, sameR(eul(0.12f, 0.05f, 0.08f)));
+    pushRot(clip, J("Palm_R"), times, sameR(eul(0.08f, 0.0f, 0.0f)));
     pushRot(clip, J("Shoulder_L"), times, sameR(setGloveShoulder()));
     pushRot(clip, J("Elbow_L"), times, sameR(setGloveElbow()));
+    pushRot(clip, J("Wrist_L"), times, sameR(eul(0.08f, 0.0f, 0.0f)));
 
     // Athletic lower half — both knees soft, plant foot firm, lead slightly open.
     pushRot(clip, J("Hip_R"), times, sameR(eul(0.16f, 0.0f, -0.06f)));
@@ -328,20 +355,52 @@ AnimationClip yamamotoWindup(const SkinnedModel3D& model) {
         eul(0.05f, 0.0f, 0.0f)
     });
 
-    // ── THROW ARM ───────────────────────────────────────────────────────
+    // ── CLAVICLES (shoulder girdle — shrug, load, reach) ────────────────
+    // Keys: set, rocker, lift, peak, balance, break, stride, plant, RELEASE, follow, field, finish
+    pushRot(clip, J("Clavicle_R"), kT, {
+        clavSet(),
+        clavSet(),
+        clavKick(),
+        clavKick(),
+        clavKick(),
+        eul(-0.02f, -0.06f, 0.10f),  // break — start loading scapula
+        clavLayback(),
+        eul(-0.10f, -0.14f, 0.16f),  // plant max load
+        eul(0.14f, 0.10f, 0.08f),    // release — clavicle lifts slot high
+        clavFollow(),
+        eul(0.02f, 0.04f, 0.02f),
+        clavSet()
+    });
+    pushRot(clip, J("Clavicle_L"), kT, {
+        eul(0.02f, 0.0f, -0.04f),
+        eul(0.02f, 0.0f, -0.04f),
+        eul(0.04f, 0.0f, -0.06f),
+        eul(0.04f, 0.0f, -0.06f),
+        eul(0.04f, 0.0f, -0.06f),
+        eul(0.06f, 0.04f, -0.08f),  // glove side braces
+        eul(0.08f, 0.06f, -0.10f),
+        eul(0.10f, 0.08f, -0.08f),
+        eul(0.06f, 0.04f, -0.04f),  // tuck
+        eul(0.04f, 0.02f, -0.03f),
+        eul(0.03f, 0.0f, -0.04f),
+        eul(0.02f, 0.0f, -0.04f)
+    });
+
+    // ── THROW ARM — long continuous whip ────────────────────────────────
+    // Elbow LEADS the hand out of layback; wrist lags then pronates at release.
     pushRot(clip, J("Shoulder_R"), kT, {
         setThrowShoulder(),
         setThrowShoulder(),
         kickThrowShoulder(),
         kickThrowShoulder(),
         kickThrowShoulder(),
-        breakThrowShoulder(),
-        laybackThrowShoulder(),
-        laybackThrowShoulder(),
-        releaseThrowShoulder(),
-        eul(-1.20f, 0.55f, 0.50f),
-        eul(-0.70f, 0.35f, 0.30f),
-        eul(-0.40f, 0.15f, 0.10f)
+        breakThrowShoulder(),   // hand break / early cock
+        laybackThrowShoulder(), // max ER
+        accelThrowShoulder(),   // elbow drives (plant)
+        releaseThrowShoulder(), // high 3/4
+        followThrowShoulder(),  // whip across
+        eul(-0.65f, 0.40f, 0.32f),
+        eul(-0.38f, 0.18f, 0.12f)
     });
     pushRot(clip, J("Elbow_R"), kT, {
         setThrowElbow(),
@@ -350,42 +409,57 @@ AnimationClip yamamotoWindup(const SkinnedModel3D& model) {
         kickThrowElbow(),
         kickThrowElbow(),
         breakThrowElbow(),
-        laybackThrowElbow(),
-        laybackThrowElbow(),
-        releaseThrowElbow(),
-        eul(-0.08f, 0.0f, 0.0f),
-        eul(0.20f, 0.0f, 0.0f),
-        eul(0.35f, 0.0f, 0.0f)
+        laybackThrowElbow(),    // tightly flexed behind head
+        accelThrowElbow(),      // rapid extension starts
+        releaseThrowElbow(),    // near-straight at release
+        followThrowElbow(),     // slight hyperextension feel
+        eul(0.18f, 0.0f, 0.04f),
+        eul(0.32f, 0.0f, 0.02f)
     });
+    // Wrist: cocked on load → lag → snap/pronate through release → relax.
     pushRot(clip, J("Wrist_R"), kT, {
+        eul(0.12f, 0.05f, 0.08f),
+        eul(0.12f, 0.05f, 0.08f),
+        eul(0.14f, 0.06f, 0.10f),
+        eul(0.15f, 0.06f, 0.10f),
+        eul(0.15f, 0.06f, 0.10f),
+        eul(0.28f, 0.12f, 0.18f),  // cock
+        eul(0.38f, 0.18f, 0.22f),  // max lag (hand back)
+        eul(0.20f, 0.08f, 0.10f),  // catching up
+        eul(-0.48f, -0.22f, -0.18f), // SNAP + pronation
+        eul(-0.28f, -0.12f, -0.10f),
+        eul(-0.08f, -0.04f, -0.02f),
+        eul(0.02f, 0.0f, 0.0f)
+    });
+    pushRot(clip, J("Palm_R"), kT, {
+        eul(0.08f, 0.0f, 0.0f),
+        eul(0.08f, 0.0f, 0.0f),
         eul(0.10f, 0.0f, 0.0f),
         eul(0.10f, 0.0f, 0.0f),
-        eul(0.12f, 0.0f, 0.0f),
-        eul(0.14f, 0.0f, 0.0f),
-        eul(0.14f, 0.0f, 0.0f),
-        eul(0.22f, 0.0f, 0.0f),
-        eul(0.28f, 0.0f, 0.0f),
-        eul(0.12f, 0.0f, 0.0f),
-        eul(-0.42f, 0.0f, 0.0f),
-        eul(-0.22f, 0.0f, 0.0f),
-        eul(-0.05f, 0.0f, 0.0f),
-        eul(0.0f, 0.0f, 0.0f)
+        eul(0.10f, 0.0f, 0.0f),
+        eul(0.16f, 0.04f, 0.0f),
+        eul(0.22f, 0.08f, 0.0f),
+        eul(0.10f, 0.02f, 0.0f),
+        eul(-0.18f, -0.06f, 0.0f), // fingers forward at release
+        eul(-0.10f, -0.02f, 0.0f),
+        eul(-0.02f, 0.0f, 0.0f),
+        eul(0.04f, 0.0f, 0.0f)
     });
 
-    // ── GLOVE ARM ───────────────────────────────────────────────────────
+    // ── GLOVE ARM — steady front side, then tucks cleanly ───────────────
     pushRot(clip, J("Shoulder_L"), kT, {
         setGloveShoulder(),
         setGloveShoulder(),
         kickGloveShoulder(),
         kickGloveShoulder(),
         kickGloveShoulder(),
-        eul(-0.80f, 0.45f, 0.05f),
-        eul(-0.65f, 0.35f, -0.05f),
+        eul(-0.85f, 0.48f, 0.08f),  // break — stay front
+        eul(-0.68f, 0.38f, -0.04f), // stride
+        eul(-0.55f, 0.28f, -0.10f), // plant brace
         releaseGloveShoulder(),
-        releaseGloveShoulder(),
-        eul(-0.50f, 0.20f, -0.08f),
-        eul(-0.60f, 0.30f, -0.05f),
-        eul(-0.90f, 0.55f, 0.05f)
+        eul(-0.48f, 0.18f, -0.10f),
+        eul(-0.62f, 0.32f, -0.04f),
+        eul(-0.92f, 0.58f, 0.04f)
     });
     pushRot(clip, J("Elbow_L"), kT, {
         setGloveElbow(),
@@ -393,13 +467,27 @@ AnimationClip yamamotoWindup(const SkinnedModel3D& model) {
         kickGloveElbow(),
         kickGloveElbow(),
         kickGloveElbow(),
-        eul(1.20f, 0.0f, 0.0f),
-        eul(1.05f, 0.0f, 0.0f),
+        eul(1.28f, 0.0f, 0.0f),
+        eul(1.10f, 0.0f, 0.0f),
+        eul(0.98f, 0.0f, 0.0f),
         releaseGloveElbow(),
-        releaseGloveElbow(),
-        eul(0.80f, 0.0f, 0.0f),
-        eul(0.95f, 0.0f, 0.0f),
-        eul(1.20f, 0.0f, 0.0f)
+        eul(0.78f, 0.0f, 0.0f),
+        eul(0.98f, 0.0f, 0.0f),
+        eul(1.22f, 0.0f, 0.0f)
+    });
+    pushRot(clip, J("Wrist_L"), kT, {
+        eul(0.08f, 0.0f, 0.0f),
+        eul(0.08f, 0.0f, 0.0f),
+        eul(0.10f, 0.0f, 0.0f),
+        eul(0.10f, 0.0f, 0.0f),
+        eul(0.10f, 0.0f, 0.0f),
+        eul(0.12f, 0.0f, 0.0f),
+        eul(0.10f, 0.0f, 0.0f),
+        eul(0.06f, 0.0f, 0.0f),
+        eul(0.04f, 0.0f, 0.0f),
+        eul(0.04f, 0.0f, 0.0f),
+        eul(0.06f, 0.0f, 0.0f),
+        eul(0.08f, 0.0f, 0.0f)
     });
 
     return clip;

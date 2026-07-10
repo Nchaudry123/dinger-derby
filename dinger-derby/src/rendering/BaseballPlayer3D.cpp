@@ -977,22 +977,26 @@ Mesh3D BaseballPlayer3D::pitcher(int detail, const PitcherPose& pose) {
     limb(mesh, neckA, neckB, 0.046f, 0.043f, skin, detail);
     addHead(mesh, s.head, kHeadR, detail, true);
 
-    // ── glove arm ───────────────────────────────────────────────────────
-    limb(mesh, s.glove.shoulder, s.glove.elbow, 0.062f, 0.052f, jerseyDeep, detail);
-    ball(mesh, s.glove.elbow, 0.052f, skin, detail);
-    // Sleeve cuff.
-    ellipsoid(mesh, lerp(s.glove.shoulder, s.glove.elbow, 0.72f), 0.056f, 0.056f, 0.056f, jerseyShade, detail, true);
-    limb(mesh, s.glove.elbow, s.glove.wrist, 0.050f, 0.040f, skin, detail);
+    // ── glove arm (fuller continuous volumes, soft elbow) ───────────────
+    limb(mesh, s.glove.shoulder, s.glove.elbow, 0.072f, 0.056f, jerseyDeep, detail);
+    ball(mesh, s.glove.elbow, 0.058f, skin, detail);
+    ball(mesh, lerp(s.glove.shoulder, s.glove.elbow, 0.42f), 0.060f, jerseyDeep, detail);
+    ellipsoid(mesh, lerp(s.glove.shoulder, s.glove.elbow, 0.72f), 0.060f, 0.058f, 0.060f, jerseyShade, detail, true);
+    limb(mesh, s.glove.elbow, s.glove.wrist, 0.054f, 0.038f, skin, detail);
+    ball(mesh, lerp(s.glove.elbow, s.glove.wrist, 0.45f), 0.046f, skin, detail);
     Vector3 gloveFwd = safeNorm(s.glove.palm - s.glove.elbow, Vector3(0.15f, -0.1f, 0.9f));
     addMitt(mesh, s.glove.wrist, gloveFwd, 0.32f, detail);
 
-    // ── throw arm ───────────────────────────────────────────────────────
-    limb(mesh, s.throwArm.shoulder, s.throwArm.elbow, 0.062f, 0.052f, jerseyDeep, detail);
-    ball(mesh, s.throwArm.elbow, 0.052f, skin, detail);
-    ellipsoid(mesh, lerp(s.throwArm.shoulder, s.throwArm.elbow, 0.72f), 0.056f, 0.056f, 0.056f, jerseyShade, detail, true);
-    limb(mesh, s.throwArm.elbow, s.throwArm.wrist, 0.050f, 0.040f, skin, detail);
+    // ── throw arm (muscle taper + fleshy joints for fluid bends) ─────────
+    limb(mesh, s.throwArm.shoulder, s.throwArm.elbow, 0.072f, 0.056f, jerseyDeep, detail);
+    ball(mesh, s.throwArm.elbow, 0.058f, skin, detail);
+    ball(mesh, lerp(s.throwArm.shoulder, s.throwArm.elbow, 0.40f), 0.062f, jerseyDeep, detail);
+    ellipsoid(mesh, lerp(s.throwArm.shoulder, s.throwArm.elbow, 0.72f), 0.060f, 0.058f, 0.060f, jerseyShade, detail, true);
+    limb(mesh, s.throwArm.elbow, s.throwArm.wrist, 0.054f, 0.038f, skin, detail);
+    ball(mesh, lerp(s.throwArm.elbow, s.throwArm.wrist, 0.45f), 0.046f, skin, detail);
+    ball(mesh, s.throwArm.wrist, 0.036f, skinDeep, detail);
     Vector3 handDir = safeNorm(s.throwArm.palm - s.throwArm.wrist, Vector3(0.0f, 0.0f, 1.0f));
-    addHand(mesh, s.throwArm.wrist, handDir, 0.15f, skinDeep, detail);
+    addHand(mesh, s.throwArm.wrist, handDir, 0.20f, skinDeep, detail);
 
     mesh.rebuildNormals();
     return mesh;

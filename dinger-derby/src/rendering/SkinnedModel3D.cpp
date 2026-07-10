@@ -72,6 +72,11 @@ void setW(SkinVertex& v, int j0, float w0, int j1 = 0, float w1 = 0.0f, int j2 =
     v.joints[3] = 0;  v.weights[3] = 0.0f;
 }
 
+float smoothstep(float e0, float e1, float x) {
+    float t = clampf((x - e0) / std::max(e1 - e0, 1e-6f), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
 // Solid capsule: ONE continuous tapered tube between two points (no bead stack).
 // Built as a lathed cylinder with hemispherical ends, smooth weight blend.
 void solidLimb(
@@ -98,9 +103,6 @@ void solidLimb(
     int base = static_cast<int>(m.bindVertices.size());
 
     for (int i = 0; i <= total; i++) {
-        float t = static_cast<float>(i) / static_cast<float>(total);
-        // Map t into [-capFrac, 1+capFrac] then compress ends into hemispheres.
-        float u = t; // 0..1 along full capsule
         float along, radius, wB;
 
         if (i <= cap) {
@@ -160,7 +162,176 @@ void solidLimb(
     }
 }
 
-// Ellipsoid volume — used sparingly for head, pelvis, hands, gear.
+// Multi-bone continuous limb: samples a polyline path, lathes a variable
+// radius profile, and blends 2–3 joints with wide soft falloffs so elbows
+// and shoulders never crease or detach.
+void fluidChain(
+    SkinnedModel3D& m,
+    const Vector3* pts,
+    int nPts,
+    const int* joints,
+    int nJoints,
+    const float* radii,
+    int nRadii,
+    sf::Color colorA,
+    sf::Color colorB,
+    float colorBreakT,
+    int rings,
+    int segs
+) {
+    if (nPts < 2 || nJoints < 1 || nRadii < 1 || rings < 3 || segs < 6) {
+        return;
+    }
+
+    // Cumulative arc length along control path.
+    std::vector<float> cum(static_cast<size_t>(nPts), 0.0f);
+    for (int i = 1; i < nPts; i++) {
+        cum[static_cast<size_t>(i)] =
+            cum[static_cast<size_t>(i - 1)] + (pts[i] - pts[i - 1]).magnitude();
+    }
+    float totalLen = cum.back();
+    if (totalLen < 1e-4f) {
+        return;
+    }
+
+    auto samplePath = [&](float t, Vector3& pos, Vector3& tan) {
+        t = clampf(t, 0.0f, 1.0f);
+        float target = t * totalLen;
+        int seg = 0;
+        while (seg < nPts - 2 && cum[static_cast<size_t>(seg + 1)] < target) {
+            seg++;
+        }
+        float segStart = cum[static_cast<size_t>(seg)];
+        float segEnd = cum[static_cast<size_t>(seg + 1)];
+        float span = std::max(segEnd - segStart, 1e-6f);
+        float u = (target - segStart) / span;
+        // Smooth Hermite-ish blend between segments.
+        float u2 = u * u * (3.0f - 2.0f * u);
+        pos = pts[seg] + (pts[seg + 1] - pts[seg]) * u2;
+        tan = safeNorm(pts[seg + 1] - pts[seg]);
+        if (seg + 2 < nPts) {
+            Vector3 t1 = safeNorm(pts[seg + 2] - pts[seg + 1]);
+            tan = safeNorm(tan * (1.0f - u) + t1 * u);
+        }
+    };
+
+    auto sampleRadius = [&](float t) {
+        t = clampf(t, 0.0f, 1.0f);
+        float f = t * static_cast<float>(nRadii - 1);
+        int i0 = static_cast<int>(f);
+        int i1 = std::min(i0 + 1, nRadii - 1);
+        float u = f - static_cast<float>(i0);
+        u = u * u * (3.0f - 2.0f * u);
+        return radii[i0] + (radii[i1] - radii[i0]) * u;
+    };
+
+    // Parallel transport frame along the path.
+    Vector3 firstPos, firstTan;
+    samplePath(0.0f, firstPos, firstTan);
+    Vector3 up = std::fabs(firstTan.y) < 0.9f ? Vector3(0.0f, 1.0f, 0.0f) : Vector3(1.0f, 0.0f, 0.0f);
+    Vector3 side = safeNorm(firstTan.cross(up));
+    Vector3 fwd = safeNorm(side.cross(firstTan));
+
+    int base = static_cast<int>(m.bindVertices.size());
+    for (int i = 0; i <= rings; i++) {
+        float t = static_cast<float>(i) / static_cast<float>(rings);
+        Vector3 center, tan;
+        samplePath(t, center, tan);
+        // Re-orthogonalize frame (parallel transport).
+        fwd = safeNorm(fwd - tan * fwd.dot(tan));
+        if (fwd.magnitude() < 0.2f) {
+            up = std::fabs(tan.y) < 0.9f ? Vector3(0.0f, 1.0f, 0.0f) : Vector3(1.0f, 0.0f, 0.0f);
+            side = safeNorm(tan.cross(up));
+            fwd = safeNorm(side.cross(tan));
+        } else {
+            side = safeNorm(tan.cross(fwd));
+            fwd = safeNorm(side.cross(tan));
+        }
+
+        float radius = sampleRadius(t);
+        // Soft end pinch so joins melt into adjacent volumes.
+        if (t < 0.06f) {
+            radius *= 0.55f + 0.45f * (t / 0.06f);
+        }
+        if (t > 0.94f) {
+            radius *= 0.55f + 0.45f * ((1.0f - t) / 0.06f);
+        }
+
+        // Map t onto joint influences (up to 3 bones).
+        float w0 = 0.0f, w1 = 0.0f, w2 = 0.0f;
+        int j0 = joints[0], j1 = joints[0], j2 = joints[0];
+        if (nJoints == 1) {
+            w0 = 1.0f;
+        } else if (nJoints == 2) {
+            j0 = joints[0];
+            j1 = joints[1];
+            float u = smoothstep(0.0f, 1.0f, t);
+            w0 = 1.0f - u;
+            w1 = u;
+        } else {
+            // 3+ joints: path spans shoulder→elbow→wrist (or hip→knee→ankle).
+            j0 = joints[0];
+            j1 = joints[1];
+            j2 = joints[std::min(2, nJoints - 1)];
+            // Wide soft regions around each joint — no hard crease.
+            if (t < 0.42f) {
+                float u = smoothstep(0.0f, 0.42f, t);
+                // bias toward parent early, then equal blend into mid joint
+                w0 = 1.0f - u * 0.85f;
+                w1 = u * 0.85f;
+                w2 = 0.0f;
+            } else if (t < 0.58f) {
+                // Elbow / knee soft zone — 3-way blend
+                float u = smoothstep(0.42f, 0.58f, t);
+                w0 = (1.0f - u) * 0.35f;
+                w1 = 0.55f + 0.10f * std::sin(u * kPi);
+                w2 = u * 0.45f;
+            } else {
+                float u = smoothstep(0.58f, 1.0f, t);
+                w0 = 0.0f;
+                w1 = 1.0f - u * 0.90f;
+                w2 = u * 0.90f;
+            }
+        }
+
+        float mix = smoothstep(colorBreakT - 0.08f, colorBreakT + 0.08f, t);
+        sf::Color col(
+            static_cast<std::uint8_t>(colorA.r + (colorB.r - colorA.r) * mix),
+            static_cast<std::uint8_t>(colorA.g + (colorB.g - colorA.g) * mix),
+            static_cast<std::uint8_t>(colorA.b + (colorB.b - colorA.b) * mix)
+        );
+
+        for (int s = 0; s < segs; s++) {
+            float ang = (static_cast<float>(s) / segs) * kPi * 2.0f;
+            // Slight elliptical cross-section (muscle depth front/back).
+            float rx = radius * (1.0f + 0.06f * std::cos(ang * 2.0f));
+            float ry = radius * (1.0f - 0.04f * std::cos(ang * 2.0f));
+            Vector3 n = side * (std::cos(ang) * (rx / std::max(radius, 1e-4f))) +
+                        fwd * (std::sin(ang) * (ry / std::max(radius, 1e-4f)));
+            n = safeNorm(n);
+            SkinVertex v;
+            v.position = center + side * (std::cos(ang) * rx) + fwd * (std::sin(ang) * ry);
+            v.normal = n;
+            v.color = col;
+            setW(v, j0, w0, j1, w1, j2, w2);
+            m.bindVertices.push_back(v);
+        }
+    }
+
+    for (int i = 0; i < rings; i++) {
+        for (int s = 0; s < segs; s++) {
+            int s1 = (s + 1) % segs;
+            int p0 = base + i * segs + s;
+            int p1 = base + i * segs + s1;
+            int p2 = base + (i + 1) * segs + s;
+            int p3 = base + (i + 1) * segs + s1;
+            addTri(m, p0, p2, p1);
+            addTri(m, p1, p2, p3);
+        }
+    }
+}
+
+// Forward declare — buildFluidArm uses solidBall soft volumes at joints.
 void solidBall(
     SkinnedModel3D& m,
     const Vector3& c,
@@ -169,6 +340,132 @@ void solidBall(
     int rings, int segs,
     int j0, float w0,
     int j1 = 0, float w1 = 0.0f
+);
+
+// Anatomical arm: deltoid cap + continuous upper→forearm + soft elbow volume.
+void buildFluidArm(
+    SkinnedModel3D& m,
+    int jChest, int jSh, int jEl, int jWr, int jPalm,
+    const Vector3& pChest,
+    const Vector3& pSh,
+    const Vector3& pEl,
+    const Vector3& pWr,
+    const Vector3& pPalm,
+    sf::Color sleeve,
+    sf::Color sleeveDeep,
+    sf::Color skin,
+    sf::Color skinDeep,
+    bool isThrowingHand,
+    int rings,
+    int segs
+) {
+    // Extra path points for smooth curvature (not a sharp V at the elbow).
+    Vector3 midUpper = pSh + (pEl - pSh) * 0.45f;
+    // Pull mid-upper slightly "muscle forward" for bicep mass.
+    Vector3 shToEl = safeNorm(pEl - pSh);
+    Vector3 worldUp(0.0f, 1.0f, 0.0f);
+    Vector3 side = safeNorm(shToEl.cross(worldUp));
+    if (side.magnitude() < 0.1f) {
+        side = Vector3(1.0f, 0.0f, 0.0f);
+    }
+    Vector3 muscle = safeNorm(worldUp.cross(shToEl));
+    midUpper = midUpper + muscle * 0.012f;
+
+    Vector3 midFore = pEl + (pWr - pEl) * 0.50f;
+    // Soft elbow bypass — path doesn't kink hard through the joint center.
+    Vector3 elbowSoft = pEl + muscle * 0.006f;
+
+    Vector3 path[] = {
+        pChest + (pSh - pChest) * 0.55f, // start under deltoid / collarbone
+        pSh,
+        midUpper,
+        elbowSoft,
+        midFore,
+        pWr
+    };
+    // Radius profile: deltoid → bicep → elbow → forearm taper → wrist
+    float rad[] = {
+        0.078f, // into deltoid
+        0.070f, // shoulder
+        0.058f, // bicep bulge
+        0.050f, // elbow
+        0.044f, // mid forearm
+        0.034f  // wrist
+    };
+    int jArm[] = {jSh, jEl, jWr};
+    int armRings = rings + 10;
+    int armSegs = segs + 4;
+
+    fluidChain(
+        m, path, 6, jArm, 3, rad, 6,
+        sleeve, skin, 0.52f,
+        armRings, armSegs
+    );
+
+    // Soft deltoid mass blending chest ↔ shoulder (arms never detach).
+    solidBall(m, pSh, 0.082f, 0.074f, 0.080f, sleeve, rings, segs, jSh, 0.55f, jChest, 0.45f);
+    solidBall(
+        m,
+        pSh + (pEl - pSh) * 0.12f,
+        0.068f, 0.062f, 0.066f,
+        sleeveDeep, rings - 1, segs,
+        jSh, 0.80f, jEl, 0.20f
+    );
+
+    // Elbow joint capsule — keeps the bend looking fleshy, not hinged.
+    solidBall(m, pEl, 0.048f, 0.044f, 0.046f, skin, rings - 1, segs, jEl, 0.70f, jSh, 0.15f);
+    // Secondary elbow influence from forearm for twist smoothness.
+    solidBall(
+        m,
+        pEl + (pWr - pEl) * 0.08f,
+        0.042f, 0.038f, 0.040f,
+        skin, rings - 2, segs - 2,
+        jEl, 0.55f, jWr, 0.45f
+    );
+
+    // Sleeve cuff band near mid-upper.
+    Vector3 cuff = pSh + (pEl - pSh) * 0.68f;
+    solidBall(m, cuff, 0.054f, 0.052f, 0.054f, sleeveDeep, rings - 2, segs - 2, jSh, 0.35f, jEl, 0.65f);
+
+    // Wrist + hand mass.
+    solidBall(m, pWr, 0.034f, 0.030f, 0.034f, skinDeep, rings - 2, segs - 2, jWr, 0.75f, jEl, 0.25f);
+
+    if (isThrowingHand) {
+        // Palm pad
+        solidBall(m, pPalm, 0.038f, 0.028f, 0.044f, skinDeep, rings - 1, segs - 1, jPalm, 0.80f, jWr, 0.20f);
+        // Fingers as short continuous chain (reads as a hand, not a mitt).
+        Vector3 palmDir = safeNorm(pPalm - pWr, Vector3(0.0f, 0.0f, 1.0f));
+        Vector3 handSide = safeNorm(palmDir.cross(Vector3(0.0f, 1.0f, 0.0f)), Vector3(1.0f, 0.0f, 0.0f));
+        Vector3 handUp = safeNorm(handSide.cross(palmDir));
+        for (int f = -2; f <= 2; f++) {
+            float lat = static_cast<float>(f) * 0.013f;
+            Vector3 base = pPalm + handSide * lat + palmDir * 0.012f + handUp * 0.004f;
+            Vector3 tip = base + palmDir * (0.030f - std::abs(f) * 0.003f) + handUp * 0.004f;
+            Vector3 fPath[] = {base, tip};
+            float fRad[] = {0.011f, 0.008f};
+            int fJ[] = {jPalm, jWr};
+            fluidChain(m, fPath, 2, fJ, 2, fRad, 2, skin, skinDeep, 0.6f, 5, 8);
+        }
+        // Thumb
+        Vector3 thumbBase = pPalm - handSide * 0.028f + palmDir * 0.004f - handUp * 0.006f;
+        Vector3 thumbTip = thumbBase - handSide * 0.014f + palmDir * 0.016f;
+        Vector3 tPath[] = {thumbBase, thumbTip};
+        float tRad[] = {0.012f, 0.009f};
+        int tJ[] = {jPalm, jWr};
+        fluidChain(m, tPath, 2, tJ, 2, tRad, 2, skin, skinDeep, 0.5f, 5, 8);
+    }
+}
+
+// Ellipsoid volume — used sparingly for head, pelvis, hands, gear.
+void solidBall(
+    SkinnedModel3D& m,
+    const Vector3& c,
+    float rx, float ry, float rz,
+    sf::Color color,
+    int rings, int segs,
+    int j0, float w0,
+    int j1,
+    float w1
 ) {
     int base = static_cast<int>(m.bindVertices.size());
     for (int ring = 0; ring <= rings; ring++) {
@@ -235,15 +532,16 @@ Vector3 jl(const std::vector<Matrix4>& G, int j, float x, float y, float z) {
     return G[j].transformPoint(Vector3(x, y, z));
 }
 
-// Classic human proportions (~1.75m), solid game-character construction.
-// Fewer pieces, clear silhouette — intentional low-poly sports look, not melted spheres.
+// Classic human proportions (~1.75m) with continuous multi-bone arms.
+// Arms use clavicle → shoulder → elbow → wrist chains and fluidChain mesh
+// so bends stay fleshy instead of hinged tubes.
 SkinnedModel3D makeHumanoid(bool catcher, int detail) {
     SkinnedModel3D m;
     detail = std::clamp(detail, 0, 2);
-    int rings = detail >= 2 ? 10 : (detail >= 1 ? 8 : 6);
-    int segs = detail >= 2 ? 14 : (detail >= 1 ? 12 : 10);
-    int hr = detail >= 2 ? 10 : 8;
-    int hs = detail >= 2 ? 14 : 12;
+    int rings = detail >= 2 ? 12 : (detail >= 1 ? 9 : 7);
+    int segs = detail >= 2 ? 18 : (detail >= 1 ? 14 : 11);
+    int hr = detail >= 2 ? 12 : 9;
+    int hs = detail >= 2 ? 16 : 12;
 
     // ── skeleton (RHP closed profile on rubber) ─────────────────────────
     const float sideYaw = catcher ? 0.0f : -0.95f;
@@ -257,15 +555,20 @@ SkinnedModel3D makeHumanoid(bool catcher, int detail) {
         catcher ? Quaternion::identity() : Quaternion::fromEulerXYZ(-0.02f, 0.90f, 0.0f)
     );
 
-    int shL = addJoint(m, "Shoulder_L", chest, Vector3(-0.18f, 0.06f, 0.0f));
-    int elL = addJoint(m, "Elbow_L", shL, Vector3(0.0f, -0.30f, 0.015f));
-    int wrL = addJoint(m, "Wrist_L", elL, Vector3(0.0f, -0.27f, 0.015f));
-    int palmL = addJoint(m, "Palm_L", wrL, Vector3(0.0f, -0.055f, 0.04f));
+    // Clavicles give the shoulder girdle real reach / shrug for fluid throws.
+    int clavL = addJoint(m, "Clavicle_L", chest, Vector3(-0.06f, 0.08f, 0.02f));
+    int clavR = addJoint(m, "Clavicle_R", chest, Vector3(0.06f, 0.08f, 0.02f));
 
-    int shR = addJoint(m, "Shoulder_R", chest, Vector3(0.18f, 0.06f, 0.0f));
-    int elR = addJoint(m, "Elbow_R", shR, Vector3(0.0f, -0.30f, 0.015f));
-    int wrR = addJoint(m, "Wrist_R", elR, Vector3(0.0f, -0.27f, 0.015f));
-    int palmR = addJoint(m, "Palm_R", wrR, Vector3(0.0f, -0.055f, 0.045f));
+    // Slightly longer, more athletic arm chain (upper + forearm).
+    int shL = addJoint(m, "Shoulder_L", clavL, Vector3(-0.14f, -0.01f, 0.0f));
+    int elL = addJoint(m, "Elbow_L", shL, Vector3(0.0f, -0.32f, 0.020f));
+    int wrL = addJoint(m, "Wrist_L", elL, Vector3(0.0f, -0.29f, 0.018f));
+    int palmL = addJoint(m, "Palm_L", wrL, Vector3(0.0f, -0.050f, 0.045f));
+
+    int shR = addJoint(m, "Shoulder_R", clavR, Vector3(0.14f, -0.01f, 0.0f));
+    int elR = addJoint(m, "Elbow_R", shR, Vector3(0.0f, -0.32f, 0.020f));
+    int wrR = addJoint(m, "Wrist_R", elR, Vector3(0.0f, -0.29f, 0.018f));
+    int palmR = addJoint(m, "Palm_R", wrR, Vector3(0.0f, -0.050f, 0.050f));
 
     int hipR = addJoint(m, "Hip_R", hips, Vector3(0.10f, -0.03f, -0.03f));
     int knR = addJoint(m, "Knee_R", hipR, Vector3(0.0f, -0.43f, 0.015f));
@@ -338,27 +641,42 @@ SkinnedModel3D makeHumanoid(bool catcher, int detail) {
         solidBall(m, jl(G, chest, 0.0f, -0.01f, 0.105f), 0.014f, 0.048f, 0.008f, kAccent, 4, 6, chest, 1.0f);
     }
 
-    // Shoulders — modest delts (not giant balloons)
+    // Collarbone bridge — fuses both arms into the jersey torso.
     sf::Color upper = catcher ? kGear : kJersey;
-    solidBall(m, W[shL], 0.072f, 0.065f, 0.072f, upper, hr, hs, shL, 0.7f, chest, 0.3f);
-    solidBall(m, W[shR], 0.072f, 0.065f, 0.072f, upper, hr, hs, shR, 0.7f, chest, 0.3f);
-
-    // Arms — clear tubes
     sf::Color sleeve = catcher ? kGearDeep : kJerseyDeep;
-    solidLimb(m, shL, elL, W[shL], W[elL], 0.052f, 0.046f, sleeve, rings, segs);
-    solidLimb(m, elL, wrL, W[elL], W[wrL], 0.044f, 0.036f, kSkin, rings, segs);
-    solidLimb(m, shR, elR, W[shR], W[elR], 0.052f, 0.046f, sleeve, rings, segs);
-    solidLimb(m, elR, wrR, W[elR], W[wrR], 0.044f, 0.036f, kSkin, rings, segs);
+    solidBall(m, (W[shL] + W[shR]) * 0.5f + Vector3(0.0f, 0.02f, 0.01f),
+              0.120f, 0.048f, 0.072f, upper, hr, hs, chest, 0.7f, spine, 0.3f);
+    solidBall(m, W[clavL], 0.055f, 0.040f, 0.048f, upper, hr - 1, hs - 2, clavL, 0.6f, chest, 0.4f);
+    solidBall(m, W[clavR], 0.055f, 0.040f, 0.048f, upper, hr - 1, hs - 2, clavR, 0.6f, chest, 0.4f);
 
-    // Hands
-    solidBall(m, W[palmR], 0.036f, 0.030f, 0.040f, kSkinDeep, 7, 10, palmR, 0.75f, wrR, 0.25f);
-    solidBall(m, jl(G, palmR, 0.0f, -0.028f, 0.015f), 0.026f, 0.016f, 0.028f, kSkin, 5, 8, palmR, 1.0f);
+    // Continuous fluid arms (throw + glove).
+    buildFluidArm(
+        m, chest, shL, elL, wrL, palmL,
+        W[chest], W[shL], W[elL], W[wrL], W[palmL],
+        sleeve, upper, kSkin, kSkinDeep,
+        false, rings, segs
+    );
+    buildFluidArm(
+        m, chest, shR, elR, wrR, palmR,
+        W[chest], W[shR], W[elR], W[wrR], W[palmR],
+        sleeve, upper, kSkin, kSkinDeep,
+        !catcher, rings, segs
+    );
 
-    // Mitt (distinct glove shape)
-    solidBall(m, W[palmL], 0.070f, 0.082f, 0.048f, kMitt, hr, hs, palmL, 0.8f, wrL, 0.2f);
-    solidBall(m, jl(G, palmL, 0.0f, 0.032f, 0.02f), 0.055f, 0.040f, 0.036f, kMitt, 7, 10, palmL, 1.0f);
-    solidBall(m, jl(G, palmL, -0.038f, 0.01f, 0.0f), 0.030f, 0.042f, 0.028f, kMittDeep, 5, 8, palmL, 1.0f);
-    solidBall(m, W[wrL], 0.034f, 0.028f, 0.034f, kMittDeep, 5, 8, wrL, 0.7f, palmL, 0.3f);
+    // Mitt over the glove palm (catcher and pitcher glove side).
+    solidBall(m, W[palmL], 0.074f, 0.088f, 0.052f, kMitt, hr, hs, palmL, 0.85f, wrL, 0.15f);
+    solidBall(m, jl(G, palmL, 0.0f, 0.034f, 0.022f), 0.058f, 0.044f, 0.038f, kMitt, 8, 12, palmL, 1.0f);
+    solidBall(m, jl(G, palmL, -0.040f, 0.012f, 0.0f), 0.032f, 0.046f, 0.030f, kMittDeep, 6, 10, palmL, 1.0f);
+    solidBall(m, jl(G, palmL, 0.038f, 0.010f, 0.0f), 0.028f, 0.042f, 0.028f, kMittDeep, 6, 10, palmL, 1.0f);
+    solidBall(m, W[wrL], 0.036f, 0.030f, 0.036f, kMittDeep, 6, 10, wrL, 0.7f, palmL, 0.3f);
+    // Pocket crease
+    solidBall(m, jl(G, palmL, 0.0f, 0.008f, 0.028f), 0.040f, 0.016f, 0.018f, kMittDeep, 5, 8, palmL, 1.0f);
+
+    if (catcher) {
+        // Catcher throwing hand (no mitt on right).
+        solidBall(m, W[palmR], 0.038f, 0.030f, 0.042f, kSkinDeep, 8, 12, palmR, 0.8f, wrR, 0.2f);
+        solidBall(m, jl(G, palmR, 0.0f, -0.026f, 0.016f), 0.028f, 0.016f, 0.030f, kSkin, 6, 10, palmR, 1.0f);
+    }
 
     // Neck
     solidLimb(m, neck, head, W[neck], W[head], 0.040f, 0.042f, kSkin, 6, segs);
