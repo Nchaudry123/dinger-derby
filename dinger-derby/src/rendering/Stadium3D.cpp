@@ -1021,6 +1021,50 @@ Mesh3D buildWalls(const Layout& L) {
     // Ribbon / LED strip under board
     addBox(m, cf + Vector3(0, -9.0f, 0.5f), 30.0f, 1.2f, 0.5f, sf::Color(200, 40, 50));
 
+    // Batter's eye — dark green CF wall panel (what the batter looks at)
+    {
+        const float eyeHalfAng = 0.22f; // ~±12.5° of CF
+        const int eyeSegs = 10;
+        sf::Color eye(18, 55, 28);
+        sf::Color eyeDark(12, 40, 20);
+        for (int i = 0; i < eyeSegs; i++) {
+            float t0 = static_cast<float>(i) / eyeSegs;
+            float t1 = static_cast<float>(i + 1) / eyeSegs;
+            float a0 = -eyeHalfAng + 2.0f * eyeHalfAng * t0;
+            float a1 = -eyeHalfAng + 2.0f * eyeHalfAng * t1;
+            float r0 = L.wallRAtAngle(a0) - 0.15f;
+            float r1 = L.wallRAtAngle(a1) - 0.15f;
+            float h0 = L.wallHeightAtAngle(a0);
+            float h1 = L.wallHeightAtAngle(a1);
+            // Raised batter's-eye panel above wall pad height
+            float yBot = std::max(h0, h1) * 0.35f;
+            float yTop = std::max(h0, h1) + 6.5f;
+            sf::Color col = (i % 2) ? eye : eyeDark;
+            addQuad(
+                m,
+                L.fromHome(r0, a0, yBot),
+                L.fromHome(r1, a1, yBot),
+                L.fromHome(r1, a1, yTop),
+                L.fromHome(r0, a0, yTop),
+                col
+            );
+        }
+        // Frame rails
+        for (float aSign : {-1.0f, 1.0f}) {
+            float a = aSign * eyeHalfAng;
+            float r = L.wallRAtAngle(a) - 0.1f;
+            float h = L.wallHeightAtAngle(a);
+            addBox(
+                m,
+                L.fromHome(r, a, h * 0.5f + 3.0f),
+                0.35f,
+                h + 6.5f,
+                0.35f,
+                sf::Color(40, 50, 45)
+            );
+        }
+    }
+
     m.rebuildNormals();
     return m;
 }
@@ -1185,18 +1229,34 @@ Mesh3D buildStands(const Layout& L) {
         }
     }
 
-    // Backstop / netting behind home
-    const float backL = pi - 0.95f;
-    const float backR = pi + 0.95f;
+    // Backstop / netting behind home (denser, multi-layer for plate-view realism)
+    const float backL = pi - 1.05f;
+    const float backR = pi + 1.05f;
     float backInner = 12.5f;
+    // Solid lower wall
     addArcWall(
-        m, L, backInner, backL, backR, 0.0f, 9.0f, 32,
-        sf::Color(90, 100, 110), sf::Color(110, 120, 130)
+        m, L, backInner, backL, backR, 0.0f, 4.2f, 40,
+        sf::Color(70, 78, 88), sf::Color(95, 105, 115)
     );
+    // Mid padded band
     addArcWall(
-        m, L, backInner + 0.35f, backL + 0.04f, backR - 0.04f, 5.0f, 18.0f, 28,
-        sf::Color(190, 200, 210, 85), sf::Color(170, 180, 190, 90)
+        m, L, backInner + 0.15f, backL + 0.02f, backR - 0.02f, 4.0f, 9.5f, 36,
+        sf::Color(55, 70, 95), sf::Color(80, 95, 115)
     );
+    // Upper net (semi-transparent)
+    addArcWall(
+        m, L, backInner + 0.4f, backL + 0.05f, backR - 0.05f, 8.5f, 20.0f, 36,
+        sf::Color(200, 210, 220, 75), sf::Color(180, 190, 200, 80)
+    );
+    // Net grid poles (vertical ribs the batter sees looking up)
+    for (int i = 0; i <= 12; i++) {
+        float t = static_cast<float>(i) / 12.0f;
+        float ang = backL + (backR - backL) * t;
+        Vector3 base = L.fromHome(backInner + 0.2f, ang, 0.0f);
+        addBox(m, base + Vector3(0, 10.0f, 0), 0.18f, 20.0f, 0.18f, sf::Color(160, 165, 170));
+    }
+    // Protective rail above catcher
+    addBox(m, Vector3(0.0f, 5.5f, plateZ + 11.5f), 10.0f, 0.35f, 0.8f, sf::Color(90, 95, 100));
 
     // Press level behind home
     addBox(m, Vector3(0.0f, 24.0f, plateZ + 32.0f), 28.0f, 7.0f, 10.0f, sf::Color(55, 65, 80));
