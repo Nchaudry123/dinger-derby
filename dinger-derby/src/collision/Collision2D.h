@@ -2,13 +2,13 @@
 
 #include "../physics/Body2D.h"
 
-struct CollisionManifold {
+struct CollisionManifold2D {
     bool colliding = false;
     Vector2 normal;
     float penetration = 0.0f;
 };
 
-CollisionManifold findCircleCircleCollision(
+CollisionManifold2D findCircleCircleCollision(
     const Body2D& a,
     const Body2D& b
 );
@@ -23,7 +23,7 @@ bool circleCircleCollision(
 void resolveCircleCollision(
     Body2D& a,
     Body2D& b,
-    const CollisionManifold& manifold
+    const CollisionManifold2D& manifold
 );
 
 void resolveCircleCollision(

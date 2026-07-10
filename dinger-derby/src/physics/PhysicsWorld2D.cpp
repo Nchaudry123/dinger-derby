@@ -92,7 +92,7 @@ void PhysicsWorld2D::collectContacts() {
 
     for (int i = 0; i < bodies.size(); i++) {
         for (int j = i + 1; j < bodies.size(); j++) {
-            CollisionManifold manifold =
+            CollisionManifold2D manifold =
                 findCircleCircleCollision(*bodies[i], *bodies[j]);
 
             if (manifold.colliding) {

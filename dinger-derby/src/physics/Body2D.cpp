@@ -18,7 +18,7 @@ Body2D::Body2D() {
 
     isSleeping = false;
     sleepTimer = 0.0f;
-    type = BodyType::Dynamic;
+    type = Body2DType::Dynamic;
 }
 
 Body2D::Body2D(Vector2 startPosition, float mass) {
@@ -39,11 +39,11 @@ Body2D::Body2D(Vector2 startPosition, float mass) {
 
     isSleeping = false;
     sleepTimer = 0.0f;
-    type = BodyType::Dynamic;
+    type = Body2DType::Dynamic;
 }
 
 bool Body2D::isStatic() const {
-    return type == BodyType::Static;
+    return type == Body2DType::Static;
 }
 
 float Body2D::inverseMass() const {
@@ -65,7 +65,7 @@ void Body2D::setRadius(float newRadius) {
 }
 
 void Body2D::setStatic() {
-    type = BodyType::Static;
+    type = Body2DType::Static;
     velocity = Vector2(0, 0);
     acceleration = Vector2(0, 0);
     angularVelocity = 0.0f;
@@ -76,7 +76,7 @@ void Body2D::setStatic() {
 }
 
 void Body2D::setDynamic(float newMass) {
-    type = BodyType::Dynamic;
+    type = Body2DType::Dynamic;
     setMass(newMass);
     wakeUp();
 }

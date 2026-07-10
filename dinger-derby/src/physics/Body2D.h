@@ -1,7 +1,7 @@
 #pragma once
 #include "../math/Vector2.h"
 
-enum class BodyType {
+enum class Body2DType {
     Dynamic,
     Static
 };
@@ -24,7 +24,7 @@ public:
 
     bool isSleeping;
     float sleepTimer;
-    BodyType type;
+    Body2DType type;
 
     Body2D();
     Body2D(Vector2 startPosition, float mass);

@@ -78,7 +78,7 @@ void testCircleCircleManifold() {
     a.setRadius(10.0f);
     b.setRadius(10.0f);
 
-    CollisionManifold manifold = findCircleCircleCollision(a, b);
+    CollisionManifold2D manifold = findCircleCircleCollision(a, b);
 
     assert(manifold.colliding);
     assert(nearlyEqual(manifold.normal.x, 1.0f));
@@ -93,7 +93,7 @@ void testCircleCircleManifoldWhenSeparated() {
     a.setRadius(10.0f);
     b.setRadius(10.0f);
 
-    CollisionManifold manifold = findCircleCircleCollision(a, b);
+    CollisionManifold2D manifold = findCircleCircleCollision(a, b);
 
     assert(!manifold.colliding);
     assert(nearlyEqual(manifold.penetration, 0.0f));
@@ -108,7 +108,7 @@ void testCircleCollisionResponseUsesManifoldNormal() {
     a.velocity = Vector2(10.0f, 0.0f);
     b.velocity = Vector2(-10.0f, 0.0f);
 
-    CollisionManifold manifold = findCircleCircleCollision(a, b);
+    CollisionManifold2D manifold = findCircleCircleCollision(a, b);
     resolveCircleCollision(a, b, manifold);
 
     assert(a.velocity.x < 0.0f);
@@ -126,7 +126,7 @@ void testDynamicStaticCollisionMovesOnlyDynamicBody() {
     staticBody.setStatic();
     dynamicBody.velocity = Vector2(10.0f, 0.0f);
 
-    CollisionManifold manifold =
+    CollisionManifold2D manifold =
         findCircleCircleCollision(dynamicBody, staticBody);
 
     resolveCircleCollision(dynamicBody, staticBody, manifold);

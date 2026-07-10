@@ -7,7 +7,7 @@
 struct Contact2D {
     Body2D* a = nullptr;
     Body2D* b = nullptr;
-    CollisionManifold manifold;
+    CollisionManifold2D manifold;
 };
 
 class PhysicsWorld2D {
