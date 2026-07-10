@@ -191,7 +191,7 @@ std::string cameraModeName(PitchCameraMode mode) {
 }
 
 // Dynamic cam for CharacterModel3D throw: start 1B-side profile (sideways set),
-// open toward plate as delivery progresses, optionally glance at the ball.
+// then open to a centered view down the lane toward home.
 void applyDeliveryCamera(
     Camera3D& camera,
     float deliveryT01,
@@ -200,46 +200,57 @@ void applyDeliveryCamera(
 ) {
     float u = smoothstep(0.0f, 1.0f, std::clamp(deliveryT01, 0.0f, 1.0f));
     // Set: +X side of mound — profile of RHP closed to plate (+Z).
-    Vector3 setPos(2.55f, 1.52f, moundZ + 0.15f);
-    Vector3 setTarget(0.05f, 1.20f, moundZ + 0.55f);
-    // Release: over throwing shoulder, looking down the lane.
-    Vector3 openPos(1.05f, 1.72f, moundZ - 2.40f);
-    Vector3 openTarget(0.0f, 1.25f, plateZ * 0.50f);
+    Vector3 setPos(2.20f, 1.55f, moundZ + 0.20f);
+    Vector3 setTarget(0.0f, 1.25f, moundZ + 1.0f);
+    // Open: nearly on the rubber line behind the mound, looking at home plate.
+    Vector3 openPos(0.20f, 1.80f, moundZ - 2.20f);
+    Vector3 openTarget(0.0f, 1.20f, plateZ);
     Vector3 pos = setPos + (openPos - setPos) * u;
     Vector3 target = setTarget + (openTarget - setTarget) * u;
     if (trackBall) {
-        target = target * 0.55f + ballPos * 0.45f;
+        // Mild ball track — keep most weight on the plate so the lane stays centered.
+        target = target * 0.70f + ballPos * 0.30f;
+        target.x = std::clamp(target.x, -0.35f, 0.35f);
         target.y = std::clamp(target.y, 0.6f, 2.4f);
+        target.z = std::max(target.z, plateZ * 0.35f);
     }
     lookAt(camera, pos, target);
-    camera.fieldOfView = 840.0f - u * 60.0f;
+    camera.fieldOfView = 900.0f - u * 40.0f;
+    camera.nearPlane = 0.18f;
 }
 
 void applyCameraMode(Camera3D& camera, PitchCameraMode mode) {
     switch (mode) {
         case PitchCameraMode::Overview:
-            // Slight 1B bias so sideways set reads as a silhouette, not face-on.
-            lookAt(camera, Vector3(1.35f, 1.72f, -3.15f), Vector3(0.0f, 1.25f, plateZ * 0.55f));
-            camera.fieldOfView = 1280.0f;
+            // Elevated 3/4 from slightly CF-left, plate and mound both in frame.
+            lookAt(
+                camera,
+                Vector3(0.45f, 1.95f, -3.40f),
+                Vector3(0.0f, 1.15f, plateZ * 0.45f)
+            );
+            camera.fieldOfView = 1200.0f;
+            camera.nearPlane = 0.15f;
             break;
         case PitchCameraMode::Catcher:
-            // POV from the catcher's crouch spot (same place as the model), looking at the pitcher.
+            // POV from the catcher's crouch (matches catcher model placement).
             // Catcher mesh is not drawn in this mode so the body never blocks the plate.
             lookAt(
                 camera,
-                Vector3(0.0f, 1.28f, plateZ + 0.95f),
-                Vector3(0.0f, 1.55f, moundZ + 1.2f)
+                Vector3(0.0f, 1.22f, plateZ + 1.05f),
+                Vector3(0.0f, 1.55f, moundZ + 0.8f)
             );
             camera.fieldOfView = 700.0f;
+            camera.nearPlane = 0.12f;
             break;
         case PitchCameraMode::Pitcher:
-            // Over the throwing shoulder, behind the mound, looking toward home.
+            // Behind the mound on the rubber line — plate straight ahead, not off to the side.
             lookAt(
                 camera,
-                Vector3(1.25f, 1.80f, -2.70f),
-                Vector3(0.0f, 1.20f, plateZ * 0.55f)
+                Vector3(0.10f, 1.82f, moundZ - 2.10f),
+                Vector3(0.0f, 1.18f, plateZ)
             );
-            camera.fieldOfView = 780.0f;
+            camera.fieldOfView = 900.0f;
+            camera.nearPlane = 0.20f;
             break;
         case PitchCameraMode::Delivery:
             applyDeliveryCamera(camera, 0.0f, Vector3(0.0f, 1.2f, 0.3f), false);
@@ -1125,9 +1136,9 @@ Vector3 launchPitch(
     return commandedAimPoint;
 }
 
-// Pitcher root transform in the scene (must match draw).
+// Pitcher root transform — centered on the rubber, facing +Z toward home.
 Matrix4 pitcherWorldTransform() {
-    return Matrix4::translation(Vector3(0.0f, 0.0f, moundZ + 0.15f));
+    return Matrix4::translation(Vector3(0.0f, 0.0f, moundZ));
 }
 
 bool freezePitchAtPlate(
@@ -1226,14 +1237,15 @@ int main() {
     sf::Vector2u rasterSize = resizeRaster(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
     Camera3D camera;
-    PitchCameraMode cameraMode = PitchCameraMode::Delivery;
+    PitchCameraMode cameraMode = PitchCameraMode::Catcher;
     applyCameraMode(camera, cameraMode);
 
     Mesh3D baseballMesh = BaseballVisual3D::makeMesh(fullQuality ? 48 : 28, fullQuality ? 96 : 48);
     std::vector<SeamPoint3D> seamA = BaseballVisual3D::makeSeamLoop(false);
     std::vector<SeamPoint3D> seamB = BaseballVisual3D::makeSeamLoop(true);
-    const float catcherWorldX = 0.05f;
-    const float catcherWorldZ = plateZ + 0.95f;
+    // Catcher centered on the plate line, just behind home (matches catcher cam).
+    const float catcherWorldX = 0.0f;
+    const float catcherWorldZ = plateZ + 1.05f;
     auto playerDetail = [&]() { return fullQuality ? 2 : 2; }; // always high model detail
 
     // Skinned path: glTF if present, else CharacterModel3D (multi-bone throw).

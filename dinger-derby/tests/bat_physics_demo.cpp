@@ -115,7 +115,8 @@ void lookAt(Camera3D& cam, const Vector3& pos, const Vector3& target) {
 }
 
 Matrix4 pitcherWorldTransform() {
-    return Matrix4::translation(Vector3(0.0f, 0.0f, moundZ + 0.15f));
+    // Match pitching sim: centered on the rubber, facing +Z toward home.
+    return Matrix4::translation(Vector3(0.0f, 0.0f, moundZ));
 }
 
 // ── Overlay helpers (same field language as pitching sim) ───────────────
