@@ -4,8 +4,8 @@
 // Yellow silhouette = aim reticle (does NOT swing). Shows where contact will be.
 // 3D bat mesh = real swing path (load → contact → finish) when you press Space/LMB.
 //
-// Default: HR DERBY — fixed swings, soft toss, HR count + longest.
-// Practice: unlimited slow meatballs. Live: full-speed with at-bat count.
+// Default: HR DERBY — fixed swings, front-of-plate soft toss, HR count + longest.
+// Practice: unlimited slow meatballs from the mound. Live: full-speed AB.
 //
 // Controls:
 //   Mouse              aim reticle (PCI / sweet spot)
@@ -1228,10 +1228,17 @@ int main() {
     enum class PlayMode { Derby, Practice, Live };
     PlayMode playMode = PlayMode::Derby; // product default: HR Derby
     constexpr int kDerbySwings = 10;
-    constexpr float kDerbySoftTossMph = 48.0f;
+    // Short lob from ~21 ft in front of the plate (not a full 60.5 ft delivery).
+    constexpr float kDerbySoftTossMph = 32.0f;
     constexpr float kPracticeMph = 52.0f;
     float pitchMph = kDerbySoftTossMph;
     float normalPitchMph = 90.0f;
+    float softTossTimer = -1.0f; // derby: countdown to lob release
+
+    // Coach-style soft toss: waist-high, between mound and home.
+    auto softTossOrigin = []() {
+        return Vector3(0.0f, 1.28f, plateZ - 10.5f);
+    };
 
     struct DerbyState {
         int swingsLeft = kDerbySwings;
@@ -1389,17 +1396,18 @@ int main() {
                     call = "Foul";
                     statusCol = sf::Color(255, 200, 140);
                 }
-                scheduleNextPitch(isDingerQuality(lastHit.quality) ? 5.5f : 3.2f);
+                // Soft toss cycle: shorter wait so reps stay snappy.
+                scheduleNextPitch(isDingerQuality(lastHit.quality) ? 4.2f : 2.4f);
             } else if (std::string(kind) == "SWINGING_STRIKE") {
                 consumeDerbySwing();
                 call = "Miss";
                 statusCol = sf::Color(255, 160, 120);
-                scheduleNextPitch(1.5f);
+                scheduleNextPitch(1.15f);
             } else if (std::string(kind) == "CALLED_STRIKE" || std::string(kind) == "BALL") {
                 // No swing — soft toss again without burning budget.
                 call = "Take — no swing";
                 statusCol = sf::Color(180, 200, 220);
-                scheduleNextPitch(1.2f);
+                scheduleNextPitch(0.9f);
             }
             if (derby.roundOver) {
                 std::ostringstream fin;
@@ -1483,13 +1491,17 @@ int main() {
         // Open park — no tight box walls/ceiling clamping exit trajectories.
         world.setBounds(boundsMinimum, boundsMaximum);
         world.airResistanceEnabled = false;
-        baseball = Body3D(Vector3(0, 1.5f, moundZ), 0.145f);
+        const bool derbyToss = (playMode == PlayMode::Derby);
+        Vector3 startPos = derbyToss ? softTossOrigin() : Vector3(0, 1.5f, moundZ);
+        baseball = Body3D(startPos, 0.145f);
         baseball.setRadius(baseballRadius);
         baseball.restitution = 0.15f; // pitch path; set to 0 after contact
         baseball.velocity = Vector3();
         baseball.angularVelocity = Vector3();
         world.addBody(&baseball);
-        deliveryAge = 0.0f;
+        // Derby: no full windup — short hover then lob. Practice/Live: mound delivery.
+        deliveryAge = derbyToss ? -1.0f : 0.0f;
+        softTossTimer = derbyToss ? 0.65f : -1.0f;
         ballReleased = false;
         hasHit = false;
         swungThisPitch = false;
@@ -1499,7 +1511,7 @@ int main() {
         wallResolved = false;
         swingConsumed = false;
         hrBannerTimer = 0.0f;
-        prevBallZ = moundZ;
+        prevBallZ = startPos.z;
         prevBallR = 0.0f;
         plateCrossPos = strikeZoneCenter;
         followBallCam = false;
@@ -1513,7 +1525,7 @@ int main() {
         if (playMode == PlayMode::Derby) {
             pitchMph = kDerbySoftTossMph;
             bat.type = SwingType::Contact;
-            status = "DERBY soft toss  ·  " + countString() + "  ·  Space/LMB swing";
+            status = "SOFT TOSS loading  ·  " + countString() + "  ·  ready your reticle";
             statusCol = sf::Color(255, 220, 80);
         } else if (playMode == PlayMode::Practice) {
             pitchMph = kPracticeMph;
@@ -1528,31 +1540,48 @@ int main() {
     };
 
     auto releaseBall = [&]() {
-        Vector3 hand = pitcherAnim.throwHandWorld(pitcherWorldTransform());
-        // Soft toss / practice: meatball heart. Live: small command scatter.
+        Vector3 start;
         Vector3 aim = strikeZoneCenter;
-        if (playMode == PlayMode::Live) {
-            static std::uint32_t rng = 0xC0FFEEu;
-            rng = rng * 1664525u + 1013904223u;
-            float ux = (static_cast<float>(rng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
-            rng = rng * 1664525u + 1013904223u;
-            float uy = (static_cast<float>(rng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
-            aim.x += ux * 0.18f;
-            aim.y += uy * 0.16f;
-            aim.x = clampf(aim.x, -strikeZoneHalfWidth * 1.15f, strikeZoneHalfWidth * 1.15f);
-            aim.y = clampf(
-                aim.y,
-                strikeZoneCenter.y - strikeZoneHalfHeight * 1.15f,
-                strikeZoneCenter.y + strikeZoneHalfHeight * 1.15f
-            );
-        } else if (playMode == PlayMode::Derby) {
-            // Soft toss: belt-high, slight float into the zone center.
-            aim.y = strikeZoneCenter.y - 0.05f;
+        if (playMode == PlayMode::Derby) {
+            // Front-of-plate soft toss: underhand lob into the heart of the zone.
+            start = softTossOrigin();
+            aim = strikeZoneCenter;
+            aim.y = strikeZoneCenter.y + 0.08f; // slight float down into the belt
+            // Tiny horizontal variety so every toss isn't a carbon copy.
+            static std::uint32_t tossRng = 0xA11CEu;
+            tossRng = tossRng * 1664525u + 1013904223u;
+            float ux = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
+            tossRng = tossRng * 1664525u + 1013904223u;
+            float uy = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
+            aim.x += ux * 0.06f;
+            aim.y += uy * 0.05f;
+        } else {
+            start = pitcherAnim.throwHandWorld(pitcherWorldTransform());
+            if (playMode == PlayMode::Live) {
+                static std::uint32_t rng = 0xC0FFEEu;
+                rng = rng * 1664525u + 1013904223u;
+                float ux = (static_cast<float>(rng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
+                rng = rng * 1664525u + 1013904223u;
+                float uy = (static_cast<float>(rng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
+                aim.x += ux * 0.18f;
+                aim.y += uy * 0.16f;
+                aim.x = clampf(aim.x, -strikeZoneHalfWidth * 1.15f, strikeZoneHalfWidth * 1.15f);
+                aim.y = clampf(
+                    aim.y,
+                    strikeZoneCenter.y - strikeZoneHalfHeight * 1.15f,
+                    strikeZoneCenter.y + strikeZoneHalfHeight * 1.15f
+                );
+            }
         }
-        baseball.position = hand;
-        baseball.velocity = launchVelocityTowardPlate(hand, aim, pitchMph);
-        prevBallZ = hand.z;
+        baseball.position = start;
+        baseball.velocity = launchVelocityTowardPlate(start, aim, pitchMph);
+        // Soft toss: a bit more loft so the lob drops into the zone.
+        if (playMode == PlayMode::Derby) {
+            baseball.velocity.y += 1.15f;
+        }
+        prevBallZ = start.z;
         ballReleased = true;
+        softTossTimer = -1.0f;
         status = std::string(modeTitle()) + "  ·  " + countString() + "  ·  cover reticle, Space/LMB";
         statusCol = sf::Color(180, 230, 255);
     };
@@ -1682,8 +1711,19 @@ int main() {
             hrBannerTimer = std::max(0.0f, hrBannerTimer - dt);
         }
 
-        // Pitcher animation + ball glue / release
-        if (deliveryAge >= 0.0f) {
+        // Pitcher animation + ball glue / soft-toss release
+        if (playMode == PlayMode::Derby && softTossTimer >= 0.0f && !ballReleased) {
+            // Idle pitcher; ball hovers at the soft-toss spot, then lobs in.
+            pitcherAnim.applyClip(idleClip, poseClock, true);
+            softTossTimer -= dt;
+            Vector3 o = softTossOrigin();
+            float bob = 0.04f * std::sin(poseClock * 9.0f);
+            baseball.position = o + Vector3(0.0f, bob, 0.0f);
+            baseball.velocity = Vector3();
+            if (softTossTimer <= 0.0f) {
+                releaseBall();
+            }
+        } else if (deliveryAge >= 0.0f) {
             deliveryAge += dt;
             float t01 = clampf(deliveryAge / deliveryDuration, 0.0f, 1.0f);
             pitcherAnim.applyClipNormalized(deliveryClip, t01);
