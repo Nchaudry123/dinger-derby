@@ -565,13 +565,13 @@ sf::Keyboard::Key pitchKeyForProfile(const PitchProfile& pitch) {
 int main() {
     sf::RenderWindow window(
         sf::VideoMode(sf::Vector2u(1280, 720)),
-        "Pitching Simulator | F/P/C/T/S pitch | arrows aim | R reset"
+        "Pitching Simulator | F/P/C/T/S select | R throw"
     );
     window.setFramerateLimit(60);
 
     bool antiAliasingEnabled = true;
     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
-    DemoFpsCounter fpsCounter("Pitching Simulator | F/P/C/T/S pitch | drag speed | AA on");
+    DemoFpsCounter fpsCounter("Pitching Simulator | R throws | AA on");
 
     sf::Font font;
     bool fontLoaded = loadUiFont(font);
@@ -589,6 +589,7 @@ int main() {
 
     std::array<PitchProfile, 5> pitches = makePitchProfiles();
     int selectedPitch = 0;
+    int activePitch = selectedPitch;
     Vector3 aimPoint = strikeZoneCenter;
     PhysicsWorld3D world;
     Body3D baseball;
@@ -607,9 +608,10 @@ int main() {
     float spinZ = 0.0f;
     bool paused = false;
     bool draggingSpeedSlider = false;
-    bool pitchFrozen = false;
+    bool pitchFrozen = true;
 
     auto relaunchCurrentPitch = [&]() {
+        activePitch = selectedPitch;
         currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
         currentVariation = rollPitchVariation(pitches[selectedPitch], randomGenerator);
         launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph, currentVariation);
@@ -633,12 +635,12 @@ int main() {
                     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
                     fpsCounter.setTitle(
                         antiAliasingEnabled
-                            ? "Pitching Simulator | F/P/C/T/S pitch | drag speed | AA on"
-                            : "Pitching Simulator | F/P/C/T/S pitch | drag speed | AA off"
+                            ? "Pitching Simulator | R throws | AA on"
+                            : "Pitching Simulator | R throws | AA off"
                     );
                 }
 
-                if (key->code == sf::Keyboard::Key::P) {
+                if (key->code == sf::Keyboard::Key::Space) {
                     paused = !paused;
                 }
 
@@ -673,7 +675,6 @@ int main() {
                 for (int i = 0; i < pitches.size(); i++) {
                     if (key->code == pitchKeyForProfile(pitches[i])) {
                         selectedPitch = i;
-                        relaunchCurrentPitch();
                     }
                 }
             }
@@ -717,7 +718,7 @@ int main() {
         if (!paused && !pitchFrozen) {
             accumulator += dt;
             while (accumulator >= fixedStep) {
-                const PitchProfile& pitch = pitches[selectedPitch];
+                const PitchProfile& pitch = pitches[activePitch];
                 Vector3 breakAcceleration =
                     movementAccelerationForPitch(pitch, currentVariation, baseball.position, pitchAge);
                 baseball.applyForce(breakAcceleration * baseball.mass);
@@ -772,7 +773,7 @@ int main() {
             static_cast<float>(frameBuffer.getWidth());
 
         drawFieldGuide(window, overlayCamera);
-        drawProjectedPolyline(window, overlayCamera, trail, pitches[selectedPitch].color);
+        drawProjectedPolyline(window, overlayCamera, trail, pitches[activePitch].color);
         drawStrikeZone(window, overlayCamera, aimPoint, pitches[selectedPitch]);
         drawBaseballSeams(window, overlayCamera, baseballTransform, seamA, seamB);
 
@@ -809,7 +810,7 @@ int main() {
 
             drawText(window, font, pitches[selectedPitch].name, 17, sf::Vector2f(34.0f, 28.0f), pitches[selectedPitch].color);
             drawText(window, font, "F 4S  P SPL  C CB  T CUT  S SL", 12, sf::Vector2f(34.0f, 54.0f), sf::Color(180, 215, 220));
-            drawText(window, font, "drag speed for next | R throw", 12, sf::Vector2f(34.0f, 96.0f), sf::Color(155, 195, 200));
+            drawText(window, font, "R throw selected | Space pause | drag speed", 12, sf::Vector2f(34.0f, 96.0f), sf::Color(155, 195, 200));
             drawText(window, font, aimLabel.str(), 12, sf::Vector2f(214.0f, 29.0f), sf::Color(135, 195, 200));
             drawText(window, font, speedLabel.str(), 12, sf::Vector2f(214.0f, 96.0f), sf::Color(175, 215, 180));
         }
