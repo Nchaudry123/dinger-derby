@@ -969,6 +969,24 @@ Vector3 launchVelocityTowardPlate(
     return vel;
 }
 
+// Coach soft toss: pick flight time and solve so the ball reaches aim under gravity.
+// Unlike launchVelocityTowardPlate (full-mound speed clamps), this always hits the
+// plate by construction — no post-hoc vy/vz hacks.
+Vector3 softTossVelocity(const Vector3& start, const Vector3& aim, float flightTimeSec) {
+    float T = clampf(flightTimeSec, 0.55f, 1.20f);
+    float dx = aim.x - start.x;
+    float dy = aim.y - start.y;
+    float dz = aim.z - start.z;
+    // Must travel +Z to the plate.
+    if (dz < 0.5f) {
+        dz = 0.5f;
+    }
+    float vx = dx / T;
+    float vz = dz / T;
+    float vy = (dy + 0.5f * 9.8f * T * T) / T;
+    return Vector3(vx, vy, vz);
+}
+
 Vector3 mouseToPci(const Camera3D& cam, float mx, float my, float sw, float sh) {
     float nx = (mx / sw) * 2.0f - 1.0f;
     float ny = 1.0f - (my / sh) * 2.0f;
@@ -1239,16 +1257,16 @@ int main() {
     enum class PlayMode { Derby, Practice, Live };
     PlayMode playMode = PlayMode::Derby; // product default: HR Derby
     constexpr int kDerbySwings = 10;
-    // Short lob from ~22 ft in front of the plate (not a full 60.5 ft delivery).
-    constexpr float kDerbySoftTossMph = 26.0f; // slower = more readable lob
+    // Soft toss readout only (true speed comes from flight-time solver).
+    constexpr float kDerbySoftTossMph = 28.0f;
     constexpr float kPracticeMph = 52.0f;
     float pitchMph = kDerbySoftTossMph;
     float normalPitchMph = 90.0f;
     float softTossTimer = -1.0f; // derby: countdown to lob release
 
-    // Coach-style soft toss: chest-high, between mound and home.
+    // Coach soft toss: ~16 ft in front of the plate, waist/chest height.
     auto softTossOrigin = []() {
-        return Vector3(0.0f, 1.55f, plateZ - 11.0f);
+        return Vector3(0.0f, 1.35f, plateZ - 8.0f);
     };
 
     struct DerbyState {
@@ -1593,18 +1611,30 @@ int main() {
         Vector3 start;
         Vector3 aim = strikeZoneCenter;
         if (playMode == PlayMode::Derby) {
-            // Front-of-plate soft toss: underhand lob into the heart of the zone.
+            // Front-of-plate soft toss: lob that arrives in the heart of the zone.
             start = softTossOrigin();
             aim = strikeZoneCenter;
-            aim.y = strikeZoneCenter.y + 0.08f; // slight float down into the belt
-            // Tiny horizontal variety so every toss isn't a carbon copy.
+            // Tiny scatter still inside the zone (aim only — velocity solves to aim).
             static std::uint32_t tossRng = 0xA11CEu;
             tossRng = tossRng * 1664525u + 1013904223u;
             float ux = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
             tossRng = tossRng * 1664525u + 1013904223u;
             float uy = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
-            aim.x += ux * 0.06f;
-            aim.y += uy * 0.05f;
+            aim.x = clampf(
+                aim.x + ux * 0.08f,
+                -strikeZoneHalfWidth * 0.85f,
+                strikeZoneHalfWidth * 0.85f
+            );
+            aim.y = clampf(
+                aim.y + uy * 0.07f,
+                strikeZoneCenter.y - strikeZoneHalfHeight * 0.7f,
+                strikeZoneCenter.y + strikeZoneHalfHeight * 0.7f
+            );
+            baseball.position = start;
+            // ~0.85s lob: readable arc that still ends at the plate.
+            baseball.velocity = softTossVelocity(start, aim, 0.85f);
+            // Display mph from actual exit speed for the HUD.
+            pitchMph = baseball.velocity.magnitude() * 2.236936f;
         } else {
             start = pitcherAnim.throwHandWorld(pitcherWorldTransform());
             if (playMode == PlayMode::Live) {
@@ -1622,15 +1652,8 @@ int main() {
                     strikeZoneCenter.y + strikeZoneHalfHeight * 1.15f
                 );
             }
-        }
-        baseball.position = start;
-        baseball.velocity = launchVelocityTowardPlate(start, aim, pitchMph);
-        // Soft toss: underhand lob arc so the ball floats then drops into the zone.
-        if (playMode == PlayMode::Derby) {
-            baseball.velocity.y += 3.4f;
-            // Slightly slow horizontal so the arc is readable.
-            baseball.velocity.x *= 0.92f;
-            baseball.velocity.z *= 0.88f;
+            baseball.position = start;
+            baseball.velocity = launchVelocityTowardPlate(start, aim, pitchMph);
         }
         prevBallZ = start.z;
         ballReleased = true;
