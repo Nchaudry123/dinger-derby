@@ -27,6 +27,12 @@ namespace {
 
 constexpr float pi = 3.1415926535f;
 constexpr float fixedStep = 1.0f / 180.0f;
+
+float smoothstep(float edge0, float edge1, float x) {
+    float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
 constexpr float baseballRadius = 0.2f;
 constexpr float feetPerWorldUnit = 2.0f;
 constexpr float pitchingDistanceFeet = 60.5f;
@@ -943,7 +949,7 @@ int main() {
     std::vector<SeamPoint3D> seamB = BaseballVisual3D::makeSeamLoop(true);
     const float catcherWorldX = 0.05f;
     const float catcherWorldZ = plateZ + 0.95f;
-    auto playerDetail = [&]() { return fullQuality ? 1 : 0; };
+    auto playerDetail = [&]() { return fullQuality ? 2 : 1; };
     Mesh3D pitcherMesh = BaseballPlayer3D::pitcher(playerDetail());
     Mesh3D catcherMesh = BaseballPlayer3D::catcher(playerDetail());
     RasterMeshRenderCache renderCache;
@@ -978,8 +984,9 @@ int main() {
     float deliveryAge = -1.0f; // < 0 => idle; seconds into delivery clip
     float playerRebuildTimer = 0.0f;
     bool ballReleased = false;
-    constexpr float deliveryDuration = 0.92f;
-    constexpr float releaseNormalized = 0.55f;
+    constexpr float deliveryDuration = 1.15f; // full windup → follow-through
+    constexpr float releaseNormalized = 0.58f;
+    constexpr float playerRebuildHz = 48.0f;
     bool paused = false;
     bool draggingSpeedSlider = false;
     std::string latestResult = "Ready — press R to throw";
@@ -1185,47 +1192,53 @@ int main() {
             }
         }
 
-        // Pose sampling + mesh rebuild (~30 Hz) so animation stays cheap.
+        // Pose sampling + mesh rebuild (~48 Hz) for smoother delivery.
         PitcherPose pitcherPose;
         CatcherPose catcherPose;
+        PitcherPose idlePitcher = BaseballPlayer3D::pitcherIdlePose(poseClock);
         if (deliveryAge >= 0.0f) {
             float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
-            pitcherPose = BaseballPlayer3D::pitcherDeliveryPose(deliveryT);
+            PitcherPose delivery = BaseballPlayer3D::pitcherDeliveryPose(deliveryT);
+            // Ease out of idle into the delivery for the first 12% of the clip.
+            float enter = smoothstep(0.0f, 0.12f, deliveryT);
+            pitcherPose = BaseballPlayer3D::blend(idlePitcher, delivery, enter);
+            // Force release-frame ball hide from delivery sample once past release.
+            if (deliveryT >= releaseNormalized) {
+                pitcherPose.ballInHand = 0.0f;
+            }
         } else {
-            pitcherPose = BaseballPlayer3D::pitcherIdlePose(poseClock);
+            pitcherPose = idlePitcher;
         }
 
+        CatcherPose idleCatcher = BaseballPlayer3D::catcherIdlePose(poseClock);
+        CatcherPose trackCatcher = BaseballPlayer3D::catcherReceivePose(
+            poseClock,
+            phase == PitchPhase::Flying || phase == PitchPhase::Settled
+                ? baseball.position.x
+                : aimPoint.x,
+            phase == PitchPhase::Flying || phase == PitchPhase::Settled
+                ? baseball.position.y
+                : aimPoint.y,
+            catcherWorldX,
+            0.0f
+        );
         if (phase == PitchPhase::Flying) {
-            catcherPose = BaseballPlayer3D::catcherReceivePose(
-                poseClock,
-                baseball.position.x,
-                baseball.position.y,
-                catcherWorldX,
-                0.0f
-            );
-            catcherPose.gloveOpen = 0.55f;
+            catcherPose = trackCatcher;
+            catcherPose.gloveOpen = std::max(catcherPose.gloveOpen, 0.55f);
+            catcherPose.freeArmBrace = 0.55f;
         } else if (phase == PitchPhase::Settled) {
-            catcherPose = BaseballPlayer3D::catcherReceivePose(
-                poseClock,
-                baseball.position.x,
-                baseball.position.y,
-                catcherWorldX,
-                0.0f
-            );
-            catcherPose.gloveOpen = 0.85f;
-            catcherPose.mittReach += 0.04f;
+            catcherPose = trackCatcher;
+            catcherPose.gloveOpen = 0.9f;
+            catcherPose.mittReach += 0.05f;
+            catcherPose.freeArmBrace = 0.4f;
+            catcherPose.torsoLean += 0.06f;
         } else {
-            catcherPose = BaseballPlayer3D::catcherReceivePose(
-                poseClock,
-                aimPoint.x,
-                aimPoint.y,
-                catcherWorldX,
-                0.0f
-            );
+            // Blend idle breathing with aim tracking so mitt eases toward target.
+            catcherPose = BaseballPlayer3D::blend(idleCatcher, trackCatcher, 0.65f);
         }
 
         playerRebuildTimer += dt;
-        if (playerRebuildTimer >= (1.0f / 30.0f)) {
+        if (playerRebuildTimer >= (1.0f / playerRebuildHz)) {
             playerRebuildTimer = 0.0f;
             rebuildPlayers(pitcherPose, catcherPose);
         }

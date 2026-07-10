@@ -90,6 +90,14 @@ void testBoxAndPlayerMeshes() {
 
     CatcherPose receive = BaseballPlayer3D::catcherReceivePose(0.0f, 0.3f, 1.5f, 0.0f, 0.0f);
     assert(std::abs(receive.mittSide) > 0.0f || std::abs(receive.mittHeight) > 0.0f);
+
+    PitcherPose idle = BaseballPlayer3D::pitcherIdlePose(0.0f);
+    PitcherPose blended = BaseballPlayer3D::blend(idle, delivery, 0.5f);
+    assert(blended.stride >= std::min(idle.stride, delivery.stride));
+    assert(blended.stride <= std::max(idle.stride, delivery.stride));
+
+    PitcherPose atRelease = BaseballPlayer3D::pitcherDeliveryPose(0.6f);
+    assert(atRelease.ballInHand < 0.5f);
 }
 
 }
