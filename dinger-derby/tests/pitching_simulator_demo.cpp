@@ -166,6 +166,13 @@ void applyCameraMode(Camera3D& camera, PitchCameraMode mode) {
     }
 }
 
+float horizontalAimDeltaForCamera(PitchCameraMode mode, float screenDirection) {
+    float worldDirection = mode == PitchCameraMode::Catcher
+        ? -screenDirection
+        : screenDirection;
+    return worldDirection * 0.1f;
+}
+
 Mesh3D makeBaseballMesh() {
     Mesh3D mesh = Mesh3D::sphere(1.0f, 28, 56);
     mesh.triangleColors.clear();
@@ -851,11 +858,19 @@ int main() {
                 }
 
                 if (key->code == sf::Keyboard::Key::Left) {
-                    aimPoint.x = std::clamp(aimPoint.x - 0.1f, -strikeZoneHalfWidth * 1.5f, strikeZoneHalfWidth * 1.5f);
+                    aimPoint.x = std::clamp(
+                        aimPoint.x + horizontalAimDeltaForCamera(cameraMode, -1.0f),
+                        -strikeZoneHalfWidth * 1.5f,
+                        strikeZoneHalfWidth * 1.5f
+                    );
                 }
 
                 if (key->code == sf::Keyboard::Key::Right) {
-                    aimPoint.x = std::clamp(aimPoint.x + 0.1f, -strikeZoneHalfWidth * 1.5f, strikeZoneHalfWidth * 1.5f);
+                    aimPoint.x = std::clamp(
+                        aimPoint.x + horizontalAimDeltaForCamera(cameraMode, 1.0f),
+                        -strikeZoneHalfWidth * 1.5f,
+                        strikeZoneHalfWidth * 1.5f
+                    );
                 }
 
                 if (key->code == sf::Keyboard::Key::Up) {
