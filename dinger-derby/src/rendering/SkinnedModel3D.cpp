@@ -192,35 +192,37 @@ SkinnedModel3D makeHumanoid(bool catcher, int detail) {
     int ballS = detail >= 2 ? 12 : 10;
 
     // ── skeleton (local offsets parent-relative) ────────────────────────
-    // RHP facing +Z (plate). Left = glove (-X), right = throw (+X).
+    // RHP on the rubber: body faces +Z (home plate). Glove = -X, throw = +X.
+    // Bind pose is already a SET stance (not a T-pose) so idle/camera look right.
     int root = addJoint(m, "Root", -1, Vector3(0.0f, 0.0f, 0.0f));
     int hips = addJoint(m, "Hips", root, Vector3(0.0f, 0.90f, 0.0f));
-    int spine = addJoint(m, "Spine", hips, Vector3(0.0f, 0.14f, 0.01f));
-    int chest = addJoint(m, "Chest", spine, Vector3(0.0f, 0.18f, 0.01f));
-    int neck = addJoint(m, "Neck", chest, Vector3(0.0f, 0.14f, 0.0f));
-    int head = addJoint(m, "Head", neck, Vector3(0.0f, 0.12f, 0.02f));
+    int spine = addJoint(m, "Spine", hips, Vector3(0.0f, 0.14f, 0.02f));
+    int chest = addJoint(m, "Chest", spine, Vector3(0.0f, 0.18f, 0.02f));
+    int neck = addJoint(m, "Neck", chest, Vector3(0.0f, 0.14f, 0.01f));
+    int head = addJoint(m, "Head", neck, Vector3(0.0f, 0.12f, 0.03f));
 
-    int shL = addJoint(m, "Shoulder_L", chest, Vector3(-0.16f, 0.10f, 0.0f));
-    int elL = addJoint(m, "Elbow_L", shL, Vector3(-0.02f, -0.28f, 0.04f));
-    int wrL = addJoint(m, "Wrist_L", elL, Vector3(0.02f, -0.24f, 0.06f));
-    int palmL = addJoint(m, "Palm_L", wrL, Vector3(0.0f, -0.04f, 0.04f));
+    // Arms start raised toward the sternum (set / glove-chest).
+    int shL = addJoint(m, "Shoulder_L", chest, Vector3(-0.15f, 0.08f, 0.02f));
+    int elL = addJoint(m, "Elbow_L", shL, Vector3(0.04f, -0.16f, 0.14f));
+    int wrL = addJoint(m, "Wrist_L", elL, Vector3(0.08f, -0.08f, 0.12f));
+    int palmL = addJoint(m, "Palm_L", wrL, Vector3(0.04f, -0.02f, 0.05f));
 
-    int shR = addJoint(m, "Shoulder_R", chest, Vector3(0.16f, 0.10f, 0.0f));
-    int elR = addJoint(m, "Elbow_R", shR, Vector3(0.02f, -0.28f, 0.04f));
-    int wrR = addJoint(m, "Wrist_R", elR, Vector3(-0.02f, -0.24f, 0.06f));
-    int palmR = addJoint(m, "Palm_R", wrR, Vector3(0.0f, -0.04f, 0.05f));
+    int shR = addJoint(m, "Shoulder_R", chest, Vector3(0.15f, 0.08f, 0.02f));
+    int elR = addJoint(m, "Elbow_R", shR, Vector3(-0.04f, -0.16f, 0.14f));
+    int wrR = addJoint(m, "Wrist_R", elR, Vector3(-0.08f, -0.08f, 0.12f));
+    int palmR = addJoint(m, "Palm_R", wrR, Vector3(-0.04f, -0.02f, 0.05f));
 
-    // Plant = right (+X), lead = left (-X) for RHP.
-    int hipR = addJoint(m, "Hip_R", hips, Vector3(0.10f, -0.02f, 0.0f));
-    int knR = addJoint(m, "Knee_R", hipR, Vector3(0.0f, -0.42f, 0.02f));
-    int anR = addJoint(m, "Ankle_R", knR, Vector3(0.0f, -0.40f, 0.02f));
+    // Plant = right (+X, slightly back), lead = left (-X, slightly open to plate).
+    int hipR = addJoint(m, "Hip_R", hips, Vector3(0.11f, -0.02f, -0.04f));
+    int knR = addJoint(m, "Knee_R", hipR, Vector3(0.0f, -0.40f, 0.04f));
+    int anR = addJoint(m, "Ankle_R", knR, Vector3(0.0f, -0.38f, 0.0f));
 
-    int hipL = addJoint(m, "Hip_L", hips, Vector3(-0.10f, -0.02f, 0.0f));
-    int knL = addJoint(m, "Knee_L", hipL, Vector3(0.0f, -0.42f, 0.02f));
-    int anL = addJoint(m, "Ankle_L", knL, Vector3(0.0f, -0.40f, 0.02f));
+    int hipL = addJoint(m, "Hip_L", hips, Vector3(-0.11f, -0.02f, 0.03f));
+    int knL = addJoint(m, "Knee_L", hipL, Vector3(0.0f, -0.40f, 0.04f));
+    int anL = addJoint(m, "Ankle_L", knL, Vector3(0.0f, -0.38f, 0.04f));
 
-    // Catcher starts in a crouch via rest offsets.
     if (catcher) {
+        // Crouch: lower hips, deep knee bend, lean toward plate.
         m.joints[hips].restTranslation = Vector3(0.0f, 0.48f, 0.0f);
         m.joints[hips].bakeLocalRest();
         m.joints[knL].restTranslation = Vector3(0.04f, -0.22f, 0.08f);
@@ -234,6 +236,35 @@ SkinnedModel3D makeHumanoid(bool catcher, int detail) {
         m.joints[spine].restTranslation = Vector3(0.0f, 0.12f, 0.04f);
         m.joints[spine].restRotation = Quaternion::fromEulerXYZ(0.15f, 0.0f, 0.0f);
         m.joints[spine].bakeLocalRest();
+        // Arms hang ready, mitt out front.
+        m.joints[elL].restTranslation = Vector3(-0.02f, -0.22f, 0.10f);
+        m.joints[wrL].restTranslation = Vector3(0.0f, -0.20f, 0.12f);
+        m.joints[elR].restTranslation = Vector3(0.02f, -0.22f, 0.06f);
+        m.joints[wrR].restTranslation = Vector3(0.0f, -0.20f, 0.04f);
+        m.joints[elL].bakeLocalRest();
+        m.joints[wrL].bakeLocalRest();
+        m.joints[elR].bakeLocalRest();
+        m.joints[wrR].bakeLocalRest();
+    } else {
+        // Pitcher SET on the rubber: closed slightly to 3B, athletic bend,
+        // chest/face aimed at home plate (+Z).
+        m.joints[hips].restRotation = Quaternion::fromEulerXYZ(0.04f, -0.22f, 0.0f);
+        m.joints[hips].bakeLocalRest();
+        m.joints[spine].restRotation = Quaternion::fromEulerXYZ(0.06f, -0.08f, 0.0f);
+        m.joints[spine].bakeLocalRest();
+        m.joints[chest].restRotation = Quaternion::fromEulerXYZ(0.04f, -0.06f, 0.0f);
+        m.joints[chest].bakeLocalRest();
+        m.joints[head].restRotation = Quaternion::fromEulerXYZ(-0.02f, 0.18f, 0.0f);
+        m.joints[head].bakeLocalRest();
+        // Soft knee flex (plant + lead).
+        m.joints[hipR].restRotation = Quaternion::fromEulerXYZ(0.12f, 0.0f, -0.04f);
+        m.joints[hipR].bakeLocalRest();
+        m.joints[knR].restRotation = Quaternion::fromEulerXYZ(0.22f, 0.0f, 0.0f);
+        m.joints[knR].bakeLocalRest();
+        m.joints[hipL].restRotation = Quaternion::fromEulerXYZ(0.10f, 0.04f, 0.05f);
+        m.joints[hipL].bakeLocalRest();
+        m.joints[knL].restRotation = Quaternion::fromEulerXYZ(0.18f, 0.0f, 0.0f);
+        m.joints[knL].bakeLocalRest();
     }
 
     m.rebuildInverseBindsFromRest();
@@ -287,9 +318,12 @@ SkinnedModel3D makeHumanoid(bool catcher, int detail) {
         addBall(m, head, W[head] + Vector3(0.0f, 0.04f, -0.02f), 0.115f, 0.075f, 0.115f, kGear, ballR, ballS);
         addBall(m, head, W[head] + Vector3(0.0f, 0.0f, 0.12f), 0.070f, 0.065f, 0.018f, kGearDeep, ballR / 2, ballS / 2);
     } else {
-        addBall(m, head, W[head] + Vector3(0.0f, 0.07f, -0.01f), 0.100f, 0.040f, 0.100f, kCap, ballR, ballS);
-        addBall(m, head, W[head] + Vector3(0.0f, 0.04f, 0.10f), 0.055f, 0.012f, 0.035f, kCapDeep, ballR / 2, ballS / 2);
-        addBall(m, head, W[head] + Vector3(0.0f, 0.06f, 0.05f), 0.012f, 0.010f, 0.008f, kAccent, 4, 6);
+        // Crown on top; bill strongly toward plate (+Z) so he reads facing home.
+        addBall(m, head, W[head] + Vector3(0.0f, 0.075f, -0.02f), 0.098f, 0.038f, 0.098f, kCap, ballR, ballS);
+        addBall(m, head, W[head] + Vector3(0.0f, 0.045f, 0.095f), 0.058f, 0.014f, 0.042f, kCapDeep, ballR / 2, ballS / 2);
+        addBall(m, head, W[head] + Vector3(0.0f, 0.040f, 0.125f), 0.040f, 0.010f, 0.022f, kCap, 4, 6);
+        addBall(m, head, W[head] + Vector3(0.0f, 0.065f, 0.055f), 0.014f, 0.012f, 0.010f, kAccent, 4, 6);
+        addBall(m, head, W[head] + Vector3(0.0f, -0.01f, 0.09f), 0.055f, 0.050f, 0.040f, kSkinDeep, ballR / 2, ballS / 2);
     }
 
     return m;

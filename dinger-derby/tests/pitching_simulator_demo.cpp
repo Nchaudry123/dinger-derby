@@ -190,14 +190,14 @@ void applyCameraMode(Camera3D& camera, PitchCameraMode mode) {
             camera.fieldOfView = 700.0f;
             break;
         case PitchCameraMode::Pitcher:
-            // Raised over shoulder and pulled back so the pitcher is a figure in frame,
-            // not filling the whole screen.
+            // Over the throwing shoulder, behind the mound, looking toward home.
+            // Shows the pitcher's back/side so set stance clearly faces the plate.
             lookAt(
                 camera,
-                Vector3(0.75f, 1.72f, -3.6f),
-                Vector3(0.0f, 1.28f, plateZ)
+                Vector3(1.15f, 1.78f, -2.85f),
+                Vector3(0.0f, 1.20f, plateZ * 0.55f)
             );
-            camera.fieldOfView = 820.0f;
+            camera.fieldOfView = 780.0f;
             break;
     }
 }
