@@ -44,7 +44,7 @@ public:
     // Throw-hand position in model space (feet origin, +Z toward plate).
     static Vector3 throwHandLocal(const PitcherPose& pose);
 
-    // t in [0,1]: load → lift → drive → release(~0.58) → follow-through.
+    // t in [0,1]: Yamamoto-style rocker → high kick → stride → high 3/4 release(~0.60) → finish.
     static PitcherPose pitcherDeliveryPose(float t);
     static PitcherPose pitcherIdlePose(float timeSeconds);
     static CatcherPose catcherIdlePose(float timeSeconds);

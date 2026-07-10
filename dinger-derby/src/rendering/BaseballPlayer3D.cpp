@@ -220,27 +220,29 @@ PitcherSkeleton buildPitcherSkeleton(const PitcherPose& pose) {
     s.shL = U(Vector3(-0.14f, shoulderY - 0.01f, 0.0f));
     s.shR = U(Vector3(0.14f, shoulderY - 0.01f, 0.0f));
 
+    // Glove stays connected near the chest (Yamamoto glove-side discipline).
     s.gElbow = U(Vector3(
-        -0.22f + pose.gloveShoulderYaw * 0.04f,
-        shoulderY - 0.16f - pose.gloveElbow * 0.02f,
-        0.07f + pose.gloveShoulderPitch * 0.03f
+        -0.16f + pose.gloveShoulderYaw * 0.03f,
+        shoulderY - 0.10f - pose.gloveElbow * 0.015f,
+        0.10f + pose.gloveShoulderPitch * 0.02f
     ));
     s.gWrist = U(Vector3(
-        -0.12f + pose.gloveShoulderYaw * 0.06f,
-        shoulderY - 0.32f - pose.gloveElbow * 0.03f,
-        0.15f + pose.gloveShoulderPitch * 0.06f
+        -0.08f + pose.gloveShoulderYaw * 0.04f,
+        shoulderY - 0.18f - pose.gloveElbow * 0.02f,
+        0.16f + pose.gloveShoulderPitch * 0.03f
     ));
 
     // Throw arm — moderated offsets so the body never collapses.
+    // High 3/4 slot mapping (Yamamoto ~75°): stronger pitch lifts the arm path.
     s.tElbow = U(Vector3(
-        0.22f + pose.throwShoulderYaw * 0.05f,
-        shoulderY - 0.18f + pose.throwShoulderPitch * 0.03f,
-        0.04f + pose.throwShoulderPitch * 0.06f
+        0.20f + pose.throwShoulderYaw * 0.07f,
+        shoulderY - 0.14f + pose.throwShoulderPitch * 0.08f,
+        0.05f + pose.throwShoulderPitch * 0.1f
     ));
     s.tWrist = U(Vector3(
-        0.24f + pose.throwShoulderYaw * 0.07f + pose.throwWrist * 0.015f,
-        shoulderY - 0.36f + pose.throwElbow * 0.035f,
-        0.08f + pose.throwShoulderPitch * 0.1f + pose.throwWrist * 0.02f
+        0.22f + pose.throwShoulderYaw * 0.1f + pose.throwWrist * 0.02f,
+        shoulderY - 0.28f + pose.throwElbow * 0.05f + pose.throwShoulderPitch * 0.06f,
+        0.12f + pose.throwShoulderPitch * 0.16f + pose.throwWrist * 0.03f
     ));
 
     s.head = U(Vector3(
@@ -292,73 +294,126 @@ CatcherPose BaseballPlayer3D::blend(const CatcherPose& a, const CatcherPose& b, 
     return p;
 }
 
+// Yoshinobu Yamamoto–style set: compact, athletic, hands chest-high, quiet glove.
 PitcherPose BaseballPlayer3D::pitcherIdlePose(float timeSeconds) {
     PitcherPose pose;
-    pose.torsoTwist = std::sin(timeSeconds * 1.05f) * 0.03f;
-    pose.torsoLean = 0.06f + std::sin(timeSeconds * 0.7f) * 0.015f;
-    pose.torsoSide = std::sin(timeSeconds * 0.5f) * 0.012f;
-    pose.headTurn = std::sin(timeSeconds * 0.4f) * 0.08f;
-    pose.headNod = std::sin(timeSeconds * 0.85f) * 0.025f;
-    // Set position: glove up, throw hand with ball at chest/side.
-    pose.throwShoulderPitch = 0.35f + std::sin(timeSeconds * 0.8f) * 0.03f;
-    pose.throwShoulderYaw = 0.15f;
-    pose.throwElbow = 0.55f;
-    pose.gloveShoulderPitch = 0.55f;
-    pose.gloveElbow = 0.6f;
-    pose.plantKneeBend = 0.15f;
-    pose.frontKneeBend = 0.12f;
+    pose.torsoTwist = std::sin(timeSeconds * 0.9f) * 0.025f;
+    pose.torsoLean = 0.04f + std::sin(timeSeconds * 0.65f) * 0.012f;
+    pose.torsoSide = std::sin(timeSeconds * 0.45f) * 0.01f;
+    pose.headTurn = std::sin(timeSeconds * 0.35f) * 0.06f;
+    pose.headNod = std::sin(timeSeconds * 0.8f) * 0.02f;
+    // Hands together-ish at chest; throw arm slightly lower, glove firm at sternum.
+    pose.throwShoulderPitch = 0.45f + std::sin(timeSeconds * 0.75f) * 0.025f;
+    pose.throwShoulderYaw = 0.08f;
+    pose.throwElbow = 0.7f;
+    pose.throwWrist = 0.1f;
+    pose.gloveShoulderPitch = 0.7f;
+    pose.gloveShoulderYaw = 0.15f;
+    pose.gloveElbow = 0.85f; // tucked tight (Yamamoto glove-side connection)
+    pose.plantKneeBend = 0.18f;
+    pose.frontKneeBend = 0.14f;
+    pose.frontLegLift = 0.02f;
     return pose;
 }
 
-// Keep extremes modest — broken anatomy looks worse than a smaller motion.
+// Yoshinobu Yamamoto delivery (right-hander), phased for our joint channels:
+//   rocker → high vertical leg kick (~90° hip) → balance → long stride →
+//   hips fire while shoulders stay closed → high 3/4 arm (~75°) release →
+//   athletic upright finish with glove pulled in.
 PitcherPose BaseballPlayer3D::pitcherDeliveryPose(float t) {
     t = std::clamp(t, 0.0f, 1.0f);
     PitcherPose pose;
 
-    float load = smoothstep(0.0f, 0.2f, t);
-    float lift = smoothstep(0.15f, 0.4f, t) * (1.0f - smoothstep(0.45f, 0.6f, t));
-    float drive = smoothstep(0.4f, 0.58f, t);
-    float release = smoothstep(0.54f, 0.62f, t);
-    float follow = smoothstep(0.58f, 1.0f, t);
+    // Phase envelopes (smoothstep gates).
+    float rocker = smoothstep(0.0f, 0.12f, t);                                   // 0.00–0.12
+    float legUp = smoothstep(0.08f, 0.32f, t);                                   // rise
+    float balance = smoothstep(0.28f, 0.40f, t) * (1.0f - smoothstep(0.40f, 0.48f, t));
+    float legHold = legUp * (1.0f - smoothstep(0.42f, 0.55f, t));                // peak hold then drop
+    float strideOn = smoothstep(0.40f, 0.56f, t);                                // drive to plate
+    float hipFire = smoothstep(0.48f, 0.60f, t);                                 // hips open first
+    float shoulderFire = smoothstep(0.54f, 0.64f, t);                            // shoulders lag (separation)
+    float release = smoothstep(0.56f, 0.64f, t);                                 // ball out
+    float follow = smoothstep(0.62f, 1.0f, t);                                   // finish
 
+    // --- Lower half: high knee, vertical lift, then athletic stride ---
+    // Yamamoto: lead knee ~3ft lift, hip ~90°, lands with ~15° knee flex.
+    pose.frontLegLift = legHold * 0.98f;
+    pose.frontKneeBend = legHold * 0.85f + strideOn * 0.15f + follow * 0.12f;
+    pose.plantKneeBend =
+        lerp(0.18f, 0.28f, rocker) +
+        strideOn * 0.22f +
+        follow * 0.12f; // lands flexed, not locked
+    pose.hipOpen =
+        lerp(0.0f, 0.12f, rocker) +
+        hipFire * 0.55f +
+        follow * 0.15f;
+    pose.stride =
+        strideOn * 0.22f +
+        follow * 0.1f;
+
+    // --- Trunk: stay tall; coil closed then rotate late (hip-shoulder separation) ---
+    // Closed coil while leg is up (negative twist = closed for RHP in our +Z plate frame).
     pose.torsoTwist =
-        lerp(0.0f, -0.35f, load) +
-        lerp(0.0f, 0.55f, drive) +
-        lerp(0.0f, 0.2f, follow);
+        lerp(0.0f, -0.42f, legUp) * (1.0f - hipFire) +
+        hipFire * 0.25f +
+        shoulderFire * 0.55f +
+        follow * 0.18f;
+    // Yamamoto stays relatively upright — avoid huge forward collapse.
     pose.torsoLean =
-        lerp(0.06f, 0.12f, load) +
-        lerp(0.0f, 0.22f, drive) +
-        lerp(0.0f, 0.15f, follow);
-    pose.torsoSide = lerp(0.0f, -0.08f, load) + lerp(0.0f, 0.05f, drive);
+        lerp(0.04f, 0.08f, rocker) +
+        legHold * 0.04f +
+        strideOn * 0.12f +
+        follow * 0.1f;
+    pose.torsoSide =
+        lerp(0.0f, -0.06f, rocker) +
+        hipFire * 0.05f;
 
-    pose.headTurn = lerp(0.0f, 0.12f, load) + lerp(0.0f, -0.18f, drive);
-    pose.headNod = lerp(0.0f, 0.08f, load) + lerp(0.0f, 0.12f, drive);
+    pose.headTurn =
+        lerp(0.0f, 0.1f, legUp) +
+        shoulderFire * (-0.12f) +
+        follow * (-0.05f);
+    pose.headNod =
+        legHold * 0.05f +
+        release * 0.08f;
 
-    pose.frontLegLift = lift * 0.75f;
-    pose.frontKneeBend = lift * 0.7f + drive * 0.2f;
-    pose.plantKneeBend = lerp(0.15f, 0.4f, drive) + follow * 0.15f;
-    pose.hipOpen = lerp(0.0f, 0.2f, load) + lerp(0.0f, 0.3f, drive);
-    pose.stride = drive * 0.18f + follow * 0.08f;
+    // --- Glove side: tight to chest (elite glove connection) ---
+    pose.gloveShoulderPitch =
+        lerp(0.7f, 0.85f, rocker) +
+        legHold * 0.05f +
+        strideOn * (-0.25f) +
+        follow * 0.1f;
+    pose.gloveShoulderYaw =
+        lerp(0.15f, 0.25f, rocker) +
+        strideOn * (-0.2f);
+    pose.gloveElbow =
+        lerp(0.85f, 1.0f, rocker) * (1.0f - strideOn * 0.25f) +
+        follow * 0.15f;
 
-    // Arm path: side/back → high → forward (clamped for stability)
+    // --- Throwing arm: high 3/4 slot, delayed until hips clear ---
+    // Load: hand stays high near head/hat; then swings through high slot out front.
     pose.throwShoulderPitch =
-        lerp(0.35f, -0.55f, load) +
-        lerp(0.0f, 1.15f, release) +
-        lerp(0.0f, 0.55f, follow);
+        lerp(0.45f, -0.35f, rocker) +          // slight takeaway
+        legHold * (-0.15f) +                   // stay loaded high-back during balance
+        release * 1.35f +                      // snap up-and-over through release
+        follow * 0.45f;                        // finish across body
     pose.throwShoulderYaw =
-        lerp(0.15f, -0.45f, load) +
-        lerp(0.0f, 0.35f, release);
+        lerp(0.08f, -0.55f, rocker + legHold * 0.5f) + // scap load / closed
+        release * 0.75f +
+        follow * 0.15f;
     pose.throwElbow =
-        lerp(0.55f, 1.0f, load) +
-        lerp(0.0f, -0.75f, release) +
-        lerp(0.0f, -0.25f, follow);
+        lerp(0.7f, 1.15f, rocker) +            // flexed load
+        legHold * 0.1f +
+        release * (-1.05f) +                   // extension through release
+        follow * (-0.2f);
     pose.throwWrist =
-        lerp(0.0f, 0.2f, load) +
-        lerp(0.0f, -0.35f, release);
+        lerp(0.1f, 0.25f, rocker) +
+        release * (-0.45f) +
+        follow * (-0.15f);
 
-    pose.gloveShoulderPitch = lerp(0.55f, 0.25f, drive) + follow * 0.1f;
-    pose.gloveShoulderYaw = lerp(0.0f, -0.1f, drive);
-    pose.gloveElbow = lerp(0.6f, 0.4f, drive);
+    // Balance-frame polish: at peak leg lift, hold posture a beat.
+    float peak = balance;
+    pose.frontLegLift = std::max(pose.frontLegLift, peak * 0.92f);
+    pose.torsoTwist = pose.torsoTwist * (1.0f - peak * 0.15f) + (-0.4f) * peak * 0.15f;
 
     return pose;
 }

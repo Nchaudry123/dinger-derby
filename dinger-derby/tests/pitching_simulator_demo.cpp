@@ -1031,8 +1031,9 @@ int main() {
     float deliveryAge = -1.0f; // < 0 => idle; seconds into delivery clip
     float playerRebuildTimer = 0.0f;
     bool ballReleased = false;
-    constexpr float deliveryDuration = 1.15f; // full windup → follow-through
-    constexpr float releaseNormalized = 0.58f;
+    // Yamamoto-style timing: high kick hold, late hip-shoulder fire, release ~60%.
+    constexpr float deliveryDuration = 1.28f;
+    constexpr float releaseNormalized = 0.60f;
     constexpr float playerRebuildHz = 48.0f;
     bool paused = false;
     bool draggingSpeedSlider = false;
