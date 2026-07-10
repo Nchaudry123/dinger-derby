@@ -2541,125 +2541,91 @@ int main() {
         if (fontOk) {
             const float W = static_cast<float>(window.getSize().x);
             const float H = static_cast<float>(window.getSize().y);
+            const bool chasing = followBallCam || broadcastCam == BroadcastCam::Chase ||
+                broadcastCam == BroadcastCam::HoldLand ||
+                broadcastCam == BroadcastCam::ReturnPlate;
+
+            // Compact title + one status line (no duplicated count spam).
             sf::Color titleCol = playMode == PlayMode::Derby ? sf::Color(255, 220, 80)
                 : (playMode == PlayMode::Practice ? sf::Color(120, 255, 160) : sf::Color(240, 245, 240));
-            std::ostringstream title;
-            title << "Dinger Derby  ·  " << modeTitle();
-            drawText(window, font, title.str(), 20, {22, 14}, titleCol);
-            drawText(window, font, status, 15, {22, 42}, statusCol);
+            drawText(window, font, modeTitle(), 20, {22, 12}, titleCol);
+            // Truncate long status so it doesn't cover the park.
+            std::string statusLine = status;
+            if (statusLine.size() > 72) {
+                statusLine = statusLine.substr(0, 71) + "...";
+            }
+            drawText(window, font, statusLine, 14, {22, 38}, statusCol);
 
-            // Scoreboard panel (top-right) for Derby
-            if (playMode == PlayMode::Derby) {
-                const float pw = 236.0f;
-                const float ph = 168.0f;
-                const float px = W - pw - 18.0f;
-                const float py = 14.0f;
+            // Scoreboard panel (top-right) — primary stats for Derby.
+            if (playMode == PlayMode::Derby && !chasing) {
+                const float pw = 200.0f;
+                const float ph = 132.0f;
+                const float px = W - pw - 16.0f;
+                const float py = 12.0f;
                 sf::RectangleShape panel({pw, ph});
                 panel.setPosition({px, py});
-                panel.setFillColor(sf::Color(12, 22, 18, 210));
+                panel.setFillColor(sf::Color(12, 22, 18, 200));
                 panel.setOutlineColor(
-                    derby.roundOver ? sf::Color(255, 160, 60, 220) : sf::Color(255, 210, 70, 180)
+                    derby.roundOver ? sf::Color(255, 160, 60, 220) : sf::Color(255, 210, 70, 160)
                 );
                 panel.setOutlineThickness(1.5f);
                 window.draw(panel);
                 drawText(
-                    window, font,
-                    derby.roundOver ? "FINAL" : "SCOREBOARD",
-                    13, {px + 12, py + 8},
-                    sf::Color(255, 220, 100)
+                    window, font, derby.roundOver ? "FINAL" : "SCOREBOARD", 12,
+                    {px + 12, py + 8}, sf::Color(255, 220, 100)
                 );
                 std::ostringstream s1;
-                s1 << "Swings left   " << derby.swingsLeft << " / " << kDerbySwings;
+                s1 << "Swings  " << derby.swingsLeft << "/" << kDerbySwings;
                 drawText(window, font, s1.str(), 15, {px + 12, py + 30}, sf::Color(230, 240, 235));
                 std::ostringstream s2;
-                s2 << "Home runs     " << derby.hrCount;
-                drawText(window, font, s2.str(), 15, {px + 12, py + 52}, sf::Color(120, 255, 160));
+                s2 << "HR  " << derby.hrCount;
+                drawText(window, font, s2.str(), 18, {px + 12, py + 52}, sf::Color(120, 255, 160));
                 std::ostringstream s3;
-                s3 << std::fixed << std::setprecision(0) << "Longest      ";
-                if (derby.longestHrFeet > 0.5f) {
-                    s3 << derby.longestHrFeet << " ft";
-                } else {
-                    s3 << "--";
-                }
-                drawText(window, font, s3.str(), 15, {px + 12, py + 74}, sf::Color(255, 230, 140));
+                s3 << std::fixed << std::setprecision(0) << "Long  ";
+                s3 << (derby.longestHrFeet > 0.5f
+                           ? std::to_string(static_cast<int>(derby.longestHrFeet)) + " ft"
+                           : std::string("--"));
+                drawText(window, font, s3.str(), 14, {px + 12, py + 78}, sf::Color(255, 230, 140));
                 std::ostringstream s4;
-                s4 << std::fixed << std::setprecision(0) << "Best EV      ";
-                if (derby.bestExitMph > 0.5f) {
-                    s4 << derby.bestExitMph << " mph";
-                } else {
-                    s4 << "--";
-                }
-                drawText(window, font, s4.str(), 15, {px + 12, py + 96}, sf::Color(180, 220, 255));
-                // Last result strip
-                drawText(window, font, "Last", 12, {px + 12, py + 122}, sf::Color(150, 165, 155));
-                std::string lastLine = derby.lastResult;
-                if (lastLine.size() > 28) {
-                    lastLine = lastLine.substr(0, 27) + "...";
-                }
-                drawText(window, font, lastLine, 13, {px + 12, py + 140}, sf::Color(240, 235, 200));
+                s4 << std::fixed << std::setprecision(0) << "EV  ";
+                s4 << (derby.bestExitMph > 0.5f
+                           ? std::to_string(static_cast<int>(derby.bestExitMph)) + " mph"
+                           : std::string("--"));
+                drawText(window, font, s4.str(), 14, {px + 12, py + 100}, sf::Color(180, 220, 255));
             }
 
-            // Bottom result strip for the current swing (all modes)
+            // Bottom strip: only the last result (not duplicated "Last:" line).
             if (lastHit.hit && hasHit) {
-                sf::RectangleShape strip({W - 40.0f, 28.0f});
-                strip.setPosition({20.0f, H - 42.0f});
-                strip.setFillColor(sf::Color(10, 18, 14, 190));
-                strip.setOutlineColor(sf::Color(255, 210, 80, 100));
+                sf::RectangleShape strip({W - 40.0f, 26.0f});
+                strip.setPosition({20.0f, H - 38.0f});
+                strip.setFillColor(sf::Color(10, 18, 14, 185));
+                strip.setOutlineColor(sf::Color(255, 210, 80, 90));
                 strip.setOutlineThickness(1.0f);
                 window.draw(strip);
                 std::ostringstream stripTxt;
                 stripTxt << std::fixed << std::setprecision(0)
                          << (lastHit.quality ? lastHit.quality : "Contact")
-                         << "   " << lastHit.exitMph << " mph @ " << lastHit.launchDeg
-                         << " deg   " << lastHit.distanceFeet << " ft";
+                         << "   " << lastHit.exitMph << " mph  "
+                         << lastHit.distanceFeet << " ft";
                 if (lastHit.clearsWall) {
-                    stripTxt << "   CLEAR +" << lastHit.wallMarginFeet << " ft";
+                    stripTxt << "  CLEAR";
                 } else if (lastHit.hitsWallFace) {
-                    stripTxt << "   WALL";
+                    stripTxt << "  WALL";
                 }
                 drawText(
-                    window, font, stripTxt.str(), 14,
-                    {28.0f, H - 36.0f},
+                    window, font, stripTxt.str(), 13,
+                    {28.0f, H - 33.0f},
                     isDingerQuality(lastHit.quality) ? sf::Color(255, 220, 80)
-                        : sf::Color(220, 230, 220)
+                                                     : sf::Color(220, 230, 220)
                 );
             }
 
-            std::ostringstream modes;
-            modes << "Z Power  X Contact  C Regular   [" << prof.name << "  pwr "
-                  << std::fixed << std::setprecision(2) << prof.power << "]   "
-                  << countString();
-            drawText(window, font, modes.str(), 14, {22, 68}, prof.color);
-            std::ostringstream hud;
-            hud << std::fixed << std::setprecision(0)
-                << "Toss " << pitchMph << " mph   "
-                << "D derby  P practice  L live   "
-                << "R next   N "
-                << (playMode == PlayMode::Derby ? "new round" : "new AB")
-                << "   Space/LMB swing";
-            if (playMode == PlayMode::Live) {
-                hud << "   [ ] speed";
-            }
-            drawText(window, font, hud.str(), 12, {22, 92}, sf::Color(160, 190, 180));
-            drawText(
-                window,
-                font,
-                followBallCam
-                    ? "Camera following ball  ·  R next toss"
-                    : "Yellow outline = aim reticle  ·  Small circle = sweet spot  ·  3D bat swings on Space",
-                12,
-                {22, 112},
-                batOutlineCol
-            );
-            if (lastHit.hit) {
-                std::ostringstream hit;
-                hit << std::fixed << std::setprecision(0)
-                    << "Last: " << lastHit.quality << "  " << lastHit.exitMph << " mph @ "
-                    << lastHit.launchDeg << "°  " << lastHit.distanceFeet << " ft  "
-                    << (lastHit.fair ? "FAIR" : "FOUL")
-                    << "  spray " << lastHit.sprayDeg << "°  sweet "
-                    << (lastHit.sweet * 100.0f) << "%";
-                drawText(window, font, hit.str(), 13, {22, 132}, sf::Color(255, 220, 140));
+            // Controls: one quiet line (hidden while chasing the ball).
+            if (!chasing) {
+                std::ostringstream hud;
+                hud << "[" << prof.name << "]  Space swing   D/P/L mode   N "
+                    << (playMode == PlayMode::Derby ? "round" : "AB");
+                drawText(window, font, hud.str(), 12, {22, 62}, sf::Color(140, 165, 155));
             }
         }
 
