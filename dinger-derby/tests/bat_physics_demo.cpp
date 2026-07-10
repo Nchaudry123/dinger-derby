@@ -1,14 +1,15 @@
 // Bat Physics Demo — same world as pitching_simulator_demo.
 // CharacterModel3D pitcher, BaseballVisual3D ball, same plate distance / ground.
 //
-// Bat is drawn The Show–style: outline only + solid sweet-spot (PCI) circle.
+// Yellow silhouette = aim reticle (does NOT swing). Shows where contact will be.
+// 3D bat mesh = real swing path (load → contact → finish) when you press Space/LMB.
 // Practice mode (default) throws a slow meatball with generous contact.
 //
 // Controls:
-//   Mouse              aim PCI / sweet spot
-//   Q / E / wheel      bat roll
+//   Mouse              aim reticle (PCI / sweet spot)
+//   Q / E / wheel      bat roll (reticle angle)
 //   Z / X / C          Power / Contact / Regular
-//   Space / LMB        swing
+//   Space / LMB        swing (3D bat animates)
 //   P                  toggle practice mode
 //   R                  new pitch
 //   [ ]                pitch speed (normal mode)
@@ -289,17 +290,23 @@ struct BatConfig {
     float maxCor = 0.68f; // easier to drive the ball hard
 };
 
+// Aim reticle — yellow outline on the plate. Never animates with the swing.
+struct AimReticle {
+    Vector3 pci = strikeZoneCenter;
+    float plateAngle = -0.55f; // bat angle in plate plane (rad)
+};
+
+// Animated 3D bat used for swing mesh + collision.
 struct BatPose {
     // RHB at plate, facing pitcher (toward −Z / mound)
     Vector3 hands{0.42f, 1.05f, plateZ - 0.35f};
     Vector3 axis{-0.35f, 0.05f, -0.93f};
-    float plateAngle = -0.55f; // bat angle in plate plane while aiming (rad)
     float roll = 0.0f;
-    float swingT = -1.0f; // <0 = aim only (no animation)
+    float swingT = -1.0f; // <0 = not swinging (no mesh anim)
     float omega = 0.0f;
     Vector3 swingAxis{0, 1, 0};
     SwingType type = SwingType::Regular;
-    Vector3 pci = strikeZoneCenter;
+    Vector3 pci = strikeZoneCenter; // contact target locked at swing start
     bool locked = false;
 
     // Key poses frozen at swing start (load → contact → finish)
@@ -355,17 +362,13 @@ Vector3 slerpDir(const Vector3& a, const Vector3& b, float t) {
     return safeNorm(na * s0 + nb * s1);
 }
 
-// Ready / aim stance: flat bat silhouette on the plate plane (no motion).
-// Sweet spot sits on the PCI; Q/E rotates plateAngle.
-void orientBatAim(BatPose& bat, const Vector3& pci, const BatConfig& cfg) {
-    bat.pci = pci;
-    // Direction in the plate plane (catcher view: bat is a 2D outline on the zone).
-    Vector3 dir(std::cos(bat.plateAngle), std::sin(bat.plateAngle), -0.12f);
+// Snap animated bat pose to the aim reticle (used as contact key when swing starts).
+void orientBatFromReticle(BatPose& bat, const AimReticle& reticle, const BatConfig& cfg) {
+    bat.pci = reticle.pci;
+    Vector3 dir(std::cos(reticle.plateAngle), std::sin(reticle.plateAngle), -0.12f);
     bat.axis = safeNorm(dir);
-    // Knob behind sweet spot so PCI is on the barrel.
-    bat.hands = pci - bat.axis * cfg.sweetFromKnob;
+    bat.hands = reticle.pci - bat.axis * cfg.sweetFromKnob;
     bat.hands.z = plateZ - 0.20f;
-    // Keep hands slightly off the plate plane toward the batter.
     Vector3 up(0, 1, 0);
     Vector3 side = safeNorm(up.cross(bat.axis), Vector3(1, 0, 0));
     bat.swingAxis = safeNorm(bat.axis.cross(side), up);
@@ -801,16 +804,14 @@ Vector3 mouseToPci(const Camera3D& cam, float mx, float my, float sw, float sh) 
     return hit;
 }
 
-// The Show–style bat: outline only + solid sweet-spot circle (best contact).
-// Aim: flat plate-plane capsule. Swing: outline tracks the animated bat path.
-// The Show–style bat: pure yellow outline + small yellow sweet-spot circle.
-void drawBatOutlineAndSweetSpot(
+// Yellow aim reticle — always a flat plate-plane outline + small sweet circle.
+// Does NOT follow the swing; shows where you intended to make contact.
+void drawBatReticle(
     sf::RenderWindow& window,
     const Camera3D& cam,
-    const BatPose& bat,
+    const AimReticle& reticle,
     const BatConfig& cfg
 ) {
-    // Fixed bright yellow (not swing-type tint).
     const sf::Color yellow(255, 230, 40, 255);
     const sf::Color yellowSoft(255, 230, 40, 90);
 
@@ -818,38 +819,22 @@ void drawBatOutlineAndSweetSpot(
     float sw = static_cast<float>(window.getSize().x);
     float sh = static_cast<float>(window.getSize().y);
 
-    const bool aimOnly = !bat.swinging();
+    Vector3 axisFlat = safeNorm(
+        Vector3(std::cos(reticle.plateAngle), std::sin(reticle.plateAngle), 0.0f),
+        Vector3(1, 0, 0)
+    );
+    Vector3 side(-axisFlat.y, axisFlat.x, 0.0f);
+    Vector3 knob = reticle.pci - axisFlat * cfg.sweetFromKnob;
+    knob.z = plateZ;
+    Vector3 sweetWorld = reticle.pci;
+    sweetWorld.z = plateZ;
 
-    Vector3 axis = safeNorm(bat.axis, Vector3(1, 0, 0));
-    Vector3 knob = bat.hands;
-    Vector3 side;
-    Vector3 sweetWorld = bat.pci;
-    if (aimOnly) {
-        // Crisp 2D outline on the plate plane.
-        Vector3 axisFlat = safeNorm(Vector3(axis.x, axis.y, 0.0f), Vector3(1, 0, 0));
-        axis = axisFlat;
-        side = Vector3(-axisFlat.y, axisFlat.x, 0.0f);
-        knob = bat.pci - axisFlat * cfg.sweetFromKnob;
-        knob.z = plateZ;
-        sweetWorld = bat.pci;
-        sweetWorld.z = plateZ;
-    } else {
-        Vector3 toCam = safeNorm(cam.position - bat.hands, Vector3(0, 0, 1));
-        Vector3 cross = axis.cross(toCam);
-        side = (cross.magnitude() < 0.15f)
-            ? safeNorm(Vector3(-axis.y, axis.x, 0.0f), Vector3(1, 0, 0))
-            : safeNorm(cross, Vector3(1, 0, 0));
-        sweetWorld = batPoint(bat, cfg.sweetFromKnob);
-    }
-
-    // Build left/right edges of a handle→barrel capsule (outline only, no fill).
     std::vector<sf::Vector2f> L, R;
     L.reserve(segs + 1);
     R.reserve(segs + 1);
     for (int i = 0; i <= segs; i++) {
         float t = static_cast<float>(i) / segs;
         float s = t * cfg.length;
-        // Thin handle → wider barrel (readable outline proportions).
         float r;
         if (t < 0.28f) {
             r = lerp(0.016f, 0.026f, t / 0.28f);
@@ -858,10 +843,8 @@ void drawBatOutlineAndSweetSpot(
         } else {
             r = lerp(0.048f, 0.055f, (t - 0.55f) / 0.45f);
         }
-        Vector3 c = aimOnly ? (knob + axis * s) : batPoint(bat, s);
-        if (aimOnly) {
-            c.z = plateZ;
-        }
+        Vector3 c = knob + axisFlat * s;
+        c.z = plateZ;
         ProjectedPoint3D pl = cam.projectPoint(c + side * r, sw, sh);
         ProjectedPoint3D pr = cam.projectPoint(c - side * r, sw, sh);
         if (pl.visible) {
@@ -1011,8 +994,9 @@ int main() {
     Mesh3D pitcherMesh = pitcherModel.skinToMesh(pitcherAnim.skinMatrices());
 
     BatConfig batCfg;
+    AimReticle reticle;
     BatPose bat;
-    orientBatAim(bat, strikeZoneCenter, batCfg);
+    orientBatFromReticle(bat, reticle, batCfg);
     Mesh3D batMesh = makeBatMesh(batCfg);
 
     GlRenderer gl;
@@ -1044,7 +1028,6 @@ int main() {
     HitInfo lastHit;
     float poseClock = 0.0f;
     float rebuildTimer = 0.0f;
-    float batRoll = 0.0f;
     float practiceRepitchTimer = -1.0f;
     std::string status = "PRACTICE · slow meatball · aim yellow circle · Space swing";
     sf::Color statusCol(220, 230, 220);
@@ -1160,16 +1143,17 @@ int main() {
                         normalPitchMph = pitchMph;
                     }
                 } else if (key->code == K::Q) {
-                    if (!bat.swinging()) {
-                        batRoll -= 0.10f;
+                    if (!bat.swinging() && !followBallCam) {
+                        reticle.plateAngle -= 0.10f;
                     }
                 } else if (key->code == K::E) {
-                    if (!bat.swinging()) {
-                        batRoll += 0.10f;
+                    if (!bat.swinging() && !followBallCam) {
+                        reticle.plateAngle += 0.10f;
                     }
                 } else if (key->code == K::Space) {
-                    // Swing only on press — no continuous animation while aiming.
+                    // Swing only on press — reticle stays put; 3D bat animates.
                     if (!bat.swinging()) {
+                        orientBatFromReticle(bat, reticle, batCfg);
                         startSwing(bat);
                         hasHit = false;
                         status = std::string(prof.name) + " swing!";
@@ -1179,6 +1163,7 @@ int main() {
             }
             if (const auto* m = event->getIf<sf::Event::MouseButtonPressed>()) {
                 if (m->button == sf::Mouse::Button::Left && !bat.swinging()) {
+                    orientBatFromReticle(bat, reticle, batCfg);
                     startSwing(bat);
                     hasHit = false;
                     status = std::string(prof.name) + " swing!";
@@ -1186,8 +1171,8 @@ int main() {
                 }
             }
             if (const auto* wh = event->getIf<sf::Event::MouseWheelScrolled>()) {
-                if (!bat.swinging()) {
-                    batRoll += wh->delta * 0.08f;
+                if (!bat.swinging() && !followBallCam) {
+                    reticle.plateAngle += wh->delta * 0.08f;
                 }
             }
         }
@@ -1214,21 +1199,20 @@ int main() {
             pitcherAnim.applyClip(idleClip, poseClock, true);
         }
 
-        // Aim: static silhouette only (no swing motion until Space/LMB).
-        // Freeze aim while the chase cam is following a hit.
+        // Reticle: mouse aims the yellow silhouette (never swings).
+        // 3D bat: only updates while swinging (load → contact → finish).
         if (!bat.swinging() && !followBallCam) {
             sf::Vector2i mp = sf::Mouse::getPosition(window);
-            Vector3 pci = mouseToPci(
+            reticle.pci = mouseToPci(
                 camera,
                 static_cast<float>(mp.x),
                 static_cast<float>(mp.y),
                 static_cast<float>(window.getSize().x),
                 static_cast<float>(window.getSize().y)
             );
-            bat.plateAngle = batRoll; // Q/E / wheel rotates the flat bat
-            orientBatAim(bat, pci, batCfg);
+            // Keep contact pose ready so swing keys match reticle.
+            orientBatFromReticle(bat, reticle, batCfg);
         } else if (bat.swinging()) {
-            // Only while swinging: load → contact → finish path.
             updateSwing(bat, prof, dt);
         }
 
@@ -1304,13 +1288,19 @@ int main() {
             Matrix4::translation(baseball.position) *
             Matrix4::rotationY(spinY) *
             Matrix4::scale(Vector3(baseballRadius, baseballRadius, baseballRadius));
-        // Never draw the solid 3D bat — outline + sweet spot only (The Show style).
+        // 3D bat mesh only while swinging; yellow silhouette is the aim reticle.
+        const bool drawBatMesh = bat.swinging();
+        Matrix4 batXform = batModelMatrix(bat);
+
         if (useGL) {
             gl.beginFrame(window, camera, sf::Color(5, 8, 14));
             // Large open ground so fly balls still have a floor under the chase cam.
             gl.drawGround(40.0f, -40.0f, 40.0f, sf::Color(20, 28, 24));
             if (!followBallCam) {
                 gl.drawMesh(glPitcher, pitcherXform);
+            }
+            if (drawBatMesh) {
+                gl.drawMesh(glBat, batXform);
             }
             gl.drawMesh(glBall, ballXform);
             gl.endFrame(window);
@@ -1320,6 +1310,11 @@ int main() {
             if (!followBallCam) {
                 rasterizeMeshTriangles(
                     frameBuffer, camera, pitcherMesh, pitcherXform, sf::Color(230, 230, 235), pitcherCache
+                );
+            }
+            if (drawBatMesh) {
+                rasterizeMeshTriangles(
+                    frameBuffer, camera, batMesh, batXform, sf::Color(210, 150, 70), batCache
                 );
             }
             rasterizeMeshTrianglesSupersampled(
@@ -1333,8 +1328,8 @@ int main() {
             drawFieldGuide(window, camera);
             drawHomePlate(window, camera);
             drawStrikeZone(window, camera, sf::Color(200, 215, 220, 180));
-            // Yellow bat outline + small yellow sweet-spot circle only.
-            drawBatOutlineAndSweetSpot(window, camera, bat, batCfg);
+            // Yellow silhouette reticle — stays put even while the 3D bat swings.
+            drawBatReticle(window, camera, reticle, batCfg);
         }
         for (size_t i = 1; i < trail.size(); i++) {
             float a = static_cast<float>(i) / static_cast<float>(trail.size());
@@ -1385,7 +1380,7 @@ int main() {
                 font,
                 followBallCam
                     ? "Camera following ball  ·  R new pitch"
-                    : "Yellow outline = bat   ·   Small yellow circle = best contact",
+                    : "Yellow outline = aim reticle  ·  Small circle = sweet spot  ·  3D bat swings on Space",
                 12,
                 {22, 112},
                 batOutlineCol
