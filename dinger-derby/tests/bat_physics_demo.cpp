@@ -1329,8 +1329,9 @@ int main() {
     enum class PlayMode { Derby, Practice, Live };
     PlayMode playMode = PlayMode::Derby; // product default: HR Derby
     constexpr int kDerbySwings = 10;
-    // Derby: slow meatball from the pitcher's hand after full delivery motion.
-    constexpr float kDerbySoftTossMph = 48.0f;
+    // Derby: consistent soft meatball (center-cut, fixed flight) after delivery.
+    constexpr float kDerbySoftTossMph = 44.0f;
+    constexpr float kDerbyTossFlightSec = 1.05f; // stable timing window
     constexpr float kPracticeMph = 52.0f;
     float pitchMph = kDerbySoftTossMph;
     float normalPitchMph = 90.0f;
@@ -1693,27 +1694,23 @@ int main() {
         Vector3 start = pitcherAnim.throwHandWorld(pitcherWorldTransform());
         Vector3 aim = strikeZoneCenter;
         if (playMode == PlayMode::Derby) {
-            // Soft meatball: lob into the heart of the zone from the hand.
+            // Consistent soft toss: always heart of the zone, fixed flight time.
+            // Tiny residual scatter so it isn't robotic, but stays a meatball.
+            aim = strikeZoneCenter;
+            aim.y = strikeZoneCenter.y - 0.02f; // belt / slightly below for barrels
             static std::uint32_t tossRng = 0xA11CEu;
             tossRng = tossRng * 1664525u + 1013904223u;
             float ux = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
             tossRng = tossRng * 1664525u + 1013904223u;
             float uy = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
-            aim.x = clampf(
-                aim.x + ux * 0.07f,
-                -strikeZoneHalfWidth * 0.85f,
-                strikeZoneHalfWidth * 0.85f
-            );
+            aim.x = clampf(aim.x + ux * 0.025f, -0.12f, 0.12f);
             aim.y = clampf(
-                aim.y + uy * 0.06f,
-                strikeZoneCenter.y - strikeZoneHalfHeight * 0.65f,
-                strikeZoneCenter.y + strikeZoneHalfHeight * 0.65f
+                aim.y + uy * 0.02f,
+                strikeZoneCenter.y - 0.12f,
+                strikeZoneCenter.y + 0.10f
             );
             baseball.position = start;
-            // Flight time scales with distance from hand → plate (~1.0s soft lob).
-            float dist = std::max(8.0f, aim.z - start.z);
-            float T = clampf(dist / 14.0f, 0.85f, 1.35f);
-            baseball.velocity = softTossVelocity(start, aim, T);
+            baseball.velocity = softTossVelocity(start, aim, kDerbyTossFlightSec);
             pitchMph = baseball.velocity.magnitude() * 2.236936f;
         } else {
             if (playMode == PlayMode::Live) {
