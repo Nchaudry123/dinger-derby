@@ -1244,8 +1244,11 @@ int main() {
         int swingsLeft = kDerbySwings;
         int hrCount = 0;
         float longestHrFeet = 0.0f;
+        float bestExitMph = 0.0f;
         int totalSwings = 0;
         bool roundOver = false;
+        float roundOverTimer = 0.0f; // celebration overlay
+        std::string lastResult = "--";
     };
     DerbyState derby;
 
@@ -1361,6 +1364,15 @@ int main() {
         }
     };
 
+    auto noteDerbyExit = [&]() {
+        if (playMode != PlayMode::Derby || !lastHit.hit) {
+            return;
+        }
+        if (lastHit.exitMph > derby.bestExitMph) {
+            derby.bestExitMph = lastHit.exitMph;
+        }
+    };
+
     auto noteDerbyDinger = [&]() {
         if (playMode != PlayMode::Derby || !lastHit.fair || !isDingerQuality(lastHit.quality)) {
             return;
@@ -1369,7 +1381,23 @@ int main() {
         if (lastHit.distanceFeet > derby.longestHrFeet) {
             derby.longestHrFeet = lastHit.distanceFeet;
         }
+        noteDerbyExit();
         hrBannerTimer = 2.8f;
+    };
+
+    auto setDerbyLastResult = [&](const std::string& call) {
+        if (playMode != PlayMode::Derby) {
+            return;
+        }
+        std::ostringstream oss;
+        oss << call;
+        if (lastHit.hit) {
+            oss << std::fixed << std::setprecision(0)
+                << "  " << lastHit.exitMph << " mph  "
+                << lastHit.distanceFeet << " ft";
+        }
+        derby.lastResult = oss.str();
+        noteDerbyExit();
     };
 
     auto resolvePitch = [&](const char* kind) {
@@ -1392,16 +1420,20 @@ int main() {
                 } else if (lastHit.fair) {
                     call = lastHit.quality ? lastHit.quality : "In play";
                     statusCol = sf::Color(200, 220, 160);
+                    noteDerbyExit();
                 } else {
                     call = "Foul";
                     statusCol = sf::Color(255, 200, 140);
+                    noteDerbyExit();
                 }
+                setDerbyLastResult(call);
                 // Soft toss cycle: shorter wait so reps stay snappy.
                 scheduleNextPitch(isDingerQuality(lastHit.quality) ? 4.2f : 2.4f);
             } else if (std::string(kind) == "SWINGING_STRIKE") {
                 consumeDerbySwing();
                 call = "Miss";
                 statusCol = sf::Color(255, 160, 120);
+                setDerbyLastResult(call);
                 scheduleNextPitch(1.15f);
             } else if (std::string(kind) == "CALLED_STRIKE" || std::string(kind) == "BALL") {
                 // No swing — soft toss again without burning budget.
@@ -1410,12 +1442,17 @@ int main() {
                 scheduleNextPitch(0.9f);
             }
             if (derby.roundOver) {
+                derby.roundOverTimer = 5.5f;
                 std::ostringstream fin;
                 fin << "ROUND OVER  ·  " << derby.hrCount << " HR  ·  longest ";
                 if (derby.longestHrFeet > 0.5f) {
                     fin << std::fixed << std::setprecision(0) << derby.longestHrFeet << " ft";
                 } else {
                     fin << "--";
+                }
+                if (derby.bestExitMph > 0.5f) {
+                    fin << "  ·  best EV " << std::fixed << std::setprecision(0)
+                        << derby.bestExitMph << " mph";
                 }
                 fin << "  ·  N new round";
                 status = fin.str();
@@ -1710,6 +1747,9 @@ int main() {
         if (hrBannerTimer > 0.0f) {
             hrBannerTimer = std::max(0.0f, hrBannerTimer - dt);
         }
+        if (derby.roundOverTimer > 0.0f) {
+            derby.roundOverTimer = std::max(0.0f, derby.roundOverTimer - dt);
+        }
 
         // Pitcher animation + ball glue / soft-toss release
         if (playMode == PlayMode::Derby && softTossTimer >= 0.0f && !ballReleased) {
@@ -1866,6 +1906,10 @@ int main() {
 
                             if (!landingLogged) {
                                 landingLogged = true;
+                                if (lastHit.exitMph > derby.bestExitMph) {
+                                    derby.bestExitMph = lastHit.exitMph;
+                                }
+                                setDerbyLastResult(lastHit.quality ? lastHit.quality : "Wall Ball");
                                 std::ostringstream oss;
                                 oss << std::fixed << std::setprecision(0)
                                     << lastHit.quality << "  " << lastHit.fenceFeet
@@ -1927,11 +1971,17 @@ int main() {
                                 if (isDinger && lastHit.distanceFeet > derby.longestHrFeet) {
                                     derby.longestHrFeet = lastHit.distanceFeet;
                                 }
+                                if (lastHit.exitMph > derby.bestExitMph) {
+                                    derby.bestExitMph = lastHit.exitMph;
+                                }
+                                if (lastHit.quality) {
+                                    setDerbyLastResult(lastHit.quality);
+                                }
                             }
                             std::ostringstream oss;
                             oss << std::fixed << std::setprecision(0)
                                 << lastHit.quality << " lands  " << lastHit.distanceFeet << " ft  "
-                                << lastHit.exitMph << " mph  LA " << lastHit.launchDeg << "°  "
+                                << lastHit.exitMph << " mph  LA " << lastHit.launchDeg << " deg  "
                                 << (lastHit.fair ? "FAIR" : "FOUL");
                             if (lastHit.clearsWall) {
                                 oss << "  CLEAR +" << lastHit.wallMarginFeet << " ft";
@@ -2025,8 +2075,11 @@ int main() {
             gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);
             gl.drawMesh(glStadiumLines, stadiumXform);
-            // Crowd cheer wave (stronger after a big hit)
+            // Crowd cheer wave (stronger after a big hit / round end)
             float cheerBoost = (hrBannerTimer > 0.0f) ? 1.6f : 1.0f;
+            if (derby.roundOver && derby.roundOverTimer > 0.0f) {
+                cheerBoost = std::max(cheerBoost, 1.85f);
+            }
             for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
                 if (!glStadiumFans[i].valid()) {
                     continue;
@@ -2112,11 +2165,64 @@ int main() {
             std::ostringstream d;
             d << std::fixed << std::setprecision(0) << lastHit.distanceFeet << " ft   "
               << lastHit.exitMph << " mph";
-            drawText(window, font, d.str(), 22, {w * 0.5f - 90.0f, h * 0.18f + 56.0f}, sf::Color(255, 240, 180));
+            if (lastHit.clearsWall) {
+                d << "   +" << lastHit.wallMarginFeet << " ft over";
+            }
+            drawText(window, font, d.str(), 22, {w * 0.5f - 120.0f, h * 0.18f + 56.0f}, sf::Color(255, 240, 180));
+        }
+
+        // ROUND OVER celebration card
+        if (fontOk && playMode == PlayMode::Derby && derby.roundOver && derby.roundOverTimer > 0.0f) {
+            float w = static_cast<float>(window.getSize().x);
+            float h = static_cast<float>(window.getSize().y);
+            float pulse = 0.6f + 0.4f * std::sin(poseClock * 6.0f);
+            sf::RectangleShape card({420.0f, 168.0f});
+            card.setPosition({w * 0.5f - 210.0f, h * 0.34f});
+            card.setFillColor(sf::Color(8, 16, 14, static_cast<std::uint8_t>(210 + pulse * 30)));
+            card.setOutlineColor(sf::Color(255, 210, 70, 220));
+            card.setOutlineThickness(2.0f);
+            window.draw(card);
+            drawText(
+                window, font, "ROUND OVER", 36,
+                {w * 0.5f - 118.0f, h * 0.34f + 14.0f},
+                sf::Color(255, 220, 80)
+            );
+            std::ostringstream sum;
+            sum << std::fixed << std::setprecision(0)
+                << derby.hrCount << " HR    longest ";
+            if (derby.longestHrFeet > 0.5f) {
+                sum << derby.longestHrFeet << " ft";
+            } else {
+                sum << "--";
+            }
+            drawText(
+                window, font, sum.str(), 20,
+                {w * 0.5f - 130.0f, h * 0.34f + 64.0f},
+                sf::Color(200, 255, 180)
+            );
+            std::ostringstream sum2;
+            sum2 << std::fixed << std::setprecision(0) << "Best EV  ";
+            if (derby.bestExitMph > 0.5f) {
+                sum2 << derby.bestExitMph << " mph";
+            } else {
+                sum2 << "--";
+            }
+            sum2 << "    swings used  " << derby.totalSwings;
+            drawText(
+                window, font, sum2.str(), 16,
+                {w * 0.5f - 130.0f, h * 0.34f + 96.0f},
+                sf::Color(220, 230, 210)
+            );
+            drawText(
+                window, font, "Press N for a new round", 14,
+                {w * 0.5f - 100.0f, h * 0.34f + 128.0f},
+                sf::Color(180, 200, 190)
+            );
         }
 
         if (fontOk) {
             const float W = static_cast<float>(window.getSize().x);
+            const float H = static_cast<float>(window.getSize().y);
             sf::Color titleCol = playMode == PlayMode::Derby ? sf::Color(255, 220, 80)
                 : (playMode == PlayMode::Practice ? sf::Color(120, 255, 160) : sf::Color(240, 245, 240));
             std::ostringstream title;
@@ -2126,23 +2232,30 @@ int main() {
 
             // Scoreboard panel (top-right) for Derby
             if (playMode == PlayMode::Derby) {
-                const float pw = 210.0f;
-                const float ph = 108.0f;
+                const float pw = 236.0f;
+                const float ph = 168.0f;
                 const float px = W - pw - 18.0f;
                 const float py = 14.0f;
                 sf::RectangleShape panel({pw, ph});
                 panel.setPosition({px, py});
-                panel.setFillColor(sf::Color(12, 22, 18, 200));
-                panel.setOutlineColor(sf::Color(255, 210, 70, 180));
+                panel.setFillColor(sf::Color(12, 22, 18, 210));
+                panel.setOutlineColor(
+                    derby.roundOver ? sf::Color(255, 160, 60, 220) : sf::Color(255, 210, 70, 180)
+                );
                 panel.setOutlineThickness(1.5f);
                 window.draw(panel);
-                drawText(window, font, "SCOREBOARD", 13, {px + 12, py + 8}, sf::Color(255, 220, 100));
+                drawText(
+                    window, font,
+                    derby.roundOver ? "FINAL" : "SCOREBOARD",
+                    13, {px + 12, py + 8},
+                    sf::Color(255, 220, 100)
+                );
                 std::ostringstream s1;
-                s1 << "Swings left   " << derby.swingsLeft;
-                drawText(window, font, s1.str(), 16, {px + 12, py + 30}, sf::Color(230, 240, 235));
+                s1 << "Swings left   " << derby.swingsLeft << " / " << kDerbySwings;
+                drawText(window, font, s1.str(), 15, {px + 12, py + 30}, sf::Color(230, 240, 235));
                 std::ostringstream s2;
-                s2 << "Home runs    " << derby.hrCount;
-                drawText(window, font, s2.str(), 16, {px + 12, py + 52}, sf::Color(120, 255, 160));
+                s2 << "Home runs     " << derby.hrCount;
+                drawText(window, font, s2.str(), 15, {px + 12, py + 52}, sf::Color(120, 255, 160));
                 std::ostringstream s3;
                 s3 << std::fixed << std::setprecision(0) << "Longest      ";
                 if (derby.longestHrFeet > 0.5f) {
@@ -2150,7 +2263,48 @@ int main() {
                 } else {
                     s3 << "--";
                 }
-                drawText(window, font, s3.str(), 16, {px + 12, py + 74}, sf::Color(255, 230, 140));
+                drawText(window, font, s3.str(), 15, {px + 12, py + 74}, sf::Color(255, 230, 140));
+                std::ostringstream s4;
+                s4 << std::fixed << std::setprecision(0) << "Best EV      ";
+                if (derby.bestExitMph > 0.5f) {
+                    s4 << derby.bestExitMph << " mph";
+                } else {
+                    s4 << "--";
+                }
+                drawText(window, font, s4.str(), 15, {px + 12, py + 96}, sf::Color(180, 220, 255));
+                // Last result strip
+                drawText(window, font, "Last", 12, {px + 12, py + 122}, sf::Color(150, 165, 155));
+                std::string lastLine = derby.lastResult;
+                if (lastLine.size() > 28) {
+                    lastLine = lastLine.substr(0, 27) + "...";
+                }
+                drawText(window, font, lastLine, 13, {px + 12, py + 140}, sf::Color(240, 235, 200));
+            }
+
+            // Bottom result strip for the current swing (all modes)
+            if (lastHit.hit && hasHit) {
+                sf::RectangleShape strip({W - 40.0f, 28.0f});
+                strip.setPosition({20.0f, H - 42.0f});
+                strip.setFillColor(sf::Color(10, 18, 14, 190));
+                strip.setOutlineColor(sf::Color(255, 210, 80, 100));
+                strip.setOutlineThickness(1.0f);
+                window.draw(strip);
+                std::ostringstream stripTxt;
+                stripTxt << std::fixed << std::setprecision(0)
+                         << (lastHit.quality ? lastHit.quality : "Contact")
+                         << "   " << lastHit.exitMph << " mph @ " << lastHit.launchDeg
+                         << " deg   " << lastHit.distanceFeet << " ft";
+                if (lastHit.clearsWall) {
+                    stripTxt << "   CLEAR +" << lastHit.wallMarginFeet << " ft";
+                } else if (lastHit.hitsWallFace) {
+                    stripTxt << "   WALL";
+                }
+                drawText(
+                    window, font, stripTxt.str(), 14,
+                    {28.0f, H - 36.0f},
+                    isDingerQuality(lastHit.quality) ? sf::Color(255, 220, 80)
+                        : sf::Color(220, 230, 220)
+                );
             }
 
             std::ostringstream modes;
