@@ -32,6 +32,7 @@ struct PitchProfile {
 
 struct PitchFlightVariation {
     Vector3 releaseOffset;
+    Vector3 commandOffset;
     Vector3 airVelocity;
     Vector3 breakScale;
     float dragScale = 1.0f;
@@ -181,6 +182,7 @@ void testYamamotoPitchesUseRealisticReleaseAndReachPlate() {
     std::array<PitchFlightVariation, 3> variations = {{
         PitchFlightVariation{
             Vector3(-0.045f, -0.035f, 0.0f),
+            Vector3(-0.08f, -0.04f, 0.0f),
             Vector3(-0.22f, -0.04f, -0.12f),
             Vector3(0.84f, 0.84f, 1.0f),
             0.94f,
@@ -190,6 +192,7 @@ void testYamamotoPitchesUseRealisticReleaseAndReachPlate() {
         },
         PitchFlightVariation{
             Vector3(0.045f, 0.035f, 0.0f),
+            Vector3(0.08f, 0.04f, 0.0f),
             Vector3(0.22f, 0.04f, 0.08f),
             Vector3(1.16f, 1.16f, 1.0f),
             1.08f,
@@ -199,6 +202,7 @@ void testYamamotoPitchesUseRealisticReleaseAndReachPlate() {
         },
         PitchFlightVariation{
             Vector3(0.0f, 0.0f, 0.0f),
+            Vector3(),
             Vector3(),
             Vector3(1.0f, 1.0f, 1.0f),
             1.0f,
@@ -211,16 +215,19 @@ void testYamamotoPitchesUseRealisticReleaseAndReachPlate() {
     for (const PitchProfile& pitch : pitches) {
         for (const Vector3& aimPoint : aimPoints) {
             for (const PitchFlightVariation& variation : variations) {
-                Vector3 velocity = calculateLaunchVelocity(pitch, aimPoint, pitch.baseSpeedMph, variation);
+                Vector3 commandedAimPoint = aimPoint + variation.commandOffset;
+                commandedAimPoint.z = plateZ;
+                Vector3 velocity = calculateLaunchVelocity(pitch, commandedAimPoint, pitch.baseSpeedMph, variation);
                 FlightResult result = simulatePitch(pitch, variation, velocity);
                 float horizontalSpeed = std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
                 float launchAngleDegrees = std::atan2(velocity.y, horizontalSpeed) * 180.0f / 3.1415926535f;
 
                 assert(result.crossedPlate);
                 assert(result.platePosition.z >= plateZ - 0.01f);
-                assert(result.platePosition.y > std::max(0.45f, aimPoint.y - 0.65f));
-                assert(result.platePosition.y < aimPoint.y + 0.55f);
-                assert(std::abs(result.platePosition.x - aimPoint.x) < 1.05f);
+                assert(result.platePosition.y > std::max(0.45f, commandedAimPoint.y - 0.65f));
+                assert(result.platePosition.y < commandedAimPoint.y + 0.55f);
+                assert(std::abs(result.platePosition.x - commandedAimPoint.x) < 1.05f);
+                assert(std::abs(result.platePosition.x - aimPoint.x) < 1.15f);
                 assert(launchAngleDegrees > -4.2f);
                 assert(launchAngleDegrees < 7.0f);
                 assert(result.apexY < std::max(releasePoint.y + 1.25f, aimPoint.y + 0.55f));

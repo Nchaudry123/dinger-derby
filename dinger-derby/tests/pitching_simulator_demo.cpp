@@ -35,7 +35,7 @@ const Vector3 releasePoint(-0.22f, 1.72f, moundZ);
 const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
 const Vector3 boundsMinimum(-3.2f, -40.0f, -2.0f);
 const Vector3 boundsMaximum(3.2f, 3.6f, plateZ + 4.0f);
-const sf::FloatRect speedSliderTrack(sf::Vector2f(34.0f, 82.0f), sf::Vector2f(280.0f, 8.0f));
+const sf::FloatRect speedSliderTrack(sf::Vector2f(34.0f, 86.0f), sf::Vector2f(300.0f, 8.0f));
 
 struct SeamPoint {
     Vector3 position;
@@ -57,6 +57,7 @@ struct PitchProfile {
 
 struct PitchFlightVariation {
     Vector3 releaseOffset;
+    Vector3 commandOffset;
     Vector3 airVelocity;
     Vector3 breakScale;
     float dragScale = 1.0f;
@@ -395,6 +396,31 @@ float mphToWorldUnitsPerSecond(float mph) {
     return mph * 5280.0f / 3600.0f / feetPerWorldUnit;
 }
 
+float commandRadiusForPitch(const PitchProfile& pitch) {
+    switch (pitch.hotkey) {
+        case 'F':
+            return 0.11f;
+        case 'T':
+            return 0.14f;
+        case 'P':
+            return 0.18f;
+        case 'S':
+            return 0.21f;
+        case 'C':
+            return 0.24f;
+        default:
+            return 0.16f;
+    }
+}
+
+Vector3 clampAimPoint(const Vector3& point) {
+    return Vector3(
+        std::clamp(point.x, -0.95f, 0.95f),
+        std::clamp(point.y, strikeZoneCenter.y - 1.15f, strikeZoneCenter.y + 1.15f),
+        plateZ
+    );
+}
+
 Vector3 movementAccelerationForPitch(
     const PitchProfile& pitch,
     const PitchFlightVariation& variation,
@@ -478,10 +504,19 @@ PitchFlightVariation rollPitchVariation(
         turbulence = 0.16f;
     }
 
+    float commandRadius = commandRadiusForPitch(pitch);
+    float commandAngle = randomRange(randomGenerator, 0.0f, pi * 2.0f);
+    float commandDistance = std::sqrt(randomRange(randomGenerator, 0.0f, 1.0f)) * commandRadius;
+
     return PitchFlightVariation{
         Vector3(
             randomRange(randomGenerator, -0.045f, 0.045f),
             randomRange(randomGenerator, -0.035f, 0.035f),
+            0.0f
+        ),
+        Vector3(
+            std::cos(commandAngle) * commandDistance,
+            std::sin(commandAngle) * commandDistance * 0.82f,
             0.0f
         ),
         Vector3(
@@ -520,7 +555,8 @@ void launchPitch(
     baseball.restitution = 0.3f;
     baseball.dragCoefficient = pitch.dragCoefficient * variation.dragScale;
     baseball.airResistanceScale = pitch.airScale;
-    baseball.velocity = calculateLaunchVelocity(pitch, aimPoint, pitchSpeedMph, variation);
+    Vector3 commandedAimPoint = clampAimPoint(aimPoint + variation.commandOffset);
+    baseball.velocity = calculateLaunchVelocity(pitch, commandedAimPoint, pitchSpeedMph, variation);
     world.addBody(&baseball);
 
     trail.clear();
@@ -778,7 +814,7 @@ int main() {
         drawBaseballSeams(window, overlayCamera, baseballTransform, seamA, seamB);
 
         if (fontLoaded) {
-            sf::RectangleShape panel(sf::Vector2f(360.0f, 108.0f));
+            sf::RectangleShape panel(sf::Vector2f(430.0f, 132.0f));
             panel.setPosition(sf::Vector2f(18.0f, 18.0f));
             panel.setFillColor(sf::Color(5, 8, 14, 180));
             panel.setOutlineThickness(1.0f);
@@ -803,16 +839,17 @@ int main() {
             window.draw(sliderKnob);
 
             std::ostringstream aimLabel;
-            aimLabel << "Aim " << aimPoint.x << ", " << aimPoint.y;
+            aimLabel << std::fixed << std::setprecision(2) << "Aim " << aimPoint.x << ", " << aimPoint.y;
             std::ostringstream speedLabel;
             speedLabel << std::fixed << std::setprecision(1)
-                << currentPitchSpeedMph << " mph  next x" << globalSpeedScale;
+                << "Next " << currentPitchSpeedMph << " mph  x" << globalSpeedScale;
 
             drawText(window, font, pitches[selectedPitch].name, 17, sf::Vector2f(34.0f, 28.0f), pitches[selectedPitch].color);
             drawText(window, font, "F 4S  P SPL  C CB  T CUT  S SL", 12, sf::Vector2f(34.0f, 54.0f), sf::Color(180, 215, 220));
-            drawText(window, font, "R throw selected | Space pause | drag speed", 12, sf::Vector2f(34.0f, 96.0f), sf::Color(155, 195, 200));
-            drawText(window, font, aimLabel.str(), 12, sf::Vector2f(214.0f, 29.0f), sf::Color(135, 195, 200));
-            drawText(window, font, speedLabel.str(), 12, sf::Vector2f(214.0f, 96.0f), sf::Color(175, 215, 180));
+            drawText(window, font, "Drag speed for next throw", 11, sf::Vector2f(34.0f, 70.0f), sf::Color(120, 175, 185));
+            drawText(window, font, "R throw | Space pause | arrows aim", 12, sf::Vector2f(34.0f, 112.0f), sf::Color(155, 195, 200));
+            drawText(window, font, aimLabel.str(), 12, sf::Vector2f(286.0f, 30.0f), sf::Color(135, 195, 200));
+            drawText(window, font, speedLabel.str(), 12, sf::Vector2f(238.0f, 100.0f), sf::Color(175, 215, 180));
         }
 
         fpsCounter.frame(window);
