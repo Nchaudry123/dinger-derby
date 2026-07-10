@@ -72,6 +72,22 @@ struct PitchResult {
     Vector3 platePosition;
     std::string label;
     sf::Color color;
+    bool isStrike = false;
+};
+
+struct CountState {
+    int balls = 0;
+    int strikes = 0;
+    int pitchNumber = 0;
+    int walks = 0;
+    int strikeouts = 0;
+    std::string lastOutcome;
+};
+
+enum class PitchPhase {
+    Ready,
+    Flying,
+    Settled
 };
 
 enum class PitchCameraMode {
@@ -485,22 +501,49 @@ PitchResult classifyPitchResult(const Vector3& platePosition) {
     bool inVerticalZone = std::abs(platePosition.y - strikeZoneCenter.y) <= strikeZoneHalfHeight;
 
     if (inHorizontalZone && inVerticalZone) {
-        return PitchResult{platePosition, "Strike", sf::Color(150, 245, 170)};
+        return PitchResult{platePosition, "Strike", sf::Color(150, 245, 170), true};
     }
 
     if (platePosition.y > strikeZoneCenter.y + strikeZoneHalfHeight) {
-        return PitchResult{platePosition, "Ball High", sf::Color(245, 210, 120)};
+        return PitchResult{platePosition, "Ball High", sf::Color(245, 210, 120), false};
     }
 
     if (platePosition.y < strikeZoneCenter.y - strikeZoneHalfHeight) {
-        return PitchResult{platePosition, "Ball Low", sf::Color(245, 180, 110)};
+        return PitchResult{platePosition, "Ball Low", sf::Color(245, 180, 110), false};
     }
 
     if (platePosition.x < strikeZoneCenter.x - strikeZoneHalfWidth) {
-        return PitchResult{platePosition, "Ball Inside", sf::Color(130, 205, 245)};
+        return PitchResult{platePosition, "Ball Inside", sf::Color(130, 205, 245), false};
     }
 
-    return PitchResult{platePosition, "Ball Outside", sf::Color(130, 205, 245)};
+    return PitchResult{platePosition, "Ball Outside", sf::Color(130, 205, 245), false};
+}
+
+std::string applyCount(CountState& count, const PitchResult& result) {
+    count.pitchNumber += 1;
+    count.lastOutcome.clear();
+
+    if (result.isStrike) {
+        count.strikes = std::min(count.strikes + 1, 3);
+        if (count.strikes >= 3) {
+            count.strikeouts += 1;
+            count.balls = 0;
+            count.strikes = 0;
+            count.lastOutcome = "Strikeout";
+            return "Strikeout";
+        }
+    } else {
+        count.balls = std::min(count.balls + 1, 4);
+        if (count.balls >= 4) {
+            count.walks += 1;
+            count.balls = 0;
+            count.strikes = 0;
+            count.lastOutcome = "Walk";
+            return "Walk";
+        }
+    }
+
+    return result.label;
 }
 
 Vector3 spinAxisForPitch(const PitchProfile& pitch) {
@@ -763,6 +806,30 @@ PitchFlightVariation rollPitchVariation(
     };
 }
 
+void resetPitchOnMound(
+    Body3D& baseball,
+    PhysicsWorld3D& world,
+    const PitchProfile& pitch,
+    std::vector<Vector3>& trail
+) {
+    world = PhysicsWorld3D();
+    world.setBounds(boundsMinimum, boundsMaximum);
+    world.gravity = Vector3(0.0f, -9.8f, 0.0f);
+    world.setAtmosphere(pitchAirDensity);
+    world.airResistanceEnabled = false;
+
+    baseball = Body3D(releasePoint, 0.145f);
+    baseball.setRadius(baseballRadius);
+    baseball.restitution = 0.3f;
+    baseball.dragCoefficient = pitch.dragCoefficient;
+    baseball.airResistanceScale = pitch.airScale;
+    baseball.velocity = Vector3();
+    world.addBody(&baseball);
+
+    trail.clear();
+    trail.push_back(baseball.position);
+}
+
 void launchPitch(
     Body3D& baseball,
     PhysicsWorld3D& world,
@@ -869,11 +936,13 @@ int main() {
     Body3D baseball;
     std::vector<Vector3> trail;
     std::vector<PitchResult> pitchResults;
+    CountState count;
+    PitchPhase phase = PitchPhase::Ready;
     std::mt19937 randomGenerator(std::random_device{}());
     float globalSpeedScale = 1.0f;
     float currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
     PitchFlightVariation currentVariation = rollPitchVariation(pitches[selectedPitch], randomGenerator);
-    launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph, currentVariation);
+    resetPitchOnMound(baseball, world, pitches[selectedPitch], trail);
 
     sf::Clock frameClock;
     float accumulator = 0.0f;
@@ -883,8 +952,20 @@ int main() {
     float spinZ = 0.0f;
     bool paused = false;
     bool draggingSpeedSlider = false;
-    bool pitchFrozen = true;
-    std::string latestResult = "Ready";
+    std::string latestResult = "Ready — press R to throw";
+    sf::Color latestResultColor(225, 235, 205);
+
+    auto prepareReadyState = [&]() {
+        resetPitchOnMound(baseball, world, pitches[selectedPitch], trail);
+        currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
+        currentVariation = rollPitchVariation(pitches[selectedPitch], randomGenerator);
+        accumulator = 0.0f;
+        pitchAge = 0.0f;
+        spinX = 0.0f;
+        spinY = 0.0f;
+        spinZ = 0.0f;
+        phase = PitchPhase::Ready;
+    };
 
     auto relaunchCurrentPitch = [&]() {
         activePitch = selectedPitch;
@@ -896,7 +977,9 @@ int main() {
         spinX = 0.0f;
         spinY = 0.0f;
         spinZ = 0.0f;
-        pitchFrozen = false;
+        phase = PitchPhase::Flying;
+        latestResult = pitches[selectedPitch].name + " — in flight";
+        latestResultColor = pitches[selectedPitch].color;
     };
 
     while (window.isOpen()) {
@@ -974,6 +1057,11 @@ int main() {
                 for (int i = 0; i < pitches.size(); i++) {
                     if (key->code == pitchKeyForProfile(pitches[i])) {
                         selectedPitch = i;
+                        if (phase == PitchPhase::Ready) {
+                            prepareReadyState();
+                            latestResult = pitches[selectedPitch].name + " ready — press R";
+                            latestResultColor = pitches[selectedPitch].color;
+                        }
                     }
                 }
             }
@@ -1014,7 +1102,7 @@ int main() {
         }
 
         float dt = std::min(frameClock.restart().asSeconds(), 0.1f);
-        if (!paused && !pitchFrozen) {
+        if (!paused && phase == PitchPhase::Flying) {
             accumulator += dt;
             while (accumulator >= fixedStep) {
                 const PitchProfile& pitch = pitches[activePitch];
@@ -1028,19 +1116,26 @@ int main() {
                 );
                 baseball.applyForce(breakAcceleration * baseball.mass);
                 world.step(fixedStep);
-                pitchFrozen = freezePitchAtPlate(baseball, previousPosition, trail);
-                if (pitchFrozen) {
+                bool reachedPlate = freezePitchAtPlate(baseball, previousPosition, trail);
+                if (reachedPlate) {
                     PitchResult result = classifyPitchResult(baseball.position);
-                    latestResult = result.label;
+                    latestResult = applyCount(count, result);
+                    latestResultColor = count.lastOutcome.empty() ? result.color : sf::Color(255, 220, 120);
+                    if (!count.lastOutcome.empty()) {
+                        latestResultColor = count.lastOutcome == "Strikeout"
+                            ? sf::Color(255, 120, 110)
+                            : sf::Color(120, 200, 255);
+                    }
                     pitchResults.push_back(result);
-                    if (pitchResults.size() > 5) {
+                    if (pitchResults.size() > 8) {
                         pitchResults.erase(pitchResults.begin());
                     }
+                    phase = PitchPhase::Settled;
                 }
                 pitchAge += fixedStep;
                 accumulator -= fixedStep;
 
-                if (pitchFrozen) {
+                if (phase != PitchPhase::Flying) {
                     break;
                 }
 
@@ -1096,7 +1191,7 @@ int main() {
         drawBaseballSeams(window, overlayCamera, baseballTransform, seamA, seamB);
 
         if (fontLoaded) {
-            sf::RectangleShape panel(sf::Vector2f(430.0f, 132.0f));
+            sf::RectangleShape panel(sf::Vector2f(460.0f, 148.0f));
             panel.setPosition(sf::Vector2f(18.0f, 18.0f));
             panel.setFillColor(sf::Color(5, 8, 14, 180));
             panel.setOutlineThickness(1.0f);
@@ -1126,14 +1221,28 @@ int main() {
             speedLabel << std::fixed << std::setprecision(1)
                 << "Next " << currentPitchSpeedMph << " mph  x" << globalSpeedScale;
 
+            std::ostringstream countLabel;
+            countLabel << "Count " << count.balls << "-" << count.strikes
+                << "   P#" << count.pitchNumber
+                << "   K " << count.strikeouts
+                << "  BB " << count.walks;
+            const char* phaseLabel = "Ready";
+            if (phase == PitchPhase::Flying) {
+                phaseLabel = "In flight";
+            } else if (phase == PitchPhase::Settled) {
+                phaseLabel = "Settled";
+            }
+
             drawText(window, font, pitches[selectedPitch].name, 17, sf::Vector2f(34.0f, 28.0f), pitches[selectedPitch].color);
-            drawText(window, font, "F 4S  P SPL  C CB  T CUT  S SL", 12, sf::Vector2f(34.0f, 54.0f), sf::Color(180, 215, 220));
-            drawText(window, font, "Drag speed for next throw", 11, sf::Vector2f(34.0f, 70.0f), sf::Color(120, 175, 185));
+            drawText(window, font, countLabel.str(), 13, sf::Vector2f(34.0f, 50.0f), sf::Color(235, 230, 190));
+            drawText(window, font, "F 4S  P SPL  C CB  T CUT  S SL", 12, sf::Vector2f(34.0f, 72.0f), sf::Color(180, 215, 220));
+            drawText(window, font, "Drag speed for next throw", 11, sf::Vector2f(34.0f, 88.0f), sf::Color(120, 175, 185));
             drawText(window, font, "R throw | Space pause | arrows aim | 1/2/3 camera", 12, sf::Vector2f(34.0f, 112.0f), sf::Color(155, 195, 200));
             drawText(window, font, aimLabel.str(), 12, sf::Vector2f(286.0f, 30.0f), sf::Color(135, 195, 200));
             drawText(window, font, speedLabel.str(), 12, sf::Vector2f(238.0f, 100.0f), sf::Color(175, 215, 180));
-            drawText(window, font, cameraModeName(cameraMode), 11, sf::Vector2f(348.0f, 54.0f), sf::Color(130, 190, 205));
-            drawText(window, font, latestResult, 13, sf::Vector2f(338.0f, 72.0f), sf::Color(225, 235, 205));
+            drawText(window, font, phaseLabel, 11, sf::Vector2f(348.0f, 54.0f), sf::Color(150, 210, 220));
+            drawText(window, font, cameraModeName(cameraMode), 11, sf::Vector2f(348.0f, 70.0f), sf::Color(130, 190, 205));
+            drawText(window, font, latestResult, 13, sf::Vector2f(240.0f, 84.0f), latestResultColor);
         }
 
         fpsCounter.frame(window);
