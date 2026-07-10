@@ -503,6 +503,63 @@ PitchResult classifyPitchResult(const Vector3& platePosition) {
     return PitchResult{platePosition, "Ball Outside", sf::Color(130, 205, 245)};
 }
 
+Vector3 spinAxisForPitch(const PitchProfile& pitch) {
+    switch (pitch.hotkey) {
+        case 'F':
+            return Vector3(1.0f, 0.08f, 0.0f).normalized();
+        case 'P':
+            return Vector3(0.55f, 0.15f, 0.82f).normalized();
+        case 'C':
+            return Vector3(-0.95f, 0.2f, -0.15f).normalized();
+        case 'T':
+            return Vector3(0.25f, 0.95f, 0.15f).normalized();
+        case 'S':
+            return Vector3(0.35f, 0.82f, 0.45f).normalized();
+        default:
+            return Vector3(1.0f, 0.0f, 0.0f);
+    }
+}
+
+float spinRpmForPitch(const PitchProfile& pitch) {
+    switch (pitch.hotkey) {
+        case 'F':
+            return 2450.0f;
+        case 'P':
+            return 1350.0f;
+        case 'C':
+            return 2850.0f;
+        case 'T':
+            return 2550.0f;
+        case 'S':
+            return 2650.0f;
+        default:
+            return 2200.0f;
+    }
+}
+
+Vector3 magnusAcceleration(
+    const PitchProfile& pitch,
+    const Vector3& velocity,
+    float speedScale
+) {
+    Vector3 spinAxis = spinAxisForPitch(pitch);
+    float speed = velocity.magnitude();
+    if (speed < 1.0f) {
+        return Vector3();
+    }
+
+    Vector3 direction = velocity / speed;
+    Vector3 liftDirection = spinAxis.cross(direction);
+    float liftMagnitude = liftDirection.magnitude();
+    if (liftMagnitude < 0.001f) {
+        return Vector3();
+    }
+
+    liftDirection = liftDirection / liftMagnitude;
+    float magnusStrength = 0.55f * speedScale * (speed / 40.0f);
+    return liftDirection * magnusStrength;
+}
+
 void drawPitchResultHistory(
     sf::RenderWindow& window,
     const Camera3D& camera,
@@ -591,6 +648,7 @@ Vector3 movementAccelerationForPitch(
     const PitchProfile& pitch,
     const PitchFlightVariation& variation,
     const Vector3& position,
+    const Vector3& velocity,
     float pitchAge
 ) {
     float progress = std::clamp(
@@ -603,11 +661,13 @@ Vector3 movementAccelerationForPitch(
         : (progress - pitch.breakStartZ) / (1.0f - pitch.breakStartZ);
     breakRamp = breakRamp * breakRamp * (3.0f - 2.0f * breakRamp);
 
+    // Late-life break ramps harder so secondary pitches read at the plate.
+    float lateBoost = 1.0f + 0.35f * breakRamp * breakRamp;
     Vector3 acceleration = Vector3(
         pitch.breakAcceleration.x * variation.breakScale.x,
         pitch.breakAcceleration.y * variation.breakScale.y,
         0.0f
-    ) * breakRamp;
+    ) * breakRamp * lateBoost;
 
     float turbulenceRamp = progress * progress;
     Vector3 turbulenceForce(
@@ -616,7 +676,8 @@ Vector3 movementAccelerationForPitch(
         0.0f
     );
 
-    return acceleration + turbulenceForce * variation.turbulenceStrength * turbulenceRamp;
+    Vector3 magnus = magnusAcceleration(pitch, velocity, breakRamp * 0.65f + 0.35f);
+    return acceleration + turbulenceForce * variation.turbulenceStrength * turbulenceRamp + magnus;
 }
 
 Vector3 calculateLaunchVelocity(
@@ -729,11 +790,22 @@ void launchPitch(
     trail.push_back(baseball.position);
 }
 
-bool freezePitchAtPlate(Body3D& baseball, std::vector<Vector3>& trail) {
+bool freezePitchAtPlate(
+    Body3D& baseball,
+    const Vector3& previousPosition,
+    std::vector<Vector3>& trail
+) {
     if (baseball.position.z < plateZ || baseball.velocity.z <= 0.0f) {
         return false;
     }
 
+    // Interpolate the exact plate-crossing point instead of clamping z only.
+    float segmentLength = baseball.position.z - previousPosition.z;
+    float t = segmentLength <= 0.0f
+        ? 1.0f
+        : (plateZ - previousPosition.z) / segmentLength;
+    t = std::clamp(t, 0.0f, 1.0f);
+    baseball.position = previousPosition + (baseball.position - previousPosition) * t;
     baseball.position.z = plateZ;
     baseball.velocity = Vector3();
     baseball.acceleration = Vector3();
@@ -946,11 +1018,17 @@ int main() {
             accumulator += dt;
             while (accumulator >= fixedStep) {
                 const PitchProfile& pitch = pitches[activePitch];
-                Vector3 breakAcceleration =
-                    movementAccelerationForPitch(pitch, currentVariation, baseball.position, pitchAge);
+                Vector3 previousPosition = baseball.position;
+                Vector3 breakAcceleration = movementAccelerationForPitch(
+                    pitch,
+                    currentVariation,
+                    baseball.position,
+                    baseball.velocity,
+                    pitchAge
+                );
                 baseball.applyForce(breakAcceleration * baseball.mass);
                 world.step(fixedStep);
-                pitchFrozen = freezePitchAtPlate(baseball, trail);
+                pitchFrozen = freezePitchAtPlate(baseball, previousPosition, trail);
                 if (pitchFrozen) {
                     PitchResult result = classifyPitchResult(baseball.position);
                     latestResult = result.label;
@@ -966,10 +1044,11 @@ int main() {
                     break;
                 }
 
-                float rollAmount = baseball.velocity.magnitude() / baseballRadius * fixedStep;
-                spinX += baseball.velocity.z * rollAmount * 0.08f;
-                spinY += baseball.velocity.x * rollAmount * 0.1f;
-                spinZ -= baseball.velocity.x * rollAmount * 0.12f;
+                float spinRadPerSecond = spinRpmForPitch(pitch) * (2.0f * pi / 60.0f) * 0.045f;
+                Vector3 axis = spinAxisForPitch(pitch);
+                spinX += axis.x * spinRadPerSecond * fixedStep;
+                spinY += axis.y * spinRadPerSecond * fixedStep;
+                spinZ += axis.z * spinRadPerSecond * fixedStep;
 
                 if (trail.empty() || (baseball.position - trail.back()).magnitude() > 0.12f) {
                     trail.push_back(baseball.position);
