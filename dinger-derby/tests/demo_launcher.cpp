@@ -30,7 +30,8 @@ std::vector<DemoEntry> makeDemoEntries() {
         {"Culling Stress 3D", "culling_stress_3d_demo", "Grid, culling, and triangle counters"},
         {"Physics 3D", "physics3d_demo", "Rigid 3D sphere collisions and bounds"},
         {"Rotation 3D", "rotation_3d_demo", "Yaw, pitch, roll, and orbit camera"},
-        {"Baseball 3D", "baseball_3d_demo", "High-poly baseball showcase"}
+        {"Baseball 3D", "baseball_3d_demo", "High-poly baseball showcase"},
+        {"Pitching Simulator", "pitching_simulator_demo", "Aim box and pitch-type physics"}
     };
 }
 
