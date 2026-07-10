@@ -9,6 +9,8 @@
 #include "RasterDemo3D.h"
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
+#include "../src/physics/Body3D.h"
+#include "../src/physics/PhysicsWorld3D.h"
 #include "../src/rendering/Camera3D.h"
 #include "../src/rendering/FrameBuffer.h"
 #include "../src/rendering/Mesh3D.h"
@@ -17,6 +19,8 @@
 namespace {
 
 constexpr float pi = 3.1415926535f;
+constexpr float fixedStep = 1.0f / 120.0f;
+constexpr float baseballRadius = 0.42f;
 const Vector3 boxMinimum(-3.2f, -2.2f, -2.0f);
 const Vector3 boxMaximum(3.2f, 2.2f, 4.0f);
 const Vector3 boxCenter(0.0f, 0.0f, 1.0f);
@@ -25,6 +29,18 @@ struct SeamPoint {
     Vector3 position;
     Vector3 side;
 };
+
+void resetBaseball(Body3D& baseball, PhysicsWorld3D& world) {
+    world = PhysicsWorld3D();
+    world.setBounds(boxMinimum, boxMaximum);
+    world.gravity = Vector3(0.0f, -9.8f, 0.0f);
+
+    baseball = Body3D(Vector3(-1.05f, 1.25f, 0.65f), 0.145f);
+    baseball.setRadius(baseballRadius);
+    baseball.restitution = 0.86f;
+    baseball.velocity = Vector3(3.2f, 1.1f, 2.35f);
+    world.addBody(&baseball);
+}
 
 void updateOrbitCamera(Camera3D& camera, float yaw, float pitch, float distance) {
     pitch = std::clamp(pitch, -1.15f, 1.15f);
@@ -267,14 +283,14 @@ void drawBaseballSeams(
 int main() {
     sf::RenderWindow window(
         sf::VideoMode(sf::Vector2u(1280, 720)),
-        "Baseball Showcase | drag: orbit | wheel: zoom | A: AA | Space: pause"
+        "Physics Baseball | drag: orbit | wheel: zoom | Space: toss | R: reset | P: pause"
     );
     window.setFramerateLimit(60);
 
     bool antiAliasingEnabled = true;
     bool paused = false;
     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
-    DemoFpsCounter fpsCounter("Baseball Showcase | high-poly ball | A: AA on | Space: pause");
+    DemoFpsCounter fpsCounter("Physics Baseball | Space: toss | R: reset | P: pause | AA on");
 
     sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
@@ -290,8 +306,15 @@ int main() {
     std::vector<SeamPoint> seamA = makeSeamLoop(false);
     std::vector<SeamPoint> seamB = makeSeamLoop(true);
     RasterMeshRenderCache renderCache;
+    PhysicsWorld3D world;
+    Body3D baseballBody;
+    resetBaseball(baseballBody, world);
+
     sf::Clock frameClock;
-    float rotationTime = 0.0f;
+    float accumulator = 0.0f;
+    float spinX = 0.24f;
+    float spinY = 0.0f;
+    float spinZ = -0.35f;
 
     while (window.isOpen()) {
         while (const std::optional event = window.pollEvent()) {
@@ -305,12 +328,24 @@ int main() {
                     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
                     fpsCounter.setTitle(
                         antiAliasingEnabled
-                            ? "Baseball Showcase | high-poly ball | A: AA on | Space: pause"
-                            : "Baseball Showcase | high-poly ball | A: AA off | Space: pause"
+                            ? "Physics Baseball | Space: toss | R: reset | P: pause | AA on"
+                            : "Physics Baseball | Space: toss | R: reset | P: pause | AA off"
                     );
                 }
 
                 if (key->code == sf::Keyboard::Key::Space) {
+                    baseballBody.velocity += Vector3(1.85f, 5.2f, -2.4f);
+                }
+
+                if (key->code == sf::Keyboard::Key::R) {
+                    resetBaseball(baseballBody, world);
+                    accumulator = 0.0f;
+                    spinX = 0.24f;
+                    spinY = 0.0f;
+                    spinZ = -0.35f;
+                }
+
+                if (key->code == sf::Keyboard::Key::P) {
                     paused = !paused;
                 }
             }
@@ -354,17 +389,27 @@ int main() {
             }
         }
 
-        float dt = std::min(frameClock.restart().asSeconds(), 1.0f / 30.0f);
+        float dt = std::min(frameClock.restart().asSeconds(), 0.1f);
         if (!paused) {
-            rotationTime += dt;
+            accumulator += dt;
+            while (accumulator >= fixedStep) {
+                world.step(fixedStep);
+
+                float rollAmount = baseballBody.velocity.magnitude() / baseballRadius * fixedStep;
+                spinX += baseballBody.velocity.z * rollAmount * 0.16f;
+                spinY += baseballBody.velocity.x * rollAmount * 0.12f;
+                spinZ -= baseballBody.velocity.x * rollAmount * 0.18f;
+
+                accumulator -= fixedStep;
+            }
         }
 
         Matrix4 baseballTransform =
-            Matrix4::translation(boxCenter) *
-            Matrix4::rotationY(rotationTime * 0.62f) *
-            Matrix4::rotationZ(0.42f) *
-            Matrix4::rotationX(rotationTime * 0.38f) *
-            Matrix4::scale(Vector3(1.55f, 1.55f, 1.55f));
+            Matrix4::translation(baseballBody.position) *
+            Matrix4::rotationY(spinY) *
+            Matrix4::rotationZ(spinZ) *
+            Matrix4::rotationX(spinX) *
+            Matrix4::scale(Vector3(baseballRadius, baseballRadius, baseballRadius));
 
         frameBuffer.clear(sf::Color(5, 8, 14));
         frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
