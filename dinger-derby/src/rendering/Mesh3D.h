@@ -32,9 +32,12 @@ public:
     std::vector<Vector3> vertexNormals;
 
     static Mesh3D cube(float size = 2.0f);
+    // Axis-aligned box centered at origin with full extents (width, height, depth).
+    static Mesh3D box(float width, float height, float depth);
     static Mesh3D sphere(float radius = 1.0f, int rings = 8, int segments = 12);
     static Mesh3D axes(float length = 1.5f);
     BoundingSphere3D localBoundingSphere() const;
+    void rebuildNormals();
 
 private:
     void buildTriangleNormals();

@@ -53,6 +53,37 @@ Mesh3D Mesh3D::cube(float size) {
     return mesh;
 }
 
+Mesh3D Mesh3D::box(float width, float height, float depth) {
+    float hx = width * 0.5f;
+    float hy = height * 0.5f;
+    float hz = depth * 0.5f;
+
+    Mesh3D mesh;
+    mesh.vertices = {
+        Vector3(-hx, -hy, -hz),
+        Vector3(hx, -hy, -hz),
+        Vector3(hx, hy, -hz),
+        Vector3(-hx, hy, -hz),
+        Vector3(-hx, -hy, hz),
+        Vector3(hx, -hy, hz),
+        Vector3(hx, hy, hz),
+        Vector3(-hx, hy, hz)
+    };
+
+    mesh.triangles = {
+        {0, 2, 1}, {0, 3, 2},
+        {4, 5, 6}, {4, 6, 7},
+        {0, 1, 5}, {0, 5, 4},
+        {3, 6, 2}, {3, 7, 6},
+        {1, 2, 6}, {1, 6, 5},
+        {0, 4, 7}, {0, 7, 3}
+    };
+
+    mesh.triangleColors.assign(mesh.triangles.size(), sf::Color(180, 180, 180));
+    mesh.buildTriangleNormals();
+    return mesh;
+}
+
 Mesh3D Mesh3D::axes(float length) {
     Mesh3D mesh;
     mesh.vertices = {
@@ -151,6 +182,28 @@ void Mesh3D::buildSphereVertexNormals(float radius) {
     float inverseRadius = radius > 0.0f ? 1.0f / radius : 1.0f;
     for (const Vector3& vertex : vertices) {
         vertexNormals.push_back(vertex * inverseRadius);
+    }
+}
+
+void Mesh3D::rebuildNormals() {
+    buildTriangleNormals();
+
+    vertexNormals.assign(vertices.size(), Vector3());
+    for (int i = 0; i < triangles.size(); i++) {
+        const Triangle3D& triangle = triangles[i];
+        Vector3 normal = triangleNormals[i];
+        vertexNormals[triangle.a] += normal;
+        vertexNormals[triangle.b] += normal;
+        vertexNormals[triangle.c] += normal;
+    }
+
+    for (Vector3& normal : vertexNormals) {
+        float length = normal.magnitude();
+        if (length > 0.0001f) {
+            normal = normal * (1.0f / length);
+        } else {
+            normal = Vector3(0.0f, 1.0f, 0.0f);
+        }
     }
 }
 
