@@ -142,6 +142,72 @@ void testPhysicsWorld3DAirResistanceCanBeDisabled() {
     assert(nearlyEqual(body.velocity.x, 10.0f));
 }
 
+void testMagnusForceFromBackspinLifts() {
+    // ω = −X, v = +Z → ω × v = +Y (four-seam ride).
+    Body3D body(Vector3(0.0f, 0.0f, 0.0f), 0.145f);
+    body.setRadius(0.065f);
+    body.velocity = Vector3(0.0f, 0.0f, 70.0f);
+    body.angularVelocity = Vector3(-250.0f, 0.0f, 0.0f);
+    body.spinEfficiency = 1.0f;
+    body.magnusScale = 1.0f;
+
+    Vector3 force = AirResistance3D::calculateMagnusForce(body, Vector3(), 0.075f);
+    assert(force.y > 0.0f);
+    assert(std::abs(force.x) < force.y * 0.25f);
+    assert(std::abs(force.z) < force.y * 0.25f);
+}
+
+void testMagnusForceFromSidespinBreaksGloveSide() {
+    // ω = −Y, v = +Z → ω × v = −X (RHP glove-side break).
+    Body3D body(Vector3(0.0f, 0.0f, 0.0f), 0.145f);
+    body.setRadius(0.065f);
+    body.velocity = Vector3(0.0f, 0.0f, 60.0f);
+    body.angularVelocity = Vector3(0.0f, -250.0f, 0.0f);
+    body.spinEfficiency = 1.0f;
+    body.magnusScale = 1.0f;
+
+    Vector3 force = AirResistance3D::calculateMagnusForce(body, Vector3(), 0.075f);
+    assert(force.x < 0.0f);
+}
+
+void testGyrospinProducesNoMagnus() {
+    // ω parallel to v → no active spin → zero Magnus.
+    Body3D body(Vector3(0.0f, 0.0f, 0.0f), 0.145f);
+    body.setRadius(0.065f);
+    body.velocity = Vector3(0.0f, 0.0f, 60.0f);
+    body.angularVelocity = Vector3(0.0f, 0.0f, 300.0f);
+    body.spinEfficiency = 1.0f;
+    body.magnusScale = 1.0f;
+
+    Vector3 force = AirResistance3D::calculateMagnusForce(body, Vector3(), 0.075f);
+    assert(std::abs(force.x) < 1e-4f);
+    assert(std::abs(force.y) < 1e-4f);
+    assert(std::abs(force.z) < 1e-4f);
+}
+
+void testPhysicsWorldAppliesMagnus() {
+    PhysicsWorld3D world;
+    world.gravity = Vector3();
+    world.setAtmosphere(0.075f);
+    world.setBounds(Vector3(-100.0f, -100.0f, -100.0f), Vector3(100.0f, 100.0f, 100.0f));
+
+    Body3D body(Vector3(0.0f, 1.5f, 0.0f), 0.145f);
+    body.setRadius(0.065f);
+    body.velocity = Vector3(0.0f, 0.0f, 70.0f);
+    body.angularVelocity = Vector3(-250.0f, 0.0f, 0.0f);
+    body.spinEfficiency = 1.0f;
+    body.magnusScale = 1.2f;
+    body.dragCoefficient = 0.05f; // low drag so lift is clear
+    body.airResistanceScale = 0.2f;
+    world.addBody(&body);
+
+    for (int i = 0; i < 30; i++) {
+        world.step(1.0f / 180.0f);
+    }
+
+    assert(body.velocity.y > 0.0f); // lifted by backspin
+}
+
 }
 
 int main() {
@@ -154,6 +220,10 @@ int main() {
     testPhysicsWorld3DAirResistanceSlowsBody();
     testPhysicsWorld3DWindUsesRelativeVelocity();
     testPhysicsWorld3DAirResistanceCanBeDisabled();
+    testMagnusForceFromBackspinLifts();
+    testMagnusForceFromSidespinBreaksGloveSide();
+    testGyrospinProducesNoMagnus();
+    testPhysicsWorldAppliesMagnus();
 
     return 0;
 }

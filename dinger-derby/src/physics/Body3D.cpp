@@ -33,6 +33,7 @@ void Body3D::setStatic() {
     type = Body3DType::Static;
     velocity = Vector3();
     acceleration = Vector3();
+    angularVelocity = Vector3();
 }
 
 void Body3D::setDynamic(float newMass) {

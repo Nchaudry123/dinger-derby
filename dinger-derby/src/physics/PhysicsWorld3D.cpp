@@ -55,6 +55,8 @@ void PhysicsWorld3D::step(float dt) {
 
         if (airResistanceEnabled) {
             body->applyForce(AirResistance3D::calculateDragForce(*body, airVelocity, airDensity));
+            // Spin-driven movement (four-seam ride, curve drop, slider glove-side, …).
+            body->applyForce(AirResistance3D::calculateMagnusForce(*body, airVelocity, airDensity));
         }
 
         body->update(dt);

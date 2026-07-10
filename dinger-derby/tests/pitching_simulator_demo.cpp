@@ -17,6 +17,7 @@
 #include "RasterDemo3D.h"
 #include "math/Matrix4.h"
 #include "math/Vector3.h"
+#include "physics/AirResistance3D.h"
 #include "physics/Body3D.h"
 #include "physics/PhysicsWorld3D.h"
 #include "rendering/Camera3D.h"
@@ -56,14 +57,18 @@ const Vector3 boundsMinimum(-3.2f, -40.0f, -2.0f);
 const Vector3 boundsMaximum(3.2f, 3.6f, plateZ + 4.0f);
 const sf::FloatRect speedSliderTrack(sf::Vector2f(34.0f, 118.0f), sf::Vector2f(300.0f, 8.0f));
 
+// Pitch identity is defined by speed + spin. Movement comes from Magnus
+// (ω × v) and spin-aware drag in AirResistance3D — not baked break forces.
+// World axes: +Z plate, +Y up, +X first base. RHP glove side = −X.
 struct PitchProfile {
     char hotkey;
     std::string name;
     float baseSpeedMph;
     float speedVarianceMph;
-    float liftCompensation;
-    Vector3 breakAcceleration;
-    float breakStartZ;
+    float spinRpm;          // total spin rate
+    Vector3 spinAxis;       // unit world axis of ω at release
+    float spinEfficiency;   // 0..1 active-spin fraction (gyro kills movement)
+    float magnusScale;      // family-tuned Magnus gain
     float dragCoefficient;
     float airScale;
     sf::Color color;
@@ -73,9 +78,10 @@ struct PitchFlightVariation {
     Vector3 releaseOffset;
     Vector3 commandOffset;
     Vector3 airVelocity;
-    Vector3 breakScale;
+    float spinRpmScale = 1.0f;
+    float spinAxisJitter = 0.0f; // small random tilt of spin axis (radians)
     float dragScale = 1.0f;
-    float liftOffset = 0.0f;
+    float liftOffset = 0.0f; // residual aim loft noise only
     float turbulencePhase = 0.0f;
     float turbulenceStrength = 0.0f;
 };
@@ -537,61 +543,35 @@ std::string applyCount(CountState& count, const PitchResult& result) {
     return result.label;
 }
 
-Vector3 spinAxisForPitch(const PitchProfile& pitch) {
-    switch (pitch.hotkey) {
-        case 'F':
-            return Vector3(1.0f, 0.08f, 0.0f).normalized();
-        case 'P':
-            return Vector3(0.55f, 0.15f, 0.82f).normalized();
-        case 'C':
-            return Vector3(-0.95f, 0.2f, -0.15f).normalized();
-        case 'T':
-            return Vector3(0.25f, 0.95f, 0.15f).normalized();
-        case 'S':
-            return Vector3(0.35f, 0.82f, 0.45f).normalized();
-        default:
-            return Vector3(1.0f, 0.0f, 0.0f);
-    }
+// Convert rpm + unit axis → world angular velocity (rad/s).
+Vector3 angularVelocityFromProfile(const PitchProfile& pitch, float rpmScale = 1.0f) {
+    float axisMag = pitch.spinAxis.magnitude();
+    Vector3 axis = axisMag > 1e-6f ? pitch.spinAxis * (1.0f / axisMag) : Vector3(-1.0f, 0.0f, 0.0f);
+    float omega = pitch.spinRpm * rpmScale * (2.0f * pi / 60.0f);
+    return axis * omega;
 }
 
-float spinRpmForPitch(const PitchProfile& pitch) {
-    switch (pitch.hotkey) {
-        case 'F':
-            return 2450.0f;
-        case 'P':
-            return 1350.0f;
-        case 'C':
-            return 2850.0f;
-        case 'T':
-            return 2550.0f;
-        case 'S':
-            return 2650.0f;
-        default:
-            return 2200.0f;
+// Tilt a unit axis by a small random angle for pitch-to-pitch seam variance.
+Vector3 jitterSpinAxis(const Vector3& axis, float jitterRad, std::mt19937& rng) {
+    float mag = axis.magnitude();
+    Vector3 a = mag > 1e-6f ? axis * (1.0f / mag) : Vector3(-1.0f, 0.0f, 0.0f);
+    if (jitterRad < 1e-5f) {
+        return a;
     }
-}
-
-Vector3 magnusAcceleration(
-    const PitchProfile& pitch,
-    const Vector3& velocity,
-    float speedScale
-) {
-    Vector3 spinAxis = spinAxisForPitch(pitch);
-    float speed = velocity.magnitude();
-    if (speed < 1.0f) {
-        return Vector3();
+    // Build orthonormal basis around a, rotate by small angles.
+    Vector3 ref = std::fabs(a.y) < 0.9f ? Vector3(0, 1, 0) : Vector3(1, 0, 0);
+    Vector3 u = a.cross(ref);
+    float um = u.magnitude();
+    if (um < 1e-6f) {
+        return a;
     }
-
-    Vector3 direction = velocity / speed;
-    Vector3 liftDirection = spinAxis.cross(direction);
-    float liftMagnitude = liftDirection.magnitude();
-    if (liftMagnitude < 0.001f) {
-        return Vector3();
-    }
-
-    liftDirection = liftDirection / liftMagnitude;
-    float magnusStrength = 0.55f * speedScale * (speed / 40.0f);
-    return liftDirection * magnusStrength;
+    u = u * (1.0f / um);
+    Vector3 v = a.cross(u);
+    float t1 = randomRange(rng, -jitterRad, jitterRad);
+    float t2 = randomRange(rng, -jitterRad, jitterRad);
+    Vector3 out = a + u * t1 + v * t2;
+    float om = out.magnitude();
+    return om > 1e-6f ? out * (1.0f / om) : a;
 }
 
 void drawPitchResultHistory(
@@ -697,12 +677,42 @@ void drawBallShadow(
 }
 
 std::array<PitchProfile, 5> makePitchProfiles() {
+    // Spin axes (RHP): ω × v drives movement.
+    //   backspin ω≈(−X) → lift (+Y)
+    //   topspin  ω≈(+X) → drop (−Y)
+    //   glove sidespin ω≈(−Y) → break toward −X (3B / glove)
+    // RPM / efficiency from typical MLB tracking ranges.
     return {{
-        PitchProfile{'F', "Four-Seam", 96.1f, 2.0f, 0.06f, Vector3(0.02f, 0.24f, 0.0f), 0.34f, 0.12f, 0.82f, sf::Color(245, 235, 180)},
-        PitchProfile{'P', "Splitter", 91.5f, 1.8f, 0.02f, Vector3(0.10f, -1.18f, 0.0f), 0.62f, 0.34f, 0.88f, sf::Color(190, 245, 160)},
-        PitchProfile{'C', "Curve", 77.1f, 2.2f, 0.08f, Vector3(-0.14f, -1.28f, 0.0f), 0.50f, 0.30f, 0.92f, sf::Color(245, 145, 90)},
-        PitchProfile{'T', "Cutter", 91.4f, 1.9f, 0.03f, Vector3(0.72f, -0.06f, 0.0f), 0.42f, 0.28f, 0.82f, sf::Color(145, 220, 245)},
-        PitchProfile{'S', "Slider", 87.2f, 1.7f, 0.03f, Vector3(1.45f, -0.28f, 0.0f), 0.48f, 0.30f, 0.86f, sf::Color(190, 160, 245)}
+        // Four-seam: high backspin ride, little side.
+        PitchProfile{
+            'F', "Four-Seam", 96.1f, 2.0f,
+            2450.0f, Vector3(-1.0f, 0.06f, 0.05f), 0.98f, 1.15f,
+            0.30f, 0.88f, sf::Color(245, 235, 180)
+        },
+        // Splitter: low spin, mostly gyro → dies / tumbles down.
+        PitchProfile{
+            'P', "Splitter", 91.5f, 1.8f,
+            1300.0f, Vector3(-0.25f, 0.20f, 0.92f), 0.40f, 0.55f,
+            0.42f, 1.05f, sf::Color(190, 245, 160)
+        },
+        // Curve: topspin + glove sidespin (12–6 / 1–7 shape).
+        PitchProfile{
+            'C', "Curve", 77.1f, 2.2f,
+            2800.0f, Vector3(0.78f, -0.55f, -0.18f), 0.92f, 1.25f,
+            0.36f, 0.95f, sf::Color(245, 145, 90)
+        },
+        // Cutter: mild glove-side cut, some backspin.
+        PitchProfile{
+            'T', "Cutter", 91.4f, 1.9f,
+            2500.0f, Vector3(-0.55f, -0.72f, 0.20f), 0.90f, 1.05f,
+            0.32f, 0.90f, sf::Color(145, 220, 245)
+        },
+        // Slider: stronger glove sidespin + some topspin / gyro.
+        PitchProfile{
+            'S', "Slider", 87.2f, 1.7f,
+            2650.0f, Vector3(0.30f, -0.82f, 0.40f), 0.88f, 1.20f,
+            0.34f, 0.92f, sf::Color(190, 160, 245)
+        }
     }};
 }
 
@@ -735,11 +745,27 @@ Vector3 clampAimPoint(const Vector3& point) {
     );
 }
 
-Vector3 movementAccelerationForPitch(
+// Estimate constant Magnus accel from release spin for aim compensation.
+Vector3 estimateMagnusAccel(
     const PitchProfile& pitch,
+    float pitchSpeedMph,
+    float rpmScale
+) {
+    Body3D probe;
+    probe.setRadius(baseballRadius);
+    probe.setMass(0.145f);
+    probe.velocity = Vector3(0.0f, 0.0f, mphToWorldUnitsPerSecond(pitchSpeedMph));
+    probe.angularVelocity = angularVelocityFromProfile(pitch, rpmScale);
+    probe.spinEfficiency = pitch.spinEfficiency;
+    probe.magnusScale = pitch.magnusScale;
+    Vector3 force = AirResistance3D::calculateMagnusForce(probe, Vector3(), pitchAirDensity);
+    return force * probe.inverseMass();
+}
+
+// Tiny residual wake noise only — real movement is Magnus on the body.
+Vector3 residualTurbulence(
     const PitchFlightVariation& variation,
     const Vector3& position,
-    const Vector3& velocity,
     float pitchAge
 ) {
     float progress = std::clamp(
@@ -747,31 +773,16 @@ Vector3 movementAccelerationForPitch(
         0.0f,
         1.0f
     );
-    float breakRamp = progress <= pitch.breakStartZ
-        ? 0.0f
-        : (progress - pitch.breakStartZ) / (1.0f - pitch.breakStartZ);
-    breakRamp = breakRamp * breakRamp * (3.0f - 2.0f * breakRamp);
-
-    // Late-life break ramps harder so secondary pitches read at the plate.
-    float lateBoost = 1.0f + 0.35f * breakRamp * breakRamp;
-    Vector3 acceleration = Vector3(
-        pitch.breakAcceleration.x * variation.breakScale.x,
-        pitch.breakAcceleration.y * variation.breakScale.y,
-        0.0f
-    ) * breakRamp * lateBoost;
-
-    float turbulenceRamp = progress * progress;
-    Vector3 turbulenceForce(
+    float ramp = progress * progress;
+    return Vector3(
         std::sin(pitchAge * 18.0f + variation.turbulencePhase),
         std::sin(pitchAge * 13.0f + variation.turbulencePhase * 0.7f),
         0.0f
-    );
-
-    Vector3 magnus = magnusAcceleration(pitch, velocity, breakRamp * 0.65f + 0.35f);
-    return acceleration + turbulenceForce * variation.turbulenceStrength * turbulenceRamp + magnus;
+    ) * (variation.turbulenceStrength * ramp * 0.35f);
 }
 
 // Ballistic launch from the true hand position so aim height stays accurate.
+// Compensates gravity + estimated Magnus so the commanded aim is meaningful.
 Vector3 calculateLaunchVelocity(
     const PitchProfile& pitch,
     const Vector3& aimPoint,
@@ -788,21 +799,18 @@ Vector3 calculateLaunchVelocity(
     );
     float flightTime = distance / std::max(1.0f, pitchSpeed * dragSlowdownEstimate);
 
-    // Approximate break over the second half of flight.
-    float movementInfluence = std::max(0.0f, 1.0f - pitch.breakStartZ) * 0.24f;
-    float estimatedAx = pitch.breakAcceleration.x * variation.breakScale.x * movementInfluence;
-    float estimatedAy =
-        -9.8f + pitch.breakAcceleration.y * variation.breakScale.y * movementInfluence;
+    Vector3 magnusA = estimateMagnusAccel(pitch, pitchSpeedMph, variation.spinRpmScale);
+    // Magnuseffect is ~constant direction for short flights; use ~half as average.
+    float estimatedAx = magnusA.x * 0.55f;
+    float estimatedAy = -9.8f + magnusA.y * 0.55f;
 
     float t2 = flightTime * flightTime;
     float desiredVx =
         (aimPoint.x - startPosition.x - 0.5f * estimatedAx * t2) / flightTime;
     float desiredVy =
         (aimPoint.y - startPosition.y - 0.5f * estimatedAy * t2) / flightTime +
-        pitch.liftCompensation +
         variation.liftOffset;
 
-    // Clamps allow enough loft when the hand is below the target (common at release).
     float maxSideVelocity = pitchSpeed * 0.20f;
     float minVerticalVelocity = pitchSpeed * std::tan(-10.0f * pi / 180.0f);
     float maxVerticalVelocity = pitchSpeed * std::tan(22.0f * pi / 180.0f);
@@ -811,12 +819,10 @@ Vector3 calculateLaunchVelocity(
 
     float lateralSquared = desiredVx * desiredVx + desiredVy * desiredVy;
     float forwardVelocitySquared = pitchSpeed * pitchSpeed - lateralSquared;
-    // Prefer keeping the solved vertical aim; only borrow from forward speed if needed.
     float desiredVz = 0.0f;
     if (forwardVelocitySquared > pitchSpeed * pitchSpeed * 0.55f) {
         desiredVz = std::sqrt(forwardVelocitySquared);
     } else {
-        // Hand much lower than target: keep vy, reduce |vx| slightly, use remaining for vz.
         float maxLateral = pitchSpeed * 0.55f;
         float lateral = std::sqrt(lateralSquared);
         if (lateral > maxLateral && lateral > 0.0001f) {
@@ -846,11 +852,10 @@ PitchFlightVariation rollPitchVariation(
     const PitchProfile& pitch,
     std::mt19937& randomGenerator
 ) {
-    float movementNoise = pitch.hotkey == 'F' ? 0.05f : 0.10f;
-    float turbulence = pitch.hotkey == 'P' ? 0.24f : 0.18f;
-
+    float rpmNoise = pitch.hotkey == 'F' ? 0.04f : 0.08f;
+    float turbulence = pitch.hotkey == 'P' ? 0.18f : 0.10f;
     if (pitch.hotkey == 'C') {
-        turbulence = 0.16f;
+        turbulence = 0.08f;
     }
 
     float commandRadius = commandRadiusForPitch(pitch);
@@ -869,19 +874,16 @@ PitchFlightVariation rollPitchVariation(
             0.0f
         ),
         Vector3(
-            randomRange(randomGenerator, -0.22f, 0.22f),
-            randomRange(randomGenerator, -0.04f, 0.04f),
-            randomRange(randomGenerator, -0.12f, 0.08f)
+            randomRange(randomGenerator, -0.18f, 0.18f),
+            randomRange(randomGenerator, -0.03f, 0.03f),
+            randomRange(randomGenerator, -0.10f, 0.06f)
         ),
-        Vector3(
-            randomRange(randomGenerator, 1.0f - movementNoise, 1.0f + movementNoise),
-            randomRange(randomGenerator, 1.0f - movementNoise, 1.0f + movementNoise),
-            1.0f
-        ),
+        randomRange(randomGenerator, 1.0f - rpmNoise, 1.0f + rpmNoise),
+        randomRange(randomGenerator, 0.02f, pitch.hotkey == 'F' ? 0.05f : 0.10f),
         randomRange(randomGenerator, 0.94f, 1.08f),
-        randomRange(randomGenerator, -0.035f, 0.035f),
+        randomRange(randomGenerator, -0.025f, 0.025f),
         randomRange(randomGenerator, 0.0f, pi * 2.0f),
-        randomRange(randomGenerator, turbulence * 0.45f, turbulence)
+        randomRange(randomGenerator, turbulence * 0.35f, turbulence)
     };
 }
 
@@ -903,6 +905,9 @@ void resetPitchOnMound(
     baseball.dragCoefficient = pitch.dragCoefficient;
     baseball.airResistanceScale = pitch.airScale;
     baseball.velocity = Vector3();
+    baseball.angularVelocity = Vector3();
+    baseball.spinEfficiency = pitch.spinEfficiency;
+    baseball.magnusScale = pitch.magnusScale;
     world.addBody(&baseball);
 
     trail.clear();
@@ -917,18 +922,27 @@ void launchPitch(
     std::vector<Vector3>& trail,
     float pitchSpeedMph,
     const PitchFlightVariation& variation,
-    const Vector3& startPosition
+    const Vector3& startPosition,
+    std::mt19937& randomGenerator
 ) {
     world = PhysicsWorld3D();
     world.setBounds(boundsMinimum, boundsMaximum);
     world.gravity = Vector3(0.0f, -9.8f, 0.0f);
     world.setAtmosphere(pitchAirDensity * variation.dragScale, variation.airVelocity);
+    world.airResistanceEnabled = true; // drag + Magnus from spin
 
     baseball = Body3D(startPosition, 0.145f);
     baseball.setRadius(baseballRadius);
     baseball.restitution = 0.3f;
     baseball.dragCoefficient = pitch.dragCoefficient * variation.dragScale;
     baseball.airResistanceScale = pitch.airScale;
+    baseball.spinEfficiency = pitch.spinEfficiency;
+    baseball.magnusScale = pitch.magnusScale;
+
+    Vector3 axis = jitterSpinAxis(pitch.spinAxis, variation.spinAxisJitter, randomGenerator);
+    float omega = pitch.spinRpm * variation.spinRpmScale * (2.0f * pi / 60.0f);
+    baseball.angularVelocity = axis * omega;
+
     Vector3 commandedAimPoint = clampAimPoint(aimPoint + variation.commandOffset);
     baseball.velocity = calculateLaunchVelocity(
         pitch,
@@ -1231,7 +1245,8 @@ int main() {
             trail,
             currentPitchSpeedMph,
             currentVariation,
-            hand
+            hand,
+            randomGenerator
         );
         // Nudge with recent hand motion so the first frame doesn't look stuck.
         float whip = handVelocity.magnitude();
@@ -1241,8 +1256,11 @@ int main() {
         }
         ballReleased = true;
         phase = PitchPhase::Flying;
-        latestResult = pitches[selectedPitch].name + " — in flight";
-        latestResultColor = pitches[selectedPitch].color;
+        const PitchProfile& p = pitches[selectedPitch];
+        latestResult = p.name + "  " +
+            std::to_string(static_cast<int>(p.spinRpm * currentVariation.spinRpmScale + 0.5f)) +
+            " rpm";
+        latestResultColor = p.color;
     };
 
     while (window.isOpen()) {
@@ -1455,16 +1473,11 @@ int main() {
         if (!paused && phase == PitchPhase::Flying) {
             accumulator += dt;
             while (accumulator >= fixedStep) {
-                const PitchProfile& pitch = pitches[activePitch];
                 Vector3 previousPosition = baseball.position;
-                Vector3 breakAcceleration = movementAccelerationForPitch(
-                    pitch,
-                    currentVariation,
-                    baseball.position,
-                    baseball.velocity,
-                    pitchAge
-                );
-                baseball.applyForce(breakAcceleration * baseball.mass);
+                // Drag + Magnus applied inside PhysicsWorld from baseball.angularVelocity.
+                // Only a tiny residual wake remains as artificial noise.
+                Vector3 wake = residualTurbulence(currentVariation, baseball.position, pitchAge);
+                baseball.applyForce(wake * baseball.mass);
                 world.step(fixedStep);
                 bool reachedPlate = freezePitchAtPlate(baseball, previousPosition, trail);
                 if (reachedPlate) {
@@ -1490,11 +1503,11 @@ int main() {
                     break;
                 }
 
-                float spinRadPerSecond = spinRpmForPitch(pitch) * (2.0f * pi / 60.0f) * 0.045f;
-                Vector3 axis = spinAxisForPitch(pitch);
-                spinX += axis.x * spinRadPerSecond * fixedStep;
-                spinY += axis.y * spinRadPerSecond * fixedStep;
-                spinZ += axis.z * spinRadPerSecond * fixedStep;
+                // Visual spin matches physical ω (scaled for readable seams).
+                float visualScale = 0.055f;
+                spinX += baseball.angularVelocity.x * fixedStep * visualScale;
+                spinY += baseball.angularVelocity.y * fixedStep * visualScale;
+                spinZ += baseball.angularVelocity.z * fixedStep * visualScale;
 
                 if (trail.empty() || (baseball.position - trail.back()).magnitude() > 0.12f) {
                     trail.push_back(baseball.position);
@@ -1615,8 +1628,16 @@ int main() {
             }
 
             drawText(window, font, pitches[selectedPitch].name, 18, sf::Vector2f(34.0f, 26.0f), pitches[selectedPitch].color);
+            {
+                const PitchProfile& sel = pitches[selectedPitch];
+                std::ostringstream spinHud;
+                spinHud << std::fixed << std::setprecision(0)
+                        << static_cast<int>(sel.spinRpm + 0.5f) << " rpm  eff "
+                        << std::setprecision(0) << (sel.spinEfficiency * 100.0f) << "%";
+                drawText(window, font, spinHud.str(), 12, sf::Vector2f(200.0f, 30.0f), sf::Color(200, 210, 180));
+            }
             drawText(window, font, countLabel.str(), 14, sf::Vector2f(34.0f, 50.0f), sf::Color(235, 230, 190));
-            drawText(window, font, "F 4S  P SPL  C CB  T CUT  S SL", 12, sf::Vector2f(34.0f, 72.0f), sf::Color(180, 215, 220));
+            drawText(window, font, "F 4S  P SPL  C CB  T CUT  S SL  · spin drives break", 12, sf::Vector2f(34.0f, 72.0f), sf::Color(180, 215, 220));
             drawText(window, font, "R throw | Space pause | arrows aim | 1-4 camera (4=delivery)", 12, sf::Vector2f(34.0f, 94.0f), sf::Color(155, 195, 200));
             drawText(window, font, "Drag speed for next throw", 11, sf::Vector2f(34.0f, 132.0f), sf::Color(120, 175, 185));
             drawText(window, font, aimLabel.str(), 12, sf::Vector2f(300.0f, 28.0f), sf::Color(135, 195, 200));
