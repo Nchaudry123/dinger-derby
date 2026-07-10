@@ -105,7 +105,8 @@ enum class PitchPhase {
 enum class PitchCameraMode {
     Overview,
     Catcher,
-    Pitcher
+    Pitcher,
+    Delivery // side profile set → open with hips through release
 };
 
 bool loadUiFont(sf::Font& font) {
@@ -172,16 +173,44 @@ std::string cameraModeName(PitchCameraMode mode) {
             return "Catcher";
         case PitchCameraMode::Pitcher:
             return "Pitcher";
+        case PitchCameraMode::Delivery:
+            return "Delivery";
         default:
             return "Overview";
     }
 }
 
+// Dynamic cam for CharacterModel3D throw: start 1B-side profile (sideways set),
+// open toward plate as delivery progresses, optionally glance at the ball.
+void applyDeliveryCamera(
+    Camera3D& camera,
+    float deliveryT01,
+    const Vector3& ballPos,
+    bool trackBall
+) {
+    float u = smoothstep(0.0f, 1.0f, std::clamp(deliveryT01, 0.0f, 1.0f));
+    // Set: +X side of mound — profile of RHP closed to plate (+Z).
+    Vector3 setPos(2.55f, 1.52f, moundZ + 0.15f);
+    Vector3 setTarget(0.05f, 1.20f, moundZ + 0.55f);
+    // Release: over throwing shoulder, looking down the lane.
+    Vector3 openPos(1.05f, 1.72f, moundZ - 2.40f);
+    Vector3 openTarget(0.0f, 1.25f, plateZ * 0.50f);
+    Vector3 pos = setPos + (openPos - setPos) * u;
+    Vector3 target = setTarget + (openTarget - setTarget) * u;
+    if (trackBall) {
+        target = target * 0.55f + ballPos * 0.45f;
+        target.y = std::clamp(target.y, 0.6f, 2.4f);
+    }
+    lookAt(camera, pos, target);
+    camera.fieldOfView = 840.0f - u * 60.0f;
+}
+
 void applyCameraMode(Camera3D& camera, PitchCameraMode mode) {
     switch (mode) {
         case PitchCameraMode::Overview:
-            lookAt(camera, Vector3(0.0f, 1.68f, -3.35f), Vector3(0.0f, 1.25f, plateZ));
-            camera.fieldOfView = 1450.0f;
+            // Slight 1B bias so sideways set reads as a silhouette, not face-on.
+            lookAt(camera, Vector3(1.35f, 1.72f, -3.15f), Vector3(0.0f, 1.25f, plateZ * 0.55f));
+            camera.fieldOfView = 1280.0f;
             break;
         case PitchCameraMode::Catcher:
             // POV from the catcher's crouch spot (same place as the model), looking at the pitcher.
@@ -195,13 +224,15 @@ void applyCameraMode(Camera3D& camera, PitchCameraMode mode) {
             break;
         case PitchCameraMode::Pitcher:
             // Over the throwing shoulder, behind the mound, looking toward home.
-            // Shows the pitcher's back/side so set stance clearly faces the plate.
             lookAt(
                 camera,
-                Vector3(1.15f, 1.78f, -2.85f),
+                Vector3(1.25f, 1.80f, -2.70f),
                 Vector3(0.0f, 1.20f, plateZ * 0.55f)
             );
             camera.fieldOfView = 780.0f;
+            break;
+        case PitchCameraMode::Delivery:
+            applyDeliveryCamera(camera, 0.0f, Vector3(0.0f, 1.2f, 0.3f), false);
             break;
     }
 }
@@ -974,7 +1005,7 @@ int main() {
 
     sf::RenderWindow window(
         sf::VideoMode(sf::Vector2u(1280, 720)),
-        "Pitching Simulator | R throw",
+        "Pitching Simulator | R throw | 4 delivery cam",
         sf::Style::Default,
         sf::State::Windowed,
         glSettings
@@ -1013,7 +1044,7 @@ int main() {
     sf::Vector2u rasterSize = resizeRaster(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
     Camera3D camera;
-    PitchCameraMode cameraMode = PitchCameraMode::Overview;
+    PitchCameraMode cameraMode = PitchCameraMode::Delivery;
     applyCameraMode(camera, cameraMode);
 
     Mesh3D baseballMesh = BaseballVisual3D::makeMesh(fullQuality ? 48 : 28, fullQuality ? 96 : 48);
@@ -1275,6 +1306,11 @@ int main() {
                     applyCameraMode(camera, cameraMode);
                 }
 
+                if (key->code == sf::Keyboard::Key::Num4) {
+                    cameraMode = PitchCameraMode::Delivery;
+                    applyCameraMode(camera, cameraMode);
+                }
+
                 if (key->code == sf::Keyboard::Key::Left) {
                     aimPoint.x = std::clamp(
                         aimPoint.x + horizontalAimDeltaForCamera(cameraMode, -1.0f),
@@ -1469,6 +1505,16 @@ int main() {
             }
         }
 
+        // Delivery cam tracks set → open (and the ball once free).
+        if (cameraMode == PitchCameraMode::Delivery) {
+            float camT = 0.0f;
+            if (deliveryAge >= 0.0f) {
+                camT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
+            }
+            bool trackBall = ballReleased || phase == PitchPhase::Flying || phase == PitchPhase::Settled;
+            applyDeliveryCamera(camera, camT, baseball.position, trackBall);
+        }
+
         Matrix4 baseballTransform =
             Matrix4::translation(baseball.position) *
             Matrix4::rotationY(spinY) *
@@ -1571,7 +1617,7 @@ int main() {
             drawText(window, font, pitches[selectedPitch].name, 18, sf::Vector2f(34.0f, 26.0f), pitches[selectedPitch].color);
             drawText(window, font, countLabel.str(), 14, sf::Vector2f(34.0f, 50.0f), sf::Color(235, 230, 190));
             drawText(window, font, "F 4S  P SPL  C CB  T CUT  S SL", 12, sf::Vector2f(34.0f, 72.0f), sf::Color(180, 215, 220));
-            drawText(window, font, "R throw | Space pause | arrows aim | 1/2/3 camera", 12, sf::Vector2f(34.0f, 94.0f), sf::Color(155, 195, 200));
+            drawText(window, font, "R throw | Space pause | arrows aim | 1-4 camera (4=delivery)", 12, sf::Vector2f(34.0f, 94.0f), sf::Color(155, 195, 200));
             drawText(window, font, "Drag speed for next throw", 11, sf::Vector2f(34.0f, 132.0f), sf::Color(120, 175, 185));
             drawText(window, font, aimLabel.str(), 12, sf::Vector2f(300.0f, 28.0f), sf::Color(135, 195, 200));
             drawText(window, font, phaseLabel, 12, sf::Vector2f(360.0f, 50.0f), sf::Color(150, 210, 220));
