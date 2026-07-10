@@ -535,6 +535,31 @@ Mesh3D buildField(const Layout& L) {
                     apron
                 );
             }
+        } else {
+            // Foul-territory mow: radial bands so plate/foul views aren't flat green.
+            const float foulStripeIn = bp * 0.55f;
+            for (int s = 0; s < 6; s++) {
+                float u0 = 0.18f + s * 0.12f;
+                float u1 = u0 + 0.055f;
+                float mid0 = std::max(foulStripeIn, rOut0 * u0);
+                float mid1 = std::max(foulStripeIn, rOut1 * u0);
+                float mid0b = std::min(rOut0 - 1.2f, rOut0 * u1);
+                float mid1b = std::min(rOut1 - 1.2f, rOut1 * u1);
+                if (mid0b <= mid0 + 0.35f) {
+                    continue;
+                }
+                // Alternate + slight angular variation
+                bool dark = ((s + i) % 2) == 0;
+                sf::Color stripe = dark ? grassDark : shadeColor(grass, 0.97f);
+                addQuad(
+                    m,
+                    L.fromHome(mid0, ang0, 0.011f + s * 0.0008f),
+                    L.fromHome(mid1, ang1, 0.011f + s * 0.0008f),
+                    L.fromHome(mid1b, ang1, 0.011f + s * 0.0008f),
+                    L.fromHome(mid0b, ang0, 0.011f + s * 0.0008f),
+                    stripe
+                );
+            }
         }
     }
     (void)aL;
