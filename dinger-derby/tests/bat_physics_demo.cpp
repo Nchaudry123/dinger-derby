@@ -59,6 +59,8 @@ constexpr float pi = 3.1415926535f;
 constexpr float kDeg = 180.0f / pi;
 constexpr float fixedStep = 1.0f / 180.0f;
 constexpr float baseballRadius = 0.065f;
+// Drawn larger than physics radius so the ball stays readable in flight.
+constexpr float baseballVisualScale = 2.85f;
 constexpr float feetPerWorldUnit = 2.0f;
 constexpr float pitchingDistanceFeet = 60.5f;
 constexpr float plateZ = pitchingDistanceFeet / feetPerWorldUnit; // ~30.25
@@ -129,33 +131,42 @@ void lookAt(Camera3D& cam, const Vector3& pos, const Vector3& target) {
 }
 
 void applyCatcherCamera(Camera3D& cam) {
+    // Higher / further back so soft toss and the ball path stay in frame.
     lookAt(
         cam,
-        Vector3(0.0f, 1.28f, plateZ + 0.95f),
-        Vector3(0.0f, 1.55f, moundZ + 1.2f)
+        Vector3(0.0f, 2.35f, plateZ + 2.6f),
+        Vector3(0.0f, 1.55f, plateZ - 14.0f)
     );
-    cam.fieldOfView = 700.0f;
+    cam.fieldOfView = 760.0f;
     cam.nearPlane = 0.08f;
     cam.farPlane = Stadium3D::recommendedFarPlane();
 }
 
-// Chase cam: sit behind/above the ball looking along its flight.
+// Elevated chase cam: pull back and up so the full arc (including drop) is visible.
 void applyBallFollowCamera(Camera3D& cam, const Vector3& ballPos, const Vector3& ballVel) {
     float speed = ballVel.magnitude();
-    Vector3 forward = speed > 0.8f ? safeNorm(ballVel) : Vector3(0.0f, 0.15f, -1.0f);
-    // Prefer staying on the outfield side of the ball (toward −Z from plate).
-    if (forward.dot(Vector3(0, 0, -1)) < 0.15f && speed > 0.8f) {
-        // Still useful when ball is sliced foul — keep a readable chase offset.
-        forward = safeNorm(forward + Vector3(0, 0.05f, -0.35f));
+    Vector3 horiz(ballVel.x, 0.0f, ballVel.z);
+    float hSpd = horiz.magnitude();
+    // Horizontal flight direction; when falling nearly straight down, keep last OF bias.
+    Vector3 forward = hSpd > 0.5f ? safeNorm(horiz) : Vector3(0.0f, 0.0f, -1.0f);
+    if (forward.dot(Vector3(0, 0, -1)) < 0.05f && hSpd > 0.5f) {
+        forward = safeNorm(forward + Vector3(0, 0, -0.4f));
     }
     Vector3 right = safeNorm(Vector3(0, 1, 0).cross(forward), Vector3(1, 0, 0));
-    float dist = clampf(2.8f + speed * 0.04f, 2.6f, 7.5f);
-    Vector3 pos = ballPos - forward * dist + Vector3(0, 1.15f, 0) + right * 0.15f;
-    pos.y = std::max(pos.y, 0.85f);
-    Vector3 target = ballPos + forward * 2.2f + Vector3(0, 0.15f, 0);
+
+    // Distance / elevation scale with ball height so high flies stay framed.
+    float dist = clampf(10.0f + speed * 0.06f + ballPos.y * 0.55f, 11.0f, 36.0f);
+    float elev = clampf(5.5f + ballPos.y * 0.65f, 6.0f, 28.0f);
+    // Slight 1B-side offset for depth; more height when the ball is dropping.
+    float dropBias = (ballVel.y < 0.0f) ? 1.4f : 0.0f;
+    Vector3 pos =
+        ballPos - forward * dist + Vector3(0.0f, elev + dropBias, 0.0f) + right * 3.2f;
+    pos.y = std::max(pos.y, 5.5f);
+    // Look at the ball (slightly ahead of its path when still moving out).
+    Vector3 target = ballPos + forward * (hSpd > 0.5f ? 3.0f : 0.0f) + Vector3(0.0f, 0.35f, 0.0f);
     lookAt(cam, pos, target);
-    cam.fieldOfView = 820.0f;
-    cam.nearPlane = 0.12f;
+    cam.fieldOfView = 920.0f;
+    cam.nearPlane = 0.2f;
     cam.farPlane = Stadium3D::recommendedFarPlane();
 }
 
@@ -1228,16 +1239,16 @@ int main() {
     enum class PlayMode { Derby, Practice, Live };
     PlayMode playMode = PlayMode::Derby; // product default: HR Derby
     constexpr int kDerbySwings = 10;
-    // Short lob from ~21 ft in front of the plate (not a full 60.5 ft delivery).
-    constexpr float kDerbySoftTossMph = 32.0f;
+    // Short lob from ~22 ft in front of the plate (not a full 60.5 ft delivery).
+    constexpr float kDerbySoftTossMph = 26.0f; // slower = more readable lob
     constexpr float kPracticeMph = 52.0f;
     float pitchMph = kDerbySoftTossMph;
     float normalPitchMph = 90.0f;
     float softTossTimer = -1.0f; // derby: countdown to lob release
 
-    // Coach-style soft toss: waist-high, between mound and home.
+    // Coach-style soft toss: chest-high, between mound and home.
     auto softTossOrigin = []() {
-        return Vector3(0.0f, 1.28f, plateZ - 10.5f);
+        return Vector3(0.0f, 1.55f, plateZ - 11.0f);
     };
 
     struct DerbyState {
@@ -1427,8 +1438,9 @@ int main() {
                     noteDerbyExit();
                 }
                 setDerbyLastResult(call);
-                // Soft toss cycle: shorter wait so reps stay snappy.
-                scheduleNextPitch(isDingerQuality(lastHit.quality) ? 4.2f : 2.4f);
+                // Hold next toss until the ball finishes its full flight to the ground.
+                // Short post-land pause only (timer freezes while airborne).
+                scheduleNextPitch(isDingerQuality(lastHit.quality) ? 1.6f : 1.15f);
             } else if (std::string(kind) == "SWINGING_STRIKE") {
                 consumeDerbySwing();
                 call = "Miss";
@@ -1476,14 +1488,15 @@ int main() {
                     hrBannerTimer = 2.8f;
                     statusCol = sf::Color(255, 220, 80);
                 }
-                scheduleNextPitch(playMode == PlayMode::Practice ? 5.5f : 4.0f);
+                // Post-land pause only — full drop always plays out first.
+                scheduleNextPitch(playMode == PlayMode::Practice ? 1.5f : 1.25f);
             } else {
                 if (count.strikes < 2) {
                     count.strikes += 1;
                 }
                 call = "Foul";
                 statusCol = sf::Color(255, 200, 140);
-                scheduleNextPitch(2.2f);
+                scheduleNextPitch(1.2f);
             }
         } else if (std::string(kind) == "SWINGING_STRIKE" || std::string(kind) == "CALLED_STRIKE") {
             count.strikes = std::min(3, count.strikes + 1);
@@ -1612,9 +1625,12 @@ int main() {
         }
         baseball.position = start;
         baseball.velocity = launchVelocityTowardPlate(start, aim, pitchMph);
-        // Soft toss: a bit more loft so the lob drops into the zone.
+        // Soft toss: underhand lob arc so the ball floats then drops into the zone.
         if (playMode == PlayMode::Derby) {
-            baseball.velocity.y += 1.15f;
+            baseball.velocity.y += 3.4f;
+            // Slightly slow horizontal so the arc is readable.
+            baseball.velocity.x *= 0.92f;
+            baseball.velocity.z *= 0.88f;
         }
         prevBallZ = start.z;
         ballReleased = true;
@@ -2032,15 +2048,19 @@ int main() {
                 }
             }
         }
-        // Auto next pitch after result delay.
+        // Auto next pitch after result delay — never cut off a batted ball mid-air.
         if (practiceRepitchTimer >= 0.0f) {
-            practiceRepitchTimer -= dt;
-            if (practiceRepitchTimer <= 0.0f && !bat.swinging()) {
-                beginPitch();
+            if (hasHit && !ballSettled) {
+                // Freeze countdown until the ball hits the ground (or wall).
+            } else {
+                practiceRepitchTimer -= dt;
+                if (practiceRepitchTimer <= 0.0f && !bat.swinging()) {
+                    beginPitch();
+                }
             }
         }
 
-        // Camera: catcher for pitch/swing, chase the ball after contact.
+        // Camera: higher catcher for toss/swing; elevated chase through full drop.
         if (followBallCam && hasHit) {
             applyBallFollowCamera(camera, baseball.position, baseball.velocity);
         }
@@ -2056,10 +2076,11 @@ int main() {
         }
 
         Matrix4 pitcherXform = pitcherWorldTransform();
+        const float ballDrawR = baseballRadius * baseballVisualScale;
         Matrix4 ballXform =
             Matrix4::translation(baseball.position) *
             Matrix4::rotationY(spinY) *
-            Matrix4::scale(Vector3(baseballRadius, baseballRadius, baseballRadius));
+            Matrix4::scale(Vector3(ballDrawR, ballDrawR, ballDrawR));
         // 3D bat mesh only while swinging; yellow silhouette is the aim reticle.
         const bool drawBatMesh = bat.swinging();
         Matrix4 batXform = batModelMatrix(bat);
@@ -2130,8 +2151,32 @@ int main() {
         }
         for (size_t i = 1; i < trail.size(); i++) {
             float a = static_cast<float>(i) / static_cast<float>(trail.size());
-            sf::Color c(255, 240, 180, static_cast<std::uint8_t>(40 + a * 170));
-            drawThickProjectedLine(window, camera, trail[i - 1], trail[i], 2.0f, c);
+            sf::Color c(255, 240, 180, static_cast<std::uint8_t>(50 + a * 190));
+            drawThickProjectedLine(window, camera, trail[i - 1], trail[i], 3.5f, c);
+        }
+
+        // Screen-space halo so the ball stays easy to track in flight / on drop.
+        if (ballReleased) {
+            ProjectedPoint3D bp = camera.projectPoint(
+                baseball.position,
+                static_cast<float>(window.getSize().x),
+                static_cast<float>(window.getSize().y)
+            );
+            if (bp.visible) {
+                float rOuter = followBallCam ? 14.0f : 11.0f;
+                sf::CircleShape halo(rOuter);
+                halo.setOrigin({rOuter, rOuter});
+                halo.setPosition({bp.position.x, bp.position.y});
+                halo.setFillColor(sf::Color(0, 0, 0, 0));
+                halo.setOutlineThickness(2.2f);
+                halo.setOutlineColor(sf::Color(255, 245, 120, 210));
+                window.draw(halo);
+                sf::CircleShape core(rOuter * 0.42f);
+                core.setOrigin({rOuter * 0.42f, rOuter * 0.42f});
+                core.setPosition({bp.position.x, bp.position.y});
+                core.setFillColor(sf::Color(255, 250, 220, 90));
+                window.draw(core);
+            }
         }
 
         if (lastHit.hit && hasHit) {
