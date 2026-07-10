@@ -1317,6 +1317,7 @@ int main() {
     GlMesh glStadiumWalls;
     GlMesh glStadiumStands;
     GlMesh glStadiumLines;
+    GlMesh glStadiumCity;
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useOpenGL) {
@@ -1327,6 +1328,7 @@ int main() {
         glStadiumWalls.upload(stadiumMeshes.walls);
         glStadiumStands.upload(stadiumMeshes.stands);
         glStadiumLines.upload(stadiumMeshes.lines);
+        glStadiumCity.upload(stadiumMeshes.city);
     }
 
     std::array<PitchProfile, 5> pitches = makePitchProfiles();
@@ -1775,9 +1777,10 @@ int main() {
 
         Matrix4 stadiumXform = Matrix4::identity();
         if (useOpenGL) {
-            gl.beginFrame(window, camera, sf::Color(5, 8, 14));
-            const float gr = stadiumLayout.wallR() + 80.0f;
-            gl.drawGround(gr, plateZ - gr, plateZ + 40.0f, sf::Color(18, 32, 22));
+            gl.beginFrame(window, camera, sf::Color(135, 185, 230));
+            const float gr = stadiumLayout.wallR() + 220.0f;
+            gl.drawGround(gr, plateZ - gr, plateZ + gr, sf::Color(42, 95, 48));
+            gl.drawMesh(glStadiumCity, stadiumXform);
             gl.drawMesh(glStadiumField, stadiumXform);
             gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);

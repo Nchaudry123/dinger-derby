@@ -181,11 +181,13 @@ int main() {
     GlMesh glWalls;
     GlMesh glStands;
     GlMesh glLines;
+    GlMesh glCity;
     if (useGL) {
         glField.upload(meshes.field);
         glWalls.upload(meshes.walls);
         glStands.upload(meshes.stands);
         glLines.upload(meshes.lines);
+        glCity.upload(meshes.city);
     }
 
     Camera3D camera;
@@ -289,16 +291,17 @@ int main() {
 
         Matrix4 id = Matrix4::identity();
         if (useGL) {
-            gl.beginFrame(window, camera, sf::Color(8, 12, 22));
-            const float gr = layout.wallR() + 120.0f;
-            gl.drawGround(gr, layout.plateZ() - gr, layout.plateZ() + 80.0f, sf::Color(18, 32, 22));
+            gl.beginFrame(window, camera, sf::Color(135, 185, 230));
+            const float gr = layout.wallR() + 220.0f;
+            gl.drawGround(gr, layout.plateZ() - gr, layout.plateZ() + gr, sf::Color(42, 95, 48));
+            gl.drawMesh(glCity, id);
             gl.drawMesh(glField, id);
             gl.drawMesh(glWalls, id);
             gl.drawMesh(glStands, id);
             gl.drawMesh(glLines, id);
             gl.endFrame(window);
         } else {
-            window.clear(sf::Color(8, 12, 22));
+            window.clear(sf::Color(135, 185, 230));
         }
 
         if (fontOk) {

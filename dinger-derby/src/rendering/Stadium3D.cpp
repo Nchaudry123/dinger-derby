@@ -279,10 +279,12 @@ Mesh3D buildStands(const Layout& L) {
     const float aR = L.foulAngleRad() + 0.12f;
     const float wallR = L.wallR();
     const float wallH = L.wallH();
+    const float plateZ = L.plateZ();
     sf::Color seat(70, 95, 140);
     sf::Color riser(50, 68, 100);
     sf::Color upper(90, 70, 75);
 
+    // Outfield bowl
     addStands(m, L, wallR + 1.5f, aL, aR, wallH, 12, 40, 3.2f, 1.15f, seat, riser);
     addStands(
         m,
@@ -299,6 +301,71 @@ Mesh3D buildStands(const Layout& L) {
         sf::Color(60, 48, 52)
     );
 
+    // Behind home plate: backstop + grandstand (angle π is +Z behind catcher).
+    const float backL = pi - 1.05f;
+    const float backR = pi + 1.05f;
+    float backInner = 14.0f; // just behind catcher
+    // Backstop wall (padded fence)
+    addArcWall(
+        m,
+        L,
+        backInner,
+        backL,
+        backR,
+        0.0f,
+        8.5f,
+        28,
+        sf::Color(90, 100, 110),
+        sf::Color(110, 120, 130)
+    );
+    // Netting plane (thin higher wall)
+    addArcWall(
+        m,
+        L,
+        backInner + 0.4f,
+        backL + 0.05f,
+        backR - 0.05f,
+        4.0f,
+        16.0f,
+        24,
+        sf::Color(180, 190, 200, 90),
+        sf::Color(160, 170, 180, 100)
+    );
+    // Home-plate stands rising behind backstop
+    addStands(m, L, backInner + 2.0f, backL, backR, 6.0f, 10, 28, 2.8f, 1.1f, seat, riser);
+    addStands(
+        m,
+        L,
+        backInner + 2.0f + 10 * 2.8f,
+        backL + 0.08f,
+        backR - 0.08f,
+        6.0f,
+        5,
+        22,
+        3.2f,
+        1.25f,
+        upper,
+        sf::Color(60, 48, 52)
+    );
+
+    // Press boxes / camera decks behind home
+    addBox(
+        m,
+        Vector3(0.0f, 22.0f, plateZ + 28.0f),
+        22.0f,
+        6.0f,
+        8.0f,
+        sf::Color(55, 65, 80)
+    );
+    addBox(
+        m,
+        Vector3(0.0f, 26.5f, plateZ + 28.0f),
+        18.0f,
+        2.5f,
+        6.0f,
+        sf::Color(40, 50, 60)
+    );
+
     sf::Color steel(180, 185, 190);
     auto tower = [&](float ang) {
         Vector3 base = L.fromHome(wallR + 18.0f, ang, 0.0f);
@@ -308,6 +375,107 @@ Mesh3D buildStands(const Layout& L) {
     tower(-0.55f);
     tower(0.0f);
     tower(0.55f);
+    // Lights behind home too
+    tower(pi - 0.35f);
+    tower(pi + 0.35f);
+
+    m.rebuildNormals();
+    return m;
+}
+
+// Deterministic pseudo-random in [0,1) from integer seed.
+float hash01(int n) {
+    unsigned x = static_cast<unsigned>(n) * 1664525u + 1013904223u;
+    return static_cast<float>(x & 0xFFFFFFu) / static_cast<float>(0x1000000u);
+}
+
+Mesh3D buildCity(const Layout& L) {
+    Mesh3D m;
+    const float plateZ = L.plateZ();
+    // Suburban ground ring around the park
+    sf::Color grassFar(42, 95, 48);
+    sf::Color road(55, 55, 58);
+    sf::Color sidewalk(120, 118, 110);
+    sf::Color roof(90, 55, 45);
+    sf::Color brick(140, 95, 75);
+    sf::Color stucco(190, 175, 150);
+    sf::Color glass(90, 130, 160);
+    sf::Color tree(30, 90, 40);
+    sf::Color trunk(70, 50, 30);
+
+    // Large flat suburb ground (disk via annulus full circle)
+    addAnnulusSector(m, L, L.wallR() + 5.0f, L.wallR() + 220.0f, -pi, pi, -0.02f, 64, grassFar);
+    // Outer ring road
+    addAnnulusSector(
+        m, L, L.wallR() + 55.0f, L.wallR() + 62.0f, -pi, pi, 0.01f, 64, road
+    );
+    addAnnulusSector(
+        m, L, L.wallR() + 120.0f, L.wallR() + 128.0f, -pi, pi, 0.01f, 64, road
+    );
+
+    // Buildings full 360° so every camera sees a skyline.
+    const int buildingCount = 96;
+    for (int i = 0; i < buildingCount; i++) {
+        float t = static_cast<float>(i) / buildingCount;
+        float ang = -pi + t * (2.0f * pi);
+        float r = L.wallR() + 70.0f + hash01(i * 3) * 90.0f;
+        // Prefer denser / taller behind home (+Z, ang near π) and in OF corners.
+        float behindHome = std::max(0.0f, -std::cos(ang)); // 1 at behind home
+        float h = 6.0f + hash01(i * 7) * 14.0f + behindHome * 18.0f;
+        float w = 4.0f + hash01(i * 11) * 8.0f;
+        float d = 4.0f + hash01(i * 13) * 8.0f;
+        Vector3 c = L.fromHome(r, ang, h * 0.5f);
+        sf::Color body = (hash01(i) > 0.45f) ? brick : stucco;
+        if (behindHome > 0.55f && hash01(i + 50) > 0.55f) {
+            body = glass; // a few office blocks behind home
+            h += 8.0f;
+            c.y = h * 0.5f;
+        }
+        addBox(m, c, w, h, d, body);
+        // Roof
+        addBox(m, c + Vector3(0, h * 0.5f + 0.35f, 0), w * 1.05f, 0.7f, d * 1.05f, roof);
+
+        // Occasional tree clusters near houses
+        if (hash01(i + 99) > 0.55f) {
+            Vector3 tbase = L.fromHome(r - 5.0f - hash01(i) * 4.0f, ang + 0.02f, 0.0f);
+            addBox(m, tbase + Vector3(0, 1.2f, 0), 0.5f, 2.4f, 0.5f, trunk);
+            addBox(m, tbase + Vector3(0, 3.6f, 0), 3.2f, 2.8f, 3.2f, tree);
+        }
+    }
+
+    // Water tower / water tank landmark behind RF-ish
+    {
+        Vector3 wt = L.fromHome(L.wallR() + 95.0f, 0.75f, 18.0f);
+        addBox(m, wt + Vector3(0, -6.0f, 0), 1.2f, 12.0f, 1.2f, sf::Color(100, 100, 105));
+        addBox(m, wt + Vector3(0, 2.0f, 0), 6.0f, 5.0f, 6.0f, sf::Color(130, 140, 150));
+    }
+
+    // Parking lots near home-plate gates
+    addBox(
+        m,
+        Vector3(0.0f, 0.05f, plateZ + 55.0f),
+        50.0f,
+        0.1f,
+        30.0f,
+        road
+    );
+    addBox(
+        m,
+        Vector3(0.0f, 0.08f, plateZ + 55.0f),
+        52.0f,
+        0.05f,
+        2.0f,
+        sidewalk
+    );
+
+    // Distant hills (large low boxes) for horizon
+    for (int i = 0; i < 12; i++) {
+        float ang = -pi + (static_cast<float>(i) / 12.0f) * 2.0f * pi;
+        float r = L.wallR() + 200.0f;
+        float h = 8.0f + hash01(i + 200) * 14.0f;
+        Vector3 c = L.fromHome(r, ang, h * 0.45f);
+        addBox(m, c, 40.0f, h, 18.0f, sf::Color(50, 85, 55));
+    }
 
     m.rebuildNormals();
     return m;
@@ -365,12 +533,13 @@ Meshes build(const Layout& layout) {
     out.walls = buildWalls(layout);
     out.stands = buildStands(layout);
     out.lines = buildLines(layout);
+    out.city = buildCity(layout);
     return out;
 }
 
 float recommendedFarPlane(const Layout& layout) {
-    // Wall ~190, stands ~250, orbit/camera room.
-    return std::max(2500.0f, layout.wallR() * 8.0f + 400.0f);
+    // Wall ~190, city out to ~wall+220, orbit room.
+    return std::max(3500.0f, layout.wallR() * 12.0f + 800.0f);
 }
 
 } // namespace Stadium3D

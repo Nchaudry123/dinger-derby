@@ -46,8 +46,9 @@ struct Layout {
 struct Meshes {
     Mesh3D field;
     Mesh3D walls;
-    Mesh3D stands;
+    Mesh3D stands;   // outfield + behind-home seating / backstop
     Mesh3D lines;
+    Mesh3D city;     // suburban skyline backdrop (full ring)
 };
 
 Layout defaultPlayLayout();

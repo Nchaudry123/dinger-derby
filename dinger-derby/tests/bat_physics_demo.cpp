@@ -291,8 +291,8 @@ struct BatConfig {
     float mass = 0.90f;
     float sweetFromKnob = 0.56f;
     float sweetWidth = 0.11f;
-    float minCor = 0.38f; // handle / mishit
-    float maxCor = 0.52f; // barrel sweet spot (closer to real baseball COR)
+    float minCor = 0.40f; // handle / mishit
+    float maxCor = 0.55f; // barrel (slightly generous for demo feel)
 };
 
 // Aim reticle — yellow outline on the plate. Never animates with the swing.
@@ -600,8 +600,8 @@ HitInfo tryHit(
     Vector3 closest;
     closestOnBat(bat, cfg, ball.position, s, closest);
 
-    // Practice: slightly fatter bat + mild sweet-spot magnet.
-    float rScale = practiceMode ? 2.0f : 1.20f;
+    // Slightly easier contact: fatter collision + wider timing magnet in practice.
+    float rScale = practiceMode ? 2.8f : 1.55f;
     float rBat = batRadius(cfg, s) * rScale;
     Vector3 delta = ball.position - closest;
     float dist = delta.magnitude();
@@ -611,8 +611,8 @@ HitInfo tryHit(
         Vector3 sweetPt = batPoint(bat, cfg.sweetFromKnob);
         float dSweet = (ball.position - sweetPt).magnitude();
         float nearPlate = std::abs(ball.position.z - plateZ);
-        bool contactWindow = bat.swingT >= 0.30f && bat.swingT <= 0.55f;
-        if (contactWindow && nearPlate < 0.35f && dSweet < 0.18f) {
+        bool contactWindow = bat.swingT >= 0.22f && bat.swingT <= 0.65f;
+        if (contactWindow && nearPlate < 0.55f && dSweet < 0.30f) {
             closest = sweetPt;
             s = cfg.sweetFromKnob;
             delta = ball.position - closest;
@@ -622,6 +622,19 @@ HitInfo tryHit(
             ball.position = closest + nSnap * (ball.radius + batRadius(cfg, s));
             delta = ball.position - closest;
             dist = delta.magnitude();
+        }
+    } else {
+        // Non-practice: small sweet magnet in the contact window.
+        Vector3 sweetPt = batPoint(bat, cfg.sweetFromKnob);
+        float dSweet = (ball.position - sweetPt).magnitude();
+        float nearPlate = std::abs(ball.position.z - plateZ);
+        bool contactWindow = bat.swingT >= 0.28f && bat.swingT <= 0.58f;
+        if (contactWindow && nearPlate < 0.40f && dSweet < 0.16f) {
+            closest = closest * 0.45f + sweetPt * 0.55f;
+            s = lerp(s, cfg.sweetFromKnob, 0.55f);
+            delta = ball.position - closest;
+            dist = std::max(delta.magnitude(), 1e-4f);
+            minD = ball.radius + rBat;
         }
     }
 
@@ -650,70 +663,69 @@ HitInfo tryHit(
 
     Vector3 vRel = ball.velocity - vBat;
     float approach = vRel.dot(n);
-    if (approach >= 0.0f) {
-        return h; // separating — no hit
+    // Small grace so near-zero approach still registers (easier timing).
+    if (approach >= (practiceMode ? 2.0f : 0.8f)) {
+        return h;
+    }
+    if (approach > -3.0f) {
+        approach = -std::max(5.0f, vBat.magnitude() * 0.30f);
+        vRel = n * approach + (vRel - n * vRel.dot(n));
     }
 
-    float sweetScale = practiceMode ? prof.sweetScale * 1.25f : prof.sweetScale;
+    float sweetScale = practiceMode ? prof.sweetScale * 1.55f : prof.sweetScale * 1.15f;
     float sweet = sweetFactor(cfg, s, sweetScale);
-    // Real wood/aluminum COR is modest; sweet spot is king.
-    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus * 0.5f, sweet), 0.28f, 0.50f);
+    if (practiceMode) {
+        sweet = clampf(sweet + 0.12f, 0.0f, 1.0f);
+    }
+    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus * 0.5f, sweet), 0.32f, 0.56f);
     float tip = clampf(s / cfg.length, 0.0f, 1.0f);
-    // Effective bat mass: higher near knob, lower at tip (end-loaded feel).
     float mEff =
-        cfg.mass * prof.massScale * lerp(1.35f, 0.55f, tip) * lerp(0.65f, 1.05f, sweet);
+        cfg.mass * prof.massScale * lerp(1.35f, 0.55f, tip) * lerp(0.70f, 1.08f, sweet);
     float mBall = std::max(ball.mass, 0.05f);
 
-    // Moving-bat elastic collision along contact normal.
     float j = -(1.0f + cor) * approach / (1.0f / mBall + 1.0f / mEff);
-    // Power/sweet: small efficiency change only.
-    j *= lerp(0.88f, 1.06f, sweet) * lerp(0.94f, 1.06f, (prof.power - 0.7f) / 0.55f);
+    j *= lerp(0.95f, 1.14f, sweet) * lerp(0.96f, 1.10f, (prof.power - 0.7f) / 0.55f);
     if (practiceMode) {
-        j *= 1.05f;
+        j *= 1.14f;
     }
     ball.velocity = ball.velocity + n * (j / mBall);
 
-    // Tangential friction (spray / slice) — no loft here.
     Vector3 tanAxis = safeNorm(n.cross(Vector3(0, 1, 0)), Vector3(1, 0, 0));
     Vector3 bitangent = safeNorm(n.cross(tanAxis), Vector3(0, 1, 0));
     for (const Vector3& t : {tanAxis, bitangent}) {
         float vt = (ball.velocity - vBat).dot(t);
-        float mu = 0.18f * lerp(0.7f, 1.0f, sweet);
-        float jt = clampf(-vt * mBall * mu, -std::abs(j) * 0.20f, std::abs(j) * 0.20f);
+        float mu = 0.16f * lerp(0.7f, 1.0f, sweet);
+        float jt = clampf(-vt * mBall * mu, -std::abs(j) * 0.18f, std::abs(j) * 0.18f);
         ball.velocity = ball.velocity + t * (jt / mBall);
     }
 
-    // Attack angle: transfer a fraction of bat velocity (includes swing plane loft).
-    // Only the part "through" the ball — level swings stay level.
-    if (vBat.magnitude() > 1.0f) {
+    if (vBat.magnitude() > 0.8f) {
         float batMph = vBat.magnitude() * 2.236936f;
-        // Soft-cap bat tip speed so FD noise doesn't explode exit (real BB ~70–90 mph tip).
-        float tipScale = clampf(batMph / 85.0f, 0.35f, 1.15f);
-        float carry = lerp(0.08f, 0.22f, sweet) * tipScale;
+        float tipScale = clampf(batMph / 80.0f, 0.40f, 1.20f);
+        float carry = lerp(0.12f, 0.30f, sweet) * tipScale;
         if (practiceMode) {
-            carry *= 1.06f;
+            carry *= 1.14f;
         }
         float alongN = std::max(0.0f, safeNorm(vBat).dot(n));
         ball.velocity = ball.velocity + n * (vBat.magnitude() * alongN * carry);
     }
 
-    // Undercut / over-the-top: modest launch tweak from contact height only.
     {
         float horiz = std::sqrt(
             ball.velocity.x * ball.velocity.x + ball.velocity.z * ball.velocity.z
         );
-        // undercut +1 → add loft; −1 → subtract (chop)
-        float loftKick = undercut * lerp(2.5f, 5.5f, sweet);
+        float loftKick = undercut * lerp(2.0f, 4.5f, sweet);
+        // Slight baseline loft so solid contact still plays in the air without skyballs.
+        loftKick += practiceMode ? 1.8f : 0.9f;
         ball.velocity.y += loftKick;
-        // Realistic launch window: chops to high flies, no sky-rockets.
         if (horiz > 0.8f) {
-            float maxUp = horiz * std::tan(38.0f * pi / 180.0f);
-            float minUp = -horiz * std::tan(22.0f * pi / 180.0f);
+            float maxUp = horiz * std::tan(36.0f * pi / 180.0f);
+            float minUp = -horiz * std::tan(18.0f * pi / 180.0f);
             ball.velocity.y = clampf(ball.velocity.y, minUp, maxUp);
         }
-        // Handle/mishit: deaden exit and kill loft.
-        if (sweet < 0.40f) {
-            ball.velocity = ball.velocity * lerp(0.55f, 0.85f, sweet / 0.40f);
+        // Mishits still weaker, but less brutal than before.
+        if (sweet < 0.35f) {
+            ball.velocity = ball.velocity * lerp(0.70f, 0.90f, sweet / 0.35f);
         }
     }
 
@@ -1114,6 +1126,7 @@ int main() {
     GlMesh glStadiumWalls;
     GlMesh glStadiumStands;
     GlMesh glStadiumLines;
+    GlMesh glStadiumCity;
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useGL) {
@@ -1124,6 +1137,7 @@ int main() {
         glStadiumWalls.upload(stadiumMeshes.walls);
         glStadiumStands.upload(stadiumMeshes.stands);
         glStadiumLines.upload(stadiumMeshes.lines);
+        glStadiumCity.upload(stadiumMeshes.city);
     }
 
     FrameBuffer frameBuffer(window.getSize().x, window.getSize().y);
@@ -1624,9 +1638,11 @@ int main() {
 
         Matrix4 stadiumXform = Matrix4::identity();
         if (useGL) {
-            gl.beginFrame(window, camera, sf::Color(5, 8, 14));
-            const float gr = stadiumLayout.wallR() + 80.0f;
-            gl.drawGround(gr, plateZ - gr, plateZ + 40.0f, sf::Color(18, 32, 22));
+            // Suburban day sky clear
+            gl.beginFrame(window, camera, sf::Color(135, 185, 230));
+            const float gr = stadiumLayout.wallR() + 220.0f;
+            gl.drawGround(gr, plateZ - gr, plateZ + gr, sf::Color(42, 95, 48));
+            gl.drawMesh(glStadiumCity, stadiumXform);
             gl.drawMesh(glStadiumField, stadiumXform);
             gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);
