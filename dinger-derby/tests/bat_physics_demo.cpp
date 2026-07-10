@@ -256,9 +256,10 @@ struct BatPose {
     // RHB at plate, facing pitcher (toward −Z / mound)
     Vector3 hands{0.42f, 1.05f, plateZ - 0.35f};
     Vector3 axis{-0.35f, 0.05f, -0.93f};
+    float plateAngle = -0.55f; // bat angle in plate plane while aiming (rad)
     float roll = 0.0f;
-    float swingT = -1.0f;
-    float omega = 0.0f; // |angular rate| about swing axis (for HUD / impulse)
+    float swingT = -1.0f; // <0 = aim only (no animation)
+    float omega = 0.0f;
     Vector3 swingAxis{0, 1, 0};
     SwingType type = SwingType::Regular;
     Vector3 pci = strikeZoneCenter;
@@ -317,23 +318,21 @@ Vector3 slerpDir(const Vector3& a, const Vector3& b, float t) {
     return safeNorm(na * s0 + nb * s1);
 }
 
-void orientBat(BatPose& bat, const Vector3& pci) {
+// Ready / aim stance: flat bat silhouette on the plate plane (no motion).
+// Sweet spot sits on the PCI; Q/E rotates plateAngle.
+void orientBatAim(BatPose& bat, const Vector3& pci, const BatConfig& cfg) {
     bat.pci = pci;
-    Vector3 to = pci - bat.hands;
-    if (to.magnitude() < 0.08f) {
-        to = Vector3(-0.2f, 0.0f, -0.8f);
-    }
-    bat.axis = safeNorm(to);
-    // Hands sit so sweet spot aims near PCI for ready stance.
-    bat.hands = Vector3(0.42f, 1.05f, plateZ - 0.35f);
-    // Slight hand shift with aim
-    bat.hands.x = lerp(0.55f, 0.28f, clampf((pci.x + strikeZoneHalfWidth) / (2.0f * strikeZoneHalfWidth), 0.0f, 1.0f));
-    bat.hands.y = lerp(0.95f, 1.15f, clampf((pci.y - (strikeZoneCenter.y - strikeZoneHalfHeight)) / (2.0f * strikeZoneHalfHeight), 0.0f, 1.0f));
-    to = pci - bat.hands;
-    bat.axis = safeNorm(to.magnitude() > 0.05f ? to : Vector3(-0.2f, 0.0f, -0.8f));
+    // Direction in the plate plane (catcher view: bat is a 2D outline on the zone).
+    Vector3 dir(std::cos(bat.plateAngle), std::sin(bat.plateAngle), -0.12f);
+    bat.axis = safeNorm(dir);
+    // Knob behind sweet spot so PCI is on the barrel.
+    bat.hands = pci - bat.axis * cfg.sweetFromKnob;
+    bat.hands.z = plateZ - 0.20f;
+    // Keep hands slightly off the plate plane toward the batter.
     Vector3 up(0, 1, 0);
     Vector3 side = safeNorm(up.cross(bat.axis), Vector3(1, 0, 0));
     bat.swingAxis = safeNorm(bat.axis.cross(side), up);
+    bat.omega = 0.0f;
 }
 
 // Point velocity from finite difference of the animated bat path.
@@ -746,6 +745,8 @@ void drawPci(
     );
 }
 
+// Clear The Show–style bat silhouette.
+// Aim: flat plate-plane capsule (static). Swing: follows animated bat path.
 void drawBatSilhouette2D(
     sf::RenderWindow& window,
     const Camera3D& cam,
@@ -753,28 +754,48 @@ void drawBatSilhouette2D(
     const BatConfig& cfg,
     sf::Color col
 ) {
-    // Bold The Show–style outline: thick multi-pass edges + soft fill.
-    const int segs = 20;
+    const int segs = 28;
     float sw = static_cast<float>(window.getSize().x);
     float sh = static_cast<float>(window.getSize().y);
-    Vector3 toCam = safeNorm(cam.position - bat.hands);
-    Vector3 side = safeNorm(bat.axis.cross(toCam), Vector3(1, 0, 0));
-    std::vector<sf::Vector2f> L, R, C;
+
+    const bool aimOnly = !bat.swinging();
+
+    // Aim: lock to plate plane for a crisp 2D outline.
+    // Swing: use live hands/axis so the silhouette tracks the swing.
+    Vector3 axis = safeNorm(bat.axis, Vector3(1, 0, 0));
+    Vector3 knob = bat.hands;
+    Vector3 side;
+    if (aimOnly) {
+        Vector3 axisFlat = safeNorm(Vector3(axis.x, axis.y, 0.0f), Vector3(1, 0, 0));
+        axis = axisFlat;
+        side = Vector3(-axisFlat.y, axisFlat.x, 0.0f);
+        knob = bat.pci - axisFlat * cfg.sweetFromKnob;
+        knob.z = plateZ;
+    } else {
+        Vector3 toCam = safeNorm(cam.position - bat.hands, Vector3(0, 0, 1));
+        Vector3 cross = axis.cross(toCam);
+        side = (cross.magnitude() < 0.15f)
+            ? safeNorm(Vector3(-axis.y, axis.x, 0.0f), Vector3(1, 0, 0))
+            : safeNorm(cross, Vector3(1, 0, 0));
+    }
+
+    std::vector<sf::Vector2f> L, R;
     L.reserve(segs + 1);
     R.reserve(segs + 1);
-    C.reserve(segs + 1);
 
     for (int i = 0; i <= segs; i++) {
         float t = static_cast<float>(i) / segs;
         float s = t * cfg.length;
-        float r = batSilhouetteRadius(cfg, s);
-        Vector3 c = batPoint(bat, s);
-        ProjectedPoint3D pc = cam.projectPoint(c, sw, sh);
+        // Fat readable silhouette (handle thinner, barrel thicker)
+        float r = (t < 0.32f)
+            ? lerp(0.034f, 0.062f, t / 0.32f)
+            : lerp(0.062f, 0.088f, (t - 0.32f) / 0.68f);
+        Vector3 c = aimOnly ? (knob + axis * s) : batPoint(bat, s);
+        if (aimOnly) {
+            c.z = plateZ;
+        }
         ProjectedPoint3D pl = cam.projectPoint(c + side * r, sw, sh);
         ProjectedPoint3D pr = cam.projectPoint(c - side * r, sw, sh);
-        if (pc.visible) {
-            C.push_back({pc.position.x, pc.position.y});
-        }
         if (pl.visible) {
             L.push_back({pl.position.x, pl.position.y});
         }
@@ -783,76 +804,92 @@ void drawBatSilhouette2D(
         }
     }
 
-    // Soft fill (triangle strip left→right)
-    if (L.size() == R.size() && L.size() >= 2) {
-        sf::Color fill = col;
-        fill.a = 45;
-        for (size_t i = 0; i + 1 < L.size(); i++) {
-            sf::Vertex quad[] = {
-                sf::Vertex{L[i], fill},
-                sf::Vertex{R[i], fill},
-                sf::Vertex{R[i + 1], fill},
-                sf::Vertex{L[i + 1], fill}
-            };
-            window.draw(quad, 4, sf::PrimitiveType::TriangleFan);
+    auto thickSeg = [&](sf::Vector2f a, sf::Vector2f b, float thickness, sf::Color c) {
+        sf::Vector2f d = b - a;
+        float len = std::sqrt(d.x * d.x + d.y * d.y);
+        if (len < 1e-3f) {
+            return;
         }
-    }
+        sf::Vector2f n(-d.y / len, d.x / len);
+        sf::Vector2f o = n * (thickness * 0.5f);
+        sf::Vertex q[] = {
+            sf::Vertex{a + o, c},
+            sf::Vertex{a - o, c},
+            sf::Vertex{b - o, c},
+            sf::Vertex{b + o, c}
+        };
+        window.draw(q, 4, sf::PrimitiveType::TriangleFan);
+    };
 
     auto thickPoly = [&](const std::vector<sf::Vector2f>& pts, float thickness, sf::Color c) {
         for (size_t i = 1; i < pts.size(); i++) {
-            sf::Vector2f a = pts[i - 1];
-            sf::Vector2f b = pts[i];
-            sf::Vector2f d = b - a;
-            float len = std::sqrt(d.x * d.x + d.y * d.y);
-            if (len < 1e-3f) {
-                continue;
-            }
-            sf::Vector2f n(-d.y / len, d.x / len);
-            sf::Vector2f o = n * (thickness * 0.5f);
-            sf::Vertex q[] = {
-                sf::Vertex{a + o, c},
-                sf::Vertex{a - o, c},
-                sf::Vertex{b - o, c},
-                sf::Vertex{b + o, c}
+            thickSeg(pts[i - 1], pts[i], thickness, c);
+        }
+    };
+
+    // Solid dark fill so the bat reads as a true silhouette
+    if (L.size() == R.size() && L.size() >= 2) {
+        sf::Color fillDark(8, 10, 14, aimOnly ? 230 : 160);
+        sf::Color fillTint(col.r, col.g, col.b, aimOnly ? 55 : 40);
+        for (size_t i = 0; i + 1 < L.size(); i++) {
+            sf::Vertex darkQuad[] = {
+                sf::Vertex{L[i], fillDark},
+                sf::Vertex{R[i], fillDark},
+                sf::Vertex{R[i + 1], fillDark},
+                sf::Vertex{L[i + 1], fillDark}
             };
-            window.draw(q, 4, sf::PrimitiveType::TriangleFan);
+            window.draw(darkQuad, 4, sf::PrimitiveType::TriangleFan);
+            sf::Vertex tintQuad[] = {
+                sf::Vertex{L[i], fillTint},
+                sf::Vertex{R[i], fillTint},
+                sf::Vertex{R[i + 1], fillTint},
+                sf::Vertex{L[i + 1], fillTint}
+            };
+            window.draw(tintQuad, 4, sf::PrimitiveType::TriangleFan);
         }
-    };
-
-    // Outer glow + crisp edge
-    sf::Color glow = col;
-    glow.a = 90;
-    sf::Color edge = col;
-    edge.a = 255;
-    thickPoly(L, 7.0f, glow);
-    thickPoly(R, 7.0f, glow);
-    thickPoly(L, 3.2f, edge);
-    thickPoly(R, 3.2f, edge);
-    if (!L.empty() && !R.empty()) {
-        thickPoly({L.back(), R.back()}, 3.2f, edge);   // tip
-        thickPoly({L.front(), R.front()}, 3.2f, edge); // knob
     }
-    // Center spine
-    sf::Color spine = col;
-    spine.a = 160;
-    thickPoly(C, 1.6f, spine);
 
-    // Knob + tip markers
-    auto dot = [&](const Vector3& w, float r) {
-        ProjectedPoint3D p = cam.projectPoint(w, sw, sh);
-        if (!p.visible) {
-            return;
-        }
-        sf::CircleShape d(r);
-        d.setOrigin({r, r});
-        d.setPosition({p.position.x, p.position.y});
-        d.setFillColor(edge);
-        window.draw(d);
-    };
-    dot(bat.hands, 4.0f);
-    dot(batPoint(bat, cfg.length), 5.0f);
-    // Sweet-spot tick
-    dot(batPoint(bat, cfg.sweetFromKnob), 3.5f);
+    if (!L.empty() && !R.empty()) {
+        // Soft outer glow
+        sf::Color glow(col.r, col.g, col.b, 90);
+        thickPoly(L, 14.0f, glow);
+        thickPoly(R, 14.0f, glow);
+        thickSeg(L.back(), R.back(), 14.0f, glow);
+        thickSeg(L.front(), R.front(), 14.0f, glow);
+
+        // Crisp colored edge
+        sf::Color edge(col.r, col.g, col.b, 255);
+        thickPoly(L, 5.5f, edge);
+        thickPoly(R, 5.5f, edge);
+        thickSeg(L.back(), R.back(), 5.5f, edge);
+        thickSeg(L.front(), R.front(), 5.5f, edge);
+
+        // White ink stroke for max contrast on dark field
+        sf::Color ink(255, 255, 255, 230);
+        thickPoly(L, 2.2f, ink);
+        thickPoly(R, 2.2f, ink);
+        thickSeg(L.back(), R.back(), 2.2f, ink);
+        thickSeg(L.front(), R.front(), 2.2f, ink);
+
+        // Knob + tip dots so orientation is obvious
+        auto endDot = [&](sf::Vector2f p, float rad, sf::Color c) {
+            sf::CircleShape d(rad);
+            d.setOrigin({rad, rad});
+            d.setPosition(p);
+            d.setFillColor(c);
+            window.draw(d);
+        };
+        sf::Vector2f knob2(
+            (L.front().x + R.front().x) * 0.5f,
+            (L.front().y + R.front().y) * 0.5f
+        );
+        sf::Vector2f tip2(
+            (L.back().x + R.back().x) * 0.5f,
+            (L.back().y + R.back().y) * 0.5f
+        );
+        endDot(knob2, 5.0f, sf::Color(255, 255, 255, 240));
+        endDot(tip2, 6.5f, edge);
+    }
 }
 
 } // namespace
@@ -912,7 +949,7 @@ int main() {
 
     BatConfig batCfg;
     BatPose bat;
-    orientBat(bat, strikeZoneCenter);
+    orientBatAim(bat, strikeZoneCenter, batCfg);
     Mesh3D batMesh = makeBatMesh(batCfg);
 
     GlRenderer gl;
@@ -1015,11 +1052,6 @@ int main() {
                     bat.type = SwingType::Regular;
                     status = "REGULAR";
                     statusCol = profileOf(SwingType::Regular).color;
-                } else if (key->code == K::Space) {
-                    startSwing(bat);
-                    hasHit = false;
-                    status = std::string(prof.name) + " swing";
-                    statusCol = prof.color;
                 } else if (key->code == K::R) {
                     beginPitch();
                 } else if (key->code == K::LBracket) {
@@ -1027,21 +1059,35 @@ int main() {
                 } else if (key->code == K::RBracket) {
                     pitchMph = std::min(105.0f, pitchMph + 2.0f);
                 } else if (key->code == K::Q) {
-                    batRoll -= 0.08f;
+                    if (!bat.swinging()) {
+                        batRoll -= 0.10f;
+                    }
                 } else if (key->code == K::E) {
-                    batRoll += 0.08f;
+                    if (!bat.swinging()) {
+                        batRoll += 0.10f;
+                    }
+                } else if (key->code == K::Space) {
+                    // Swing only on press — no continuous animation while aiming.
+                    if (!bat.swinging()) {
+                        startSwing(bat);
+                        hasHit = false;
+                        status = std::string(prof.name) + " swing!";
+                        statusCol = prof.color;
+                    }
                 }
             }
             if (const auto* m = event->getIf<sf::Event::MouseButtonPressed>()) {
-                if (m->button == sf::Mouse::Button::Left) {
+                if (m->button == sf::Mouse::Button::Left && !bat.swinging()) {
                     startSwing(bat);
                     hasHit = false;
-                    status = std::string(prof.name) + " swing";
+                    status = std::string(prof.name) + " swing!";
                     statusCol = prof.color;
                 }
             }
             if (const auto* wh = event->getIf<sf::Event::MouseWheelScrolled>()) {
-                batRoll += wh->delta * 0.06f;
+                if (!bat.swinging()) {
+                    batRoll += wh->delta * 0.08f;
+                }
             }
         }
 
@@ -1067,8 +1113,8 @@ int main() {
             pitcherAnim.applyClip(idleClip, poseClock, true);
         }
 
-        // Mouse aim
-        if (!bat.locked) {
+        // Aim: static silhouette only (no swing motion until Space/LMB).
+        if (!bat.swinging()) {
             sf::Vector2i mp = sf::Mouse::getPosition(window);
             Vector3 pci = mouseToPci(
                 camera,
@@ -1077,10 +1123,12 @@ int main() {
                 static_cast<float>(window.getSize().x),
                 static_cast<float>(window.getSize().y)
             );
-            bat.roll = batRoll;
-            orientBat(bat, pci);
+            bat.plateAngle = batRoll; // Q/E / wheel rotates the flat bat
+            orientBatAim(bat, pci, batCfg);
+        } else {
+            // Only while swinging: load → contact → finish path.
+            updateSwing(bat, prof, dt);
         }
-        updateSwing(bat, prof, dt);
 
         // Flight + bat contact
         if (ballReleased) {
@@ -1125,13 +1173,17 @@ int main() {
             Matrix4::translation(baseball.position) *
             Matrix4::rotationY(spinY) *
             Matrix4::scale(Vector3(baseballRadius, baseballRadius, baseballRadius));
+        // 3D bat mesh only while swinging — aim mode is pure silhouette.
+        const bool drawBatMesh = bat.swinging();
         Matrix4 batXform = batModelMatrix(bat);
 
         if (useGL) {
             gl.beginFrame(window, camera, sf::Color(5, 8, 14));
             gl.drawGround(4.0f, -2.0f, plateZ + 4.0f, sf::Color(20, 28, 24));
             gl.drawMesh(glPitcher, pitcherXform);
-            gl.drawMesh(glBat, batXform);
+            if (drawBatMesh) {
+                gl.drawMesh(glBat, batXform);
+            }
             gl.drawMesh(glBall, ballXform);
             gl.endFrame(window);
         } else {
@@ -1140,9 +1192,11 @@ int main() {
             rasterizeMeshTriangles(
                 frameBuffer, camera, pitcherMesh, pitcherXform, sf::Color(230, 230, 235), pitcherCache
             );
-            rasterizeMeshTriangles(
-                frameBuffer, camera, batMesh, batXform, sf::Color(210, 150, 70), batCache
-            );
+            if (drawBatMesh) {
+                rasterizeMeshTriangles(
+                    frameBuffer, camera, batMesh, batXform, sf::Color(210, 150, 70), batCache
+                );
+            }
             rasterizeMeshTrianglesSupersampled(
                 frameBuffer, camera, baseballMesh, ballXform, sf::Color(230, 220, 205), ballCache, 2
             );
@@ -1159,6 +1213,7 @@ int main() {
             drawThickProjectedLine(window, camera, trail[i - 1], trail[i], 2.0f, c);
         }
         drawPci(window, camera, bat.pci, prof.pciR, prof.color);
+        // Always: clear bat silhouette. Static while aiming; tracks path while swinging.
         drawBatSilhouette2D(window, camera, bat, batCfg, prof.color);
 
         if (lastHit.hit && hasHit) {
