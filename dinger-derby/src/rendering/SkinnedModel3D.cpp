@@ -201,25 +201,26 @@ SkinnedModel3D makeHumanoid(bool catcher, int detail) {
     int neck = addJoint(m, "Neck", chest, Vector3(0.0f, 0.14f, 0.01f));
     int head = addJoint(m, "Head", neck, Vector3(0.0f, 0.12f, 0.03f));
 
-    // Arms start raised toward the sternum (set / glove-chest).
-    int shL = addJoint(m, "Shoulder_L", chest, Vector3(-0.15f, 0.08f, 0.02f));
-    int elL = addJoint(m, "Elbow_L", shL, Vector3(0.04f, -0.16f, 0.14f));
-    int wrL = addJoint(m, "Wrist_L", elL, Vector3(0.08f, -0.08f, 0.12f));
-    int palmL = addJoint(m, "Palm_L", wrL, Vector3(0.04f, -0.02f, 0.05f));
+    // Arms hang along -Y in bind space so shoulder/elbow rotations give a clean
+    // throw path (set → high kick hands-together → layback → high 3/4 release).
+    int shL = addJoint(m, "Shoulder_L", chest, Vector3(-0.16f, 0.09f, 0.01f));
+    int elL = addJoint(m, "Elbow_L", shL, Vector3(0.0f, -0.29f, 0.02f));
+    int wrL = addJoint(m, "Wrist_L", elL, Vector3(0.0f, -0.26f, 0.02f));
+    int palmL = addJoint(m, "Palm_L", wrL, Vector3(0.0f, -0.05f, 0.04f));
 
-    int shR = addJoint(m, "Shoulder_R", chest, Vector3(0.15f, 0.08f, 0.02f));
-    int elR = addJoint(m, "Elbow_R", shR, Vector3(-0.04f, -0.16f, 0.14f));
-    int wrR = addJoint(m, "Wrist_R", elR, Vector3(-0.08f, -0.08f, 0.12f));
-    int palmR = addJoint(m, "Palm_R", wrR, Vector3(-0.04f, -0.02f, 0.05f));
+    int shR = addJoint(m, "Shoulder_R", chest, Vector3(0.16f, 0.09f, 0.01f));
+    int elR = addJoint(m, "Elbow_R", shR, Vector3(0.0f, -0.29f, 0.02f));
+    int wrR = addJoint(m, "Wrist_R", elR, Vector3(0.0f, -0.26f, 0.02f));
+    int palmR = addJoint(m, "Palm_R", wrR, Vector3(0.0f, -0.05f, 0.05f));
 
-    // Plant = right (+X, slightly back), lead = left (-X, slightly open to plate).
-    int hipR = addJoint(m, "Hip_R", hips, Vector3(0.11f, -0.02f, -0.04f));
-    int knR = addJoint(m, "Knee_R", hipR, Vector3(0.0f, -0.40f, 0.04f));
-    int anR = addJoint(m, "Ankle_R", knR, Vector3(0.0f, -0.38f, 0.0f));
+    // Plant = right (+X, slightly back on rubber), lead = left (-X).
+    int hipR = addJoint(m, "Hip_R", hips, Vector3(0.11f, -0.02f, -0.03f));
+    int knR = addJoint(m, "Knee_R", hipR, Vector3(0.0f, -0.41f, 0.02f));
+    int anR = addJoint(m, "Ankle_R", knR, Vector3(0.0f, -0.39f, 0.0f));
 
-    int hipL = addJoint(m, "Hip_L", hips, Vector3(-0.11f, -0.02f, 0.03f));
-    int knL = addJoint(m, "Knee_L", hipL, Vector3(0.0f, -0.40f, 0.04f));
-    int anL = addJoint(m, "Ankle_L", knL, Vector3(0.0f, -0.38f, 0.04f));
+    int hipL = addJoint(m, "Hip_L", hips, Vector3(-0.11f, -0.02f, 0.02f));
+    int knL = addJoint(m, "Knee_L", hipL, Vector3(0.0f, -0.41f, 0.02f));
+    int anL = addJoint(m, "Ankle_L", knL, Vector3(0.0f, -0.39f, 0.02f));
 
     if (catcher) {
         // Crouch: lower hips, deep knee bend, lean toward plate.
@@ -236,36 +237,9 @@ SkinnedModel3D makeHumanoid(bool catcher, int detail) {
         m.joints[spine].restTranslation = Vector3(0.0f, 0.12f, 0.04f);
         m.joints[spine].restRotation = Quaternion::fromEulerXYZ(0.15f, 0.0f, 0.0f);
         m.joints[spine].bakeLocalRest();
-        // Arms hang ready, mitt out front.
-        m.joints[elL].restTranslation = Vector3(-0.02f, -0.22f, 0.10f);
-        m.joints[wrL].restTranslation = Vector3(0.0f, -0.20f, 0.12f);
-        m.joints[elR].restTranslation = Vector3(0.02f, -0.22f, 0.06f);
-        m.joints[wrR].restTranslation = Vector3(0.0f, -0.20f, 0.04f);
-        m.joints[elL].bakeLocalRest();
-        m.joints[wrL].bakeLocalRest();
-        m.joints[elR].bakeLocalRest();
-        m.joints[wrR].bakeLocalRest();
-    } else {
-        // Pitcher SET on the rubber: closed slightly to 3B, athletic bend,
-        // chest/face aimed at home plate (+Z).
-        m.joints[hips].restRotation = Quaternion::fromEulerXYZ(0.04f, -0.22f, 0.0f);
-        m.joints[hips].bakeLocalRest();
-        m.joints[spine].restRotation = Quaternion::fromEulerXYZ(0.06f, -0.08f, 0.0f);
-        m.joints[spine].bakeLocalRest();
-        m.joints[chest].restRotation = Quaternion::fromEulerXYZ(0.04f, -0.06f, 0.0f);
-        m.joints[chest].bakeLocalRest();
-        m.joints[head].restRotation = Quaternion::fromEulerXYZ(-0.02f, 0.18f, 0.0f);
-        m.joints[head].bakeLocalRest();
-        // Soft knee flex (plant + lead).
-        m.joints[hipR].restRotation = Quaternion::fromEulerXYZ(0.12f, 0.0f, -0.04f);
-        m.joints[hipR].bakeLocalRest();
-        m.joints[knR].restRotation = Quaternion::fromEulerXYZ(0.22f, 0.0f, 0.0f);
-        m.joints[knR].bakeLocalRest();
-        m.joints[hipL].restRotation = Quaternion::fromEulerXYZ(0.10f, 0.04f, 0.05f);
-        m.joints[hipL].bakeLocalRest();
-        m.joints[knL].restRotation = Quaternion::fromEulerXYZ(0.18f, 0.0f, 0.0f);
-        m.joints[knL].bakeLocalRest();
     }
+    // Pitcher set/closed stance is applied by BaseballAnims (idle + windup t=0),
+    // not baked into bind, so the throw arm has a clean hang FK chain.
 
     m.rebuildInverseBindsFromRest();
     auto W = jointRestWorld(m);
