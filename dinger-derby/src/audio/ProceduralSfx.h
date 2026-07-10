@@ -61,75 +61,93 @@ inline std::filesystem::path resolveSfxPath(const char* filename) {
     return std::filesystem::path("assets/sfx") / filename;
 }
 
-// Layered wood-bat crack inspired by broadcast hits (not a copy of any recording).
-// quality: 0 = mishit, 1 = solid barrel
+// Modal wood-bat crack: impulse + resonant filters (maple-like).
+// quality: 0 = mishit, 1 = solid barrel. Not a copy of any recording.
 inline bool synthesizeBatCrack(sf::SoundBuffer& buffer, float quality) {
     quality = std::clamp(quality, 0.0f, 1.0f);
     constexpr unsigned sampleRate = 44100;
-    // Barrels ring a touch longer; mishits die faster.
-    const float duration = 0.18f + quality * 0.10f;
+    const float duration = quality > 0.55f ? 0.32f : 0.22f;
     const std::size_t n = static_cast<std::size_t>(sampleRate * duration);
-    std::vector<std::int16_t> samples(n, 0);
-    std::uint32_t rng = 0xBADC0FFEu + static_cast<std::uint32_t>(quality * 1000.0f);
+    std::vector<float> raw(n, 0.0f);
+    std::uint32_t rng = 0xBADC0FFEu + static_cast<std::uint32_t>(quality * 997.0f);
 
-    // Characteristic wood modes (approx) — bright crack + mid body + low thump.
-    const float fCrack = 2800.0f + quality * 1600.0f; // 2.8–4.4 kHz snap
-    const float fCrack2 = 5100.0f + quality * 900.0f;
-    const float fWood1 = 420.0f + quality * 80.0f;
-    const float fWood2 = 780.0f + quality * 120.0f;
-    const float fThump = 95.0f + quality * 40.0f;
+    struct Mode {
+        float b1 = 0;
+        float a2 = 0;
+        float amp = 0;
+        float y1 = 0;
+        float y2 = 0;
+    };
 
-    float hpPrevIn = 0.0f;
-    float hpPrevOut = 0.0f;
+    auto makeMode = [&](float freq, float amp, float damp) {
+        Mode m;
+        float r = std::exp(-damp / static_cast<float>(sampleRate));
+        float w = 2.0f * kPi * freq / static_cast<float>(sampleRate);
+        m.b1 = 2.0f * r * std::cos(w);
+        m.a2 = r * r;
+        m.amp = amp;
+        return m;
+    };
+
+    const float q = quality;
+    std::vector<Mode> modes = {
+        makeMode(3550.0f + q * 1100.0f, 1.10f, 95.0f - q * 25.0f),
+        makeMode(5200.0f + q * 800.0f, 0.70f, 110.0f - q * 20.0f),
+        makeMode(7800.0f, 0.28f * q, 140.0f),
+        makeMode(210.0f + q * 35.0f, 0.90f, 14.0f - q * 3.0f),
+        makeMode(380.0f + q * 45.0f, 0.75f, 18.0f - q * 4.0f),
+        makeMode(560.0f + q * 50.0f, 0.50f, 24.0f - q * 5.0f),
+        makeMode(910.0f + q * 40.0f, 0.28f, 32.0f),
+        makeMode(68.0f + q * 18.0f, 1.05f, 9.0f - q * 2.0f),
+        makeMode(125.0f, 0.55f, 12.0f),
+    };
+
+    float hpX1 = 0.0f;
+    float hpY1 = 0.0f;
+    float peak = 1e-6f;
+    const int burstN = static_cast<int>(0.003f * sampleRate);
+
     for (std::size_t i = 0; i < n; i++) {
         float t = static_cast<float>(i) / static_cast<float>(sampleRate);
-
-        // Ultra-fast attack (the "pop" you hear on TV).
-        float attack = 1.0f - std::exp(-t * 900.0f);
-        float envCrack = attack * std::exp(-t * (55.0f - quality * 12.0f));
-        float envBody = attack * std::exp(-t * (22.0f - quality * 6.0f));
-        float envThump = attack * std::exp(-t * (14.0f - quality * 4.0f));
-        float envAir = std::exp(-t * 40.0f);
-
-        // Broadband noise shaped for contact transient
-        float noise = frand(rng);
-        // One-pole high-pass for bright crack noise
-        constexpr float hpR = 0.92f;
-        float hp = noise - hpPrevIn + hpR * hpPrevOut;
-        hpPrevIn = noise;
-        hpPrevOut = hp;
-        float crackNoise = (noise * 0.35f + hp * 0.65f);
-
-        // Frequency chirp down slightly (impact → wood ring)
-        float chirp = 1.0f - 0.18f * std::min(t * 40.0f, 1.0f);
-        float snap =
-            std::sin(2.0f * kPi * fCrack * chirp * t) * 0.55f +
-            std::sin(2.0f * kPi * fCrack2 * chirp * t) * 0.28f +
-            crackNoise * (0.55f + quality * 0.35f);
-
-        float wood =
-            std::sin(2.0f * kPi * fWood1 * t) * 0.55f +
-            std::sin(2.0f * kPi * fWood2 * t) * 0.35f +
-            std::sin(2.0f * kPi * (fWood1 * 2.01f) * t) * 0.12f * quality;
-
-        float thump = std::sin(2.0f * kPi * fThump * t) * (0.55f + quality * 0.35f);
-
-        // Slight "whoosh" residual for barrel exit
-        float air = frand(rng) * 0.12f * quality;
-
-        float mix =
-            snap * envCrack * (0.85f + quality * 0.35f) +
-            wood * envBody * (0.45f + quality * 0.40f) +
-            thump * envThump * (0.35f + quality * 0.45f) +
-            air * envAir;
-
-        // Mishits: duller, more mid, less snap
-        if (quality < 0.45f) {
-            mix = mix * 0.75f + thump * envThump * 0.35f + wood * envBody * 0.25f;
-            mix *= 0.85f;
+        float exc = 0.0f;
+        if (i == 0) {
+            exc = 2.2f + 0.8f * q;
+        } else if (static_cast<int>(i) < burstN) {
+            float env = std::exp(-t * 900.0f);
+            exc = frand(rng) * env * (1.2f + 0.6f * q);
+        } else {
+            exc = frand(rng) * 0.015f * std::exp(-t * 30.0f) * q;
         }
 
-        float v = softClip(mix * (0.72f + quality * 0.28f)) * 30000.0f;
+        float wood = 0.0f;
+        for (Mode& m : modes) {
+            float y = exc * m.amp + m.b1 * m.y1 - m.a2 * m.y2;
+            m.y2 = m.y1;
+            m.y1 = y;
+            wood += y;
+        }
+
+        float noise = frand(rng);
+        float hp = 0.965f * (hpY1 + noise - hpX1);
+        hpX1 = noise;
+        hpY1 = hp;
+        float crackEnv = std::exp(-t * (100.0f - q * 30.0f));
+        if (t < 0.0004f) {
+            crackEnv *= t / 0.0004f;
+        }
+        float crack = hp * crackEnv * (1.0f + 0.6f * q);
+
+        float mix = wood * 0.42f + crack * 1.05f;
+        if (q < 0.4f) {
+            mix = mix * 0.65f + wood * 0.2f;
+        }
+        raw[i] = mix;
+        peak = std::max(peak, std::abs(mix));
+    }
+
+    std::vector<std::int16_t> samples(n);
+    for (std::size_t i = 0; i < n; i++) {
+        float v = softClip(raw[i] / peak * 1.35f) * 30000.0f;
         samples[i] = static_cast<std::int16_t>(std::clamp(v, -32000.0f, 32000.0f));
     }
 
@@ -186,24 +204,27 @@ struct BatParkSfx {
         , crackSolid(crackSolidBuf)
         , crackSoft(crackSoftBuf)
         , crowd(crowdBuf) {
-        // Prefer user-supplied WAVs (licensed / recorded yourself).
+        // Prefer shipped / user WAVs (modal wood cracks in assets/sfx/).
         bool fileBarrel = loadMonoWav(crackBarrelBuf, resolveSfxPath("bat_crack.wav"));
+        bool fileSolid = loadMonoWav(crackSolidBuf, resolveSfxPath("bat_crack_solid.wav"));
         bool fileSoft = loadMonoWav(crackSoftBuf, resolveSfxPath("bat_crack_soft.wav"));
         bool fileCrowd = loadMonoWav(crowdBuf, resolveSfxPath("crowd_pop.wav"));
 
-        if (fileBarrel) {
-            usedFileSample = true;
-            // Duplicate solid from barrel if only one file provided.
-            crackSolidBuf = crackBarrelBuf;
-            if (!fileSoft) {
-                synthesizeBatCrack(crackSoftBuf, 0.25f);
-            }
-        } else {
+        if (!fileBarrel) {
             synthesizeBatCrack(crackBarrelBuf, 1.0f);
-            synthesizeBatCrack(crackSolidBuf, 0.72f);
-            synthesizeBatCrack(crackSoftBuf, 0.28f);
+        } else {
+            usedFileSample = true;
         }
-
+        if (!fileSolid) {
+            if (fileBarrel) {
+                crackSolidBuf = crackBarrelBuf;
+            } else {
+                synthesizeBatCrack(crackSolidBuf, 0.70f);
+            }
+        }
+        if (!fileSoft) {
+            synthesizeBatCrack(crackSoftBuf, 0.25f);
+        }
         if (!fileCrowd) {
             makeCrowdPop(crowdBuf);
         }
@@ -214,18 +235,15 @@ struct BatParkSfx {
         crowd = sf::Sound(crowdBuf);
         ok = true;
 
-        crackBarrel.setVolume(92.0f);
-        crackSolid.setVolume(82.0f);
-        crackSoft.setVolume(62.0f);
+        // Wooden cracks read a bit hot; keep headroom.
+        crackBarrel.setVolume(96.0f);
+        crackSolid.setVolume(88.0f);
+        crackSoft.setVolume(70.0f);
         crowd.setVolume(72.0f);
 
-        if (usedFileSample) {
-            std::cerr << "ProceduralSfx: using assets/sfx bat_crack.wav" << std::endl;
-        } else {
-            std::cerr << "ProceduralSfx: using synthesized MLB-style bat crack "
-                         "(drop assets/sfx/bat_crack.wav for a real sample)"
-                      << std::endl;
-        }
+        std::cerr << "ProceduralSfx: bat crack "
+                  << (usedFileSample ? "from assets/sfx/*.wav" : "modal wood synthesis")
+                  << std::endl;
     }
 
     // sweet01 0..1, exitMph for pitch/volume, barrelHr for loudest tier.
