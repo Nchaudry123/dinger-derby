@@ -745,14 +745,17 @@ Vector3 mouseToPci(const Camera3D& cam, float mx, float my, float sw, float sh) 
 
 // The Show–style bat: outline only + solid sweet-spot circle (best contact).
 // Aim: flat plate-plane capsule. Swing: outline tracks the animated bat path.
+// The Show–style bat: pure yellow outline + small yellow sweet-spot circle.
 void drawBatOutlineAndSweetSpot(
     sf::RenderWindow& window,
     const Camera3D& cam,
     const BatPose& bat,
-    const BatConfig& cfg,
-    sf::Color outlineCol,
-    float sweetRadiusM
+    const BatConfig& cfg
 ) {
+    // Fixed bright yellow (not swing-type tint).
+    const sf::Color yellow(255, 230, 40, 255);
+    const sf::Color yellowSoft(255, 230, 40, 90);
+
     const int segs = 32;
     float sw = static_cast<float>(window.getSize().x);
     float sh = static_cast<float>(window.getSize().y);
@@ -764,7 +767,7 @@ void drawBatOutlineAndSweetSpot(
     Vector3 side;
     Vector3 sweetWorld = bat.pci;
     if (aimOnly) {
-        // Crisp 2D outline on the plate plane (matches the reference photo).
+        // Crisp 2D outline on the plate plane.
         Vector3 axisFlat = safeNorm(Vector3(axis.x, axis.y, 0.0f), Vector3(1, 0, 0));
         axis = axisFlat;
         side = Vector3(-axisFlat.y, axisFlat.x, 0.0f);
@@ -781,21 +784,21 @@ void drawBatOutlineAndSweetSpot(
         sweetWorld = batPoint(bat, cfg.sweetFromKnob);
     }
 
-    // Build left/right edges of a handle→barrel capsule (no fill).
+    // Build left/right edges of a handle→barrel capsule (outline only, no fill).
     std::vector<sf::Vector2f> L, R;
     L.reserve(segs + 1);
     R.reserve(segs + 1);
     for (int i = 0; i <= segs; i++) {
         float t = static_cast<float>(i) / segs;
         float s = t * cfg.length;
-        // The Show proportions: thin handle, widens into rounded barrel.
+        // Thin handle → wider barrel (readable outline proportions).
         float r;
         if (t < 0.28f) {
-            r = lerp(0.018f, 0.028f, t / 0.28f);
+            r = lerp(0.016f, 0.026f, t / 0.28f);
         } else if (t < 0.55f) {
-            r = lerp(0.028f, 0.052f, (t - 0.28f) / 0.27f);
+            r = lerp(0.026f, 0.048f, (t - 0.28f) / 0.27f);
         } else {
-            r = lerp(0.052f, 0.060f, (t - 0.55f) / 0.45f);
+            r = lerp(0.048f, 0.055f, (t - 0.55f) / 0.45f);
         }
         Vector3 c = aimOnly ? (knob + axis * s) : batPoint(bat, s);
         if (aimOnly) {
@@ -834,7 +837,7 @@ void drawBatOutlineAndSweetSpot(
         }
     };
 
-    // Closed outline only — no fill (matches The Show reference).
+    // Closed yellow outline only.
     if (L.size() >= 2 && R.size() >= 2) {
         auto drawEndCap = [&](sf::Vector2f a, sf::Vector2f b, sf::Vector2f outward, float thickness, sf::Color c) {
             sf::Vector2f mid((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
@@ -847,7 +850,6 @@ void drawBatOutlineAndSweetSpot(
             }
             sf::Vector2f ax(outward.x / olen, outward.y / olen);
             sf::Vector2f perp(-ax.y, ax.x);
-            // Match side of a relative to mid for start angle sign.
             sf::Vector2f toA = a - mid;
             float sideSign = (toA.x * perp.x + toA.y * perp.y) >= 0.0f ? 1.0f : -1.0f;
             sf::Vector2f prev = a;
@@ -866,43 +868,36 @@ void drawBatOutlineAndSweetSpot(
         sf::Vector2f knobMid((L.front().x + R.front().x) * 0.5f, (L.front().y + R.front().y) * 0.5f);
         sf::Vector2f axisScreen = tipMid - knobMid;
 
-        sf::Color under(0, 0, 0, 170);
-        thickPoly(L, 6.5f, under);
-        thickPoly(R, 6.5f, under);
-        drawEndCap(L.back(), R.back(), axisScreen, 6.5f, under);
-        drawEndCap(L.front(), R.front(), -axisScreen, 6.5f, under);
+        // Thin dark under-stroke so yellow reads on any background.
+        sf::Color under(0, 0, 0, 150);
+        thickPoly(L, 4.5f, under);
+        thickPoly(R, 4.5f, under);
+        drawEndCap(L.back(), R.back(), axisScreen, 4.5f, under);
+        drawEndCap(L.front(), R.front(), -axisScreen, 4.5f, under);
 
-        sf::Color edge(outlineCol.r, outlineCol.g, outlineCol.b, 255);
-        thickPoly(L, 3.2f, edge);
-        thickPoly(R, 3.2f, edge);
-        drawEndCap(L.back(), R.back(), axisScreen, 3.2f, edge);
-        drawEndCap(L.front(), R.front(), -axisScreen, 3.2f, edge);
+        // Bright yellow outline.
+        thickPoly(L, 2.6f, yellow);
+        thickPoly(R, 2.6f, yellow);
+        drawEndCap(L.back(), R.back(), axisScreen, 2.6f, yellow);
+        drawEndCap(L.front(), R.front(), -axisScreen, 2.6f, yellow);
     }
 
-    // Solid sweet-spot circle — best place to hit the ball (PCI).
+    // Small solid yellow circle = best contact (sweet spot / PCI).
     ProjectedPoint3D sp = cam.projectPoint(sweetWorld, sw, sh);
     if (sp.visible) {
-        ProjectedPoint3D se = cam.projectPoint(
-            sweetWorld + Vector3(sweetRadiusM, 0, 0), sw, sh
-        );
-        float pxR = 16.0f;
-        if (se.visible) {
-            float dx = se.position.x - sp.position.x;
-            float dy = se.position.y - sp.position.y;
-            pxR = std::max(12.0f, std::sqrt(dx * dx + dy * dy));
-        }
-        sf::CircleShape glow(pxR * 1.4f);
-        glow.setOrigin({pxR * 1.4f, pxR * 1.4f});
-        glow.setPosition({sp.position.x, sp.position.y});
-        glow.setFillColor(sf::Color(outlineCol.r, outlineCol.g, outlineCol.b, 50));
-        window.draw(glow);
+        constexpr float pxR = 5.5f; // small — not a big reticle
+        sf::CircleShape soft(pxR + 2.0f);
+        soft.setOrigin({pxR + 2.0f, pxR + 2.0f});
+        soft.setPosition({sp.position.x, sp.position.y});
+        soft.setFillColor(yellowSoft);
+        window.draw(soft);
 
         sf::CircleShape core(pxR);
         core.setOrigin({pxR, pxR});
         core.setPosition({sp.position.x, sp.position.y});
-        core.setFillColor(sf::Color(outlineCol.r, outlineCol.g, outlineCol.b, 255));
-        core.setOutlineThickness(2.0f);
-        core.setOutlineColor(sf::Color(255, 255, 255, 210));
+        core.setFillColor(yellow);
+        core.setOutlineThickness(1.2f);
+        core.setOutlineColor(sf::Color(40, 35, 10, 220));
         window.draw(core);
     }
 }
@@ -1003,7 +998,7 @@ int main() {
     std::vector<Vector3> trail;
     float spinX = 0, spinY = 0, spinZ = 0;
 
-    // The Show yellow for bat outline + sweet spot (always readable).
+    // HUD accent — matches bat yellow outline.
     const sf::Color batOutlineCol(255, 230, 40);
 
     auto beginPitch = [&]() {
@@ -1269,9 +1264,8 @@ int main() {
             sf::Color c(255, 240, 180, static_cast<std::uint8_t>(40 + a * 170));
             drawThickProjectedLine(window, camera, trail[i - 1], trail[i], 2.0f, c);
         }
-        // Outline bat + solid yellow sweet-spot circle only.
-        float sweetR = practiceMode ? std::max(prof.pciR * 1.55f, 0.09f) : prof.pciR;
-        drawBatOutlineAndSweetSpot(window, camera, bat, batCfg, batOutlineCol, sweetR);
+        // Yellow bat outline + small yellow sweet-spot circle only.
+        drawBatOutlineAndSweetSpot(window, camera, bat, batCfg);
 
         if (lastHit.hit && hasHit) {
             ProjectedPoint3D p = camera.projectPoint(
@@ -1314,7 +1308,7 @@ int main() {
             drawText(
                 window,
                 font,
-                "Yellow outline = bat   ·   Yellow circle = best contact (sweet spot)",
+                "Yellow outline = bat   ·   Small yellow circle = best contact",
                 12,
                 {22, 112},
                 batOutlineCol
