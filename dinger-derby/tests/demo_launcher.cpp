@@ -31,7 +31,8 @@ std::vector<DemoEntry> makeDemoEntries() {
         {"Physics 3D", "physics3d_demo", "Rigid 3D sphere collisions and bounds"},
         {"Rotation 3D", "rotation_3d_demo", "Yaw, pitch, roll, and orbit camera"},
         {"Baseball 3D", "baseball_3d_demo", "High-poly baseball showcase"},
-        {"Pitching Simulator", "pitching_simulator_demo", "Aim box and pitch-type physics"}
+        {"Pitching Simulator", "pitching_simulator_demo", "Aim box and pitch-type physics"},
+        {"Character Viewer", "character_viewer_demo", "New CharacterModel3D workshop (orbit + poses)"}
     };
 }
 

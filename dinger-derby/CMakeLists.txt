@@ -26,6 +26,7 @@ set(ENGINE_SOURCES
     src/rendering/SkinnedModel3D.cpp
     src/rendering/SkeletonAnimator.cpp
     src/rendering/BaseballAnims.cpp
+    src/rendering/CharacterModel3D.cpp
     src/rendering/GltfLoader.cpp
     src/rendering/GlRenderer.cpp
     src/rendering/Rasterizer3D.cpp
@@ -80,6 +81,7 @@ add_dinger_demo(physics3d_demo tests/physics3d_demo.cpp)
 add_dinger_demo(rotation_3d_demo tests/rotation_3d_demo.cpp)
 add_dinger_demo(baseball_3d_demo tests/baseball_3d_demo.cpp)
 add_dinger_demo(pitching_simulator_demo tests/pitching_simulator_demo.cpp)
+add_dinger_demo(character_viewer_demo tests/character_viewer_demo.cpp)
 
 add_executable(physics_engine_test tests/physics_engine_test.cpp)
 target_link_libraries(physics_engine_test PRIVATE dinger_engine)
