@@ -65,6 +65,7 @@ add_dinger_demo(culling_stress_3d_demo tests/culling_stress_3d_demo.cpp)
 add_dinger_demo(demo_launcher tests/demo_launcher.cpp)
 add_dinger_demo(physics3d_demo tests/physics3d_demo.cpp)
 add_dinger_demo(rotation_3d_demo tests/rotation_3d_demo.cpp)
+add_dinger_demo(baseball_3d_demo tests/baseball_3d_demo.cpp)
 
 add_executable(physics_engine_test tests/physics_engine_test.cpp)
 target_link_libraries(physics_engine_test PRIVATE dinger_engine)

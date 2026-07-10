@@ -1,0 +1,397 @@
+#include <SFML/Graphics.hpp>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <limits>
+#include <vector>
+
+#include "DemoFpsCounter.h"
+#include "RasterDemo3D.h"
+#include "../src/math/Matrix4.h"
+#include "../src/math/Vector3.h"
+#include "../src/rendering/Camera3D.h"
+#include "../src/rendering/FrameBuffer.h"
+#include "../src/rendering/Mesh3D.h"
+#include "../src/rendering/Rasterizer3D.h"
+
+namespace {
+
+constexpr float pi = 3.1415926535f;
+const Vector3 boxMinimum(-3.2f, -2.2f, -2.0f);
+const Vector3 boxMaximum(3.2f, 2.2f, 4.0f);
+const Vector3 boxCenter(0.0f, 0.0f, 1.0f);
+
+struct SeamPoint {
+    Vector3 position;
+    Vector3 side;
+};
+
+void updateOrbitCamera(Camera3D& camera, float yaw, float pitch, float distance) {
+    pitch = std::clamp(pitch, -1.15f, 1.15f);
+    float horizontalDistance = std::cos(pitch) * distance;
+
+    camera.position = boxCenter + Vector3(
+        std::sin(yaw) * horizontalDistance,
+        std::sin(pitch) * distance,
+        -std::cos(yaw) * horizontalDistance
+    );
+
+    Vector3 toTarget = boxCenter - camera.position;
+    float horizontal = std::sqrt(toTarget.x * toTarget.x + toTarget.z * toTarget.z);
+
+    camera.rotation.y = std::atan2(toTarget.x, toTarget.z);
+    camera.rotation.x = -std::atan2(toTarget.y, horizontal);
+    camera.rotation.z = 0.0f;
+}
+
+Mesh3D makeBaseballMesh() {
+    Mesh3D mesh = Mesh3D::sphere(1.0f, 36, 72);
+    mesh.triangleColors.clear();
+    mesh.triangleColors.reserve(mesh.triangles.size());
+
+    Vector3 light = Vector3(-0.35f, 0.75f, -0.55f).normalized();
+
+    for (int i = 0; i < mesh.triangles.size(); i++) {
+        Vector3 normal = mesh.triangleNormals[i].normalized();
+        float lightAmount = std::max(0.0f, normal.dot(light));
+        float shade = 0.62f + lightAmount * 0.34f;
+        float warmPanel = 0.5f + 0.5f * std::sin(normal.x * 11.0f + normal.y * 7.0f);
+
+        int red = static_cast<int>((222.0f + warmPanel * 16.0f) * shade);
+        int green = static_cast<int>((214.0f + warmPanel * 14.0f) * shade);
+        int blue = static_cast<int>((198.0f + warmPanel * 10.0f) * shade);
+
+        mesh.triangleColors.push_back(sf::Color(
+            static_cast<std::uint8_t>(std::clamp(red, 0, 255)),
+            static_cast<std::uint8_t>(std::clamp(green, 0, 255)),
+            static_cast<std::uint8_t>(std::clamp(blue, 0, 255))
+        ));
+    }
+
+    return mesh;
+}
+
+std::vector<SeamPoint> makeSeamLoop(bool mirrored) {
+    const int pointCount = 220;
+    std::vector<SeamPoint> points;
+    points.reserve(pointCount);
+    std::vector<Vector3> positions;
+    positions.reserve(pointCount);
+
+    for (int i = 0; i < pointCount; i++) {
+        float t = static_cast<float>(i) / pointCount * pi * 2.0f;
+        float wave = 0.42f * std::sin(t * 2.0f);
+
+        if (mirrored) {
+            wave = -wave;
+        }
+
+        positions.push_back(Vector3(
+            std::cos(t),
+            wave,
+            std::sin(t)
+        ).normalized());
+    }
+
+    for (int i = 0; i < pointCount; i++) {
+        Vector3 previous = positions[(i + pointCount - 1) % pointCount];
+        Vector3 next = positions[(i + 1) % pointCount];
+        Vector3 tangent = (next - previous).normalized();
+        Vector3 normal = positions[i].normalized();
+        Vector3 side = normal.cross(tangent).normalized();
+
+        points.push_back(SeamPoint{
+            normal * 1.018f,
+            side
+        });
+    }
+
+    return points;
+}
+
+void drawThickProjectedLine(
+    sf::RenderWindow& window,
+    const Camera3D& camera,
+    const Vector3& a,
+    const Vector3& b,
+    float thickness,
+    sf::Color color
+) {
+    ProjectedPoint3D projectedA = camera.projectPoint(
+        a,
+        static_cast<float>(window.getSize().x),
+        static_cast<float>(window.getSize().y)
+    );
+    ProjectedPoint3D projectedB = camera.projectPoint(
+        b,
+        static_cast<float>(window.getSize().x),
+        static_cast<float>(window.getSize().y)
+    );
+
+    if (!projectedA.visible || !projectedB.visible) {
+        return;
+    }
+
+    sf::Vector2f a2(projectedA.position.x, projectedA.position.y);
+    sf::Vector2f b2(projectedB.position.x, projectedB.position.y);
+    sf::Vector2f delta = b2 - a2;
+    float length = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+
+    if (length <= 0.0f) {
+        return;
+    }
+
+    sf::Vector2f normal(-delta.y / length, delta.x / length);
+    sf::Vector2f offset = normal * (thickness * 0.5f);
+
+    sf::VertexArray quad(sf::PrimitiveType::TriangleStrip, 4);
+    quad[0].position = a2 + offset;
+    quad[1].position = a2 - offset;
+    quad[2].position = b2 + offset;
+    quad[3].position = b2 - offset;
+
+    for (int i = 0; i < 4; i++) {
+        quad[i].color = color;
+    }
+
+    window.draw(quad);
+}
+
+void drawProjectedLine(
+    sf::RenderWindow& window,
+    const Camera3D& camera,
+    const Vector3& a,
+    const Vector3& b,
+    sf::Color color
+) {
+    drawThickProjectedLine(window, camera, a, b, 1.4f, color);
+}
+
+bool surfaceFacesCamera(
+    const Camera3D& camera,
+    const Matrix4& transform,
+    const Vector3& localPoint
+) {
+    Vector3 worldPoint = transform.transformPoint(localPoint);
+    Vector3 worldNormal = transform.transformDirection(localPoint.normalized()).normalized();
+    Vector3 toCamera = (camera.position - worldPoint).normalized();
+
+    return worldNormal.dot(toCamera) > 0.0f;
+}
+
+void drawViewingBox(sf::RenderWindow& window, const Camera3D& camera) {
+    std::array<Vector3, 8> corners = {
+        Vector3(boxMinimum.x, boxMinimum.y, boxMinimum.z),
+        Vector3(boxMaximum.x, boxMinimum.y, boxMinimum.z),
+        Vector3(boxMaximum.x, boxMaximum.y, boxMinimum.z),
+        Vector3(boxMinimum.x, boxMaximum.y, boxMinimum.z),
+        Vector3(boxMinimum.x, boxMinimum.y, boxMaximum.z),
+        Vector3(boxMaximum.x, boxMinimum.y, boxMaximum.z),
+        Vector3(boxMaximum.x, boxMaximum.y, boxMaximum.z),
+        Vector3(boxMinimum.x, boxMaximum.y, boxMaximum.z)
+    };
+
+    const std::array<std::array<int, 2>, 12> edges = {{
+        {{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}},
+        {{4, 5}}, {{5, 6}}, {{6, 7}}, {{7, 4}},
+        {{0, 4}}, {{1, 5}}, {{2, 6}}, {{3, 7}}
+    }};
+
+    for (const auto& edge : edges) {
+        drawProjectedLine(
+            window,
+            camera,
+            corners[edge[0]],
+            corners[edge[1]],
+            sf::Color(110, 225, 235, 160)
+        );
+    }
+}
+
+void drawBaseballSeams(
+    sf::RenderWindow& window,
+    const Camera3D& camera,
+    const Matrix4& transform,
+    const std::vector<SeamPoint>& seamA,
+    const std::vector<SeamPoint>& seamB
+) {
+    auto drawSeam = [&](const std::vector<SeamPoint>& seam) {
+        sf::Color seamColor(170, 32, 38, 230);
+        sf::Color stitchColor(130, 18, 26, 240);
+
+        for (int i = 0; i < seam.size(); i++) {
+            const SeamPoint& current = seam[i];
+            const SeamPoint& next = seam[(i + 1) % seam.size()];
+            Vector3 midpoint = (current.position + next.position).normalized();
+
+            if (!surfaceFacesCamera(camera, transform, midpoint)) {
+                continue;
+            }
+
+            drawThickProjectedLine(
+                window,
+                camera,
+                transform.transformPoint(current.position),
+                transform.transformPoint(next.position),
+                2.6f,
+                seamColor
+            );
+        }
+
+        for (int i = 0; i < seam.size(); i += 7) {
+            const SeamPoint& point = seam[i];
+            if (!surfaceFacesCamera(camera, transform, point.position.normalized())) {
+                continue;
+            }
+
+            Vector3 stitchA = (point.position + point.side * 0.075f).normalized() * 1.038f;
+            Vector3 stitchB = (point.position - point.side * 0.075f).normalized() * 1.038f;
+
+            drawThickProjectedLine(
+                window,
+                camera,
+                transform.transformPoint(stitchA),
+                transform.transformPoint(stitchB),
+                2.0f,
+                stitchColor
+            );
+        }
+    };
+
+    drawSeam(seamA);
+    drawSeam(seamB);
+}
+
+}
+
+int main() {
+    sf::RenderWindow window(
+        sf::VideoMode(sf::Vector2u(1280, 720)),
+        "Baseball Showcase | drag: orbit | wheel: zoom | A: AA | Space: pause"
+    );
+    window.setFramerateLimit(60);
+
+    bool antiAliasingEnabled = true;
+    bool paused = false;
+    Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
+    DemoFpsCounter fpsCounter("Baseball Showcase | high-poly ball | A: AA on | Space: pause");
+
+    sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
+    FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
+    Camera3D camera;
+    float cameraYaw = 0.0f;
+    float cameraPitch = 0.16f;
+    float cameraDistance = 8.0f;
+    bool draggingCamera = false;
+    sf::Vector2i previousMousePosition;
+    updateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
+
+    Mesh3D baseball = makeBaseballMesh();
+    std::vector<SeamPoint> seamA = makeSeamLoop(false);
+    std::vector<SeamPoint> seamB = makeSeamLoop(true);
+    RasterMeshRenderCache renderCache;
+    sf::Clock frameClock;
+    float rotationTime = 0.0f;
+
+    while (window.isOpen()) {
+        while (const std::optional event = window.pollEvent()) {
+            if (event->is<sf::Event::Closed>()) {
+                window.close();
+            }
+
+            if (const auto* key = event->getIf<sf::Event::KeyPressed>()) {
+                if (key->code == sf::Keyboard::Key::A) {
+                    antiAliasingEnabled = !antiAliasingEnabled;
+                    Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
+                    fpsCounter.setTitle(
+                        antiAliasingEnabled
+                            ? "Baseball Showcase | high-poly ball | A: AA on | Space: pause"
+                            : "Baseball Showcase | high-poly ball | A: AA off | Space: pause"
+                    );
+                }
+
+                if (key->code == sf::Keyboard::Key::Space) {
+                    paused = !paused;
+                }
+            }
+
+            if (const auto* mouse = event->getIf<sf::Event::MouseButtonPressed>()) {
+                if (mouse->button == sf::Mouse::Button::Left) {
+                    draggingCamera = true;
+                    previousMousePosition = mouse->position;
+                }
+            }
+
+            if (const auto* mouse = event->getIf<sf::Event::MouseButtonReleased>()) {
+                if (mouse->button == sf::Mouse::Button::Left) {
+                    draggingCamera = false;
+                }
+            }
+
+            if (const auto* move = event->getIf<sf::Event::MouseMoved>()) {
+                if (draggingCamera) {
+                    sf::Vector2i current = move->position;
+                    sf::Vector2i delta = current - previousMousePosition;
+                    previousMousePosition = current;
+                    cameraYaw += delta.x * 0.006f;
+                    cameraPitch = std::clamp(cameraPitch + delta.y * 0.005f, -1.15f, 1.15f);
+                    updateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
+                }
+            }
+
+            if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>()) {
+                cameraDistance = std::clamp(cameraDistance - wheel->delta * 0.65f, 4.2f, 14.0f);
+                updateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
+            }
+
+            if (const auto* resized = event->getIf<sf::Event::Resized>()) {
+                window.setView(sf::View(sf::FloatRect(
+                    sf::Vector2f(0.0f, 0.0f),
+                    sf::Vector2f(resized->size.x, resized->size.y)
+                )));
+                rasterSize = rasterSizeForWindow(resized->size);
+                frameBuffer.resize(rasterSize.x, rasterSize.y);
+            }
+        }
+
+        float dt = std::min(frameClock.restart().asSeconds(), 1.0f / 30.0f);
+        if (!paused) {
+            rotationTime += dt;
+        }
+
+        Matrix4 baseballTransform =
+            Matrix4::translation(boxCenter) *
+            Matrix4::rotationY(rotationTime * 0.62f) *
+            Matrix4::rotationZ(0.42f) *
+            Matrix4::rotationX(rotationTime * 0.38f) *
+            Matrix4::scale(Vector3(1.55f, 1.55f, 1.55f));
+
+        frameBuffer.clear(sf::Color(5, 8, 14));
+        frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
+
+        rasterizeMeshTriangles(
+            frameBuffer,
+            camera,
+            baseball,
+            baseballTransform,
+            sf::Color(230, 220, 205),
+            renderCache
+        );
+
+        window.clear();
+        frameBuffer.present(window);
+
+        Camera3D overlayCamera = camera;
+        overlayCamera.fieldOfView =
+            camera.fieldOfView *
+            static_cast<float>(window.getSize().x) /
+            static_cast<float>(frameBuffer.getWidth());
+        drawViewingBox(window, overlayCamera);
+        drawBaseballSeams(window, overlayCamera, baseballTransform, seamA, seamB);
+
+        fpsCounter.frame(window);
+        window.display();
+    }
+
+    return 0;
+}
