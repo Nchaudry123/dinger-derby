@@ -1005,7 +1005,7 @@ int main() {
     std::vector<SeamPoint3D> seamB = BaseballVisual3D::makeSeamLoop(true);
     const float catcherWorldX = 0.05f;
     const float catcherWorldZ = plateZ + 0.95f;
-    auto playerDetail = [&]() { return fullQuality ? 2 : 1; };
+    auto playerDetail = [&]() { return fullQuality ? 2 : 2; }; // always high model detail
     Mesh3D pitcherMesh = BaseballPlayer3D::pitcher(playerDetail());
     Mesh3D catcherMesh = BaseballPlayer3D::catcher(playerDetail());
     RasterMeshRenderCache renderCache;
@@ -1041,9 +1041,9 @@ int main() {
     float playerRebuildTimer = 0.0f;
     bool ballReleased = false;
     // Yamamoto-style timing: high kick hold, late hip-shoulder fire, release ~60%.
-    constexpr float deliveryDuration = 1.28f;
+    constexpr float deliveryDuration = 1.35f;
     constexpr float releaseNormalized = 0.60f;
-    constexpr float playerRebuildHz = 48.0f;
+    constexpr float playerRebuildHz = 60.0f;
     bool paused = false;
     bool draggingSpeedSlider = false;
     std::string latestResult = "Ready — press R to throw";
