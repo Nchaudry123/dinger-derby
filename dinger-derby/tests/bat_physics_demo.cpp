@@ -1,49 +1,64 @@
-// Bat Physics Demo — plate-view aim + three swing types (The Show–style PCI).
+// Bat Physics Demo — 3D batting cage (separate from pitching simulator).
 //
-// Mouse aims a 2D bat silhouette over the plate. Z/X/C select swing type
-// (power / contact / regular). Space or LMB starts the swing; contact uses
-// sweet-spot COR + bat point velocity for exit speed.
+// Mouse aims PCI on the plate plane; 3D bat orients to the aim point.
+// Z/X/C = Power / Contact / Regular. Space or LMB swings.
+//
+// World: +Y up · plate near z=0 · pitcher at −Z throws toward +Z.
 //
 // Controls:
-//   Mouse              aim bat / PCI over the plate
-//   Z                  Power swing
-//   X                  Contact swing
-//   C                  Regular swing
+//   Mouse              aim PCI (plate X / height)
+//   Q / E / wheel      bat roll
+//   Z / X / C          Power / Contact / Regular
 //   Space / LMB        swing
 //   R                  reset
-//   [ ]                pitch speed −/+
+//   [ ]                pitch speed
 //   Esc                quit
 
 #include <SFML/Graphics.hpp>
+#include <SFML/Window/ContextSettings.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iomanip>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "DemoFpsCounter.h"
-#include "math/Vector2.h"
-#include "physics/Body2D.h"
-#include "physics/PhysicsWorld2D.h"
+#include "RasterDemo3D.h"
+#include "math/Matrix4.h"
+#include "math/Vector3.h"
+#include "physics/Body3D.h"
+#include "physics/PhysicsWorld3D.h"
+#include "rendering/BaseballVisual3D.h"
+#include "rendering/Camera3D.h"
+#include "rendering/FrameBuffer.h"
+#include "rendering/GlRenderer.h"
+#include "rendering/Mesh3D.h"
+#include "rendering/Rasterizer3D.h"
 
 namespace {
 
 constexpr float kPi = 3.14159265f;
 constexpr float kDeg = 180.0f / kPi;
+constexpr float kFixed = 1.0f / 180.0f;
+constexpr float kBallR = 0.037f;
+constexpr float kPlateZ = 0.0f;
+constexpr float kMoundZ = -16.0f;
+constexpr float kZoneHalfW = 0.45f;
+constexpr float kZoneBot = 0.46f;
+constexpr float kZoneTop = 1.15f;
 
 bool loadUiFont(sf::Font& font) {
-    const std::vector<std::filesystem::path> candidates = {
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/System/Library/Fonts/Supplemental/Helvetica.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-        "/System/Library/Fonts/SFNS.ttf"
-    };
-    for (const auto& c : candidates) {
-        if (font.openFromFile(c)) {
+    for (const char* path : {
+             "/System/Library/Fonts/Supplemental/Arial.ttf",
+             "/System/Library/Fonts/Supplemental/Helvetica.ttf",
+             "/System/Library/Fonts/Helvetica.ttc",
+             "/System/Library/Fonts/SFNS.ttf"}) {
+        if (font.openFromFile(path)) {
             return true;
         }
     }
@@ -51,17 +66,17 @@ bool loadUiFont(sf::Font& font) {
 }
 
 void drawText(
-    sf::RenderWindow& window,
+    sf::RenderWindow& w,
     const sf::Font& font,
-    const std::string& value,
-    unsigned int size,
-    sf::Vector2f position,
-    sf::Color color
+    const std::string& s,
+    unsigned size,
+    sf::Vector2f p,
+    sf::Color c
 ) {
-    sf::Text text(font, value, size);
-    text.setFillColor(color);
-    text.setPosition(position);
-    window.draw(text);
+    sf::Text t(font, s, size);
+    t.setFillColor(c);
+    t.setPosition(p);
+    w.draw(t);
 }
 
 float clampf(float v, float lo, float hi) {
@@ -74,730 +89,779 @@ float smooth01(float t) {
     t = clampf(t, 0.0f, 1.0f);
     return t * t * (3.0f - 2.0f * t);
 }
-float deg2rad(float d) {
-    return d * kPi / 180.0f;
+
+Vector3 safeNorm(const Vector3& v, const Vector3& fb = Vector3(0, 1, 0)) {
+    float m = v.magnitude();
+    return m > 1e-6f ? v * (1.0f / m) : fb;
+}
+
+void lookAt(Camera3D& cam, const Vector3& pos, const Vector3& target) {
+    cam.position = pos;
+    Vector3 to = target - pos;
+    float h = std::sqrt(to.x * to.x + to.z * to.z);
+    cam.rotation.y = std::atan2(to.x, to.z);
+    cam.rotation.x = -std::atan2(to.y, h);
+    cam.rotation.z = 0.0f;
 }
 
 // ── Swing types ─────────────────────────────────────────────────────────
 
-enum class SwingType {
-    Power = 0,    // Z
-    Contact = 1,  // X
-    Regular = 2   // C
-};
+enum class SwingType { Power = 0, Contact = 1, Regular = 2 };
 
 struct SwingProfile {
     const char* name;
-    char hotkey;
-    float power;           // multiplies bat head speed
-    float swingDuration;   // seconds (lower = quicker)
-    float sweetWidthScale; // >1 more forgiving
-    float corBonus;        // added to base COR at sweet spot
-    float massScale;       // effective bat mass
-    float pciRadiusPx;     // visual PCI size
-    sf::Color accent;
+    float power;
+    float duration;
+    float sweetScale;
+    float corBonus;
+    float massScale;
+    float pciR;
+    sf::Color color;
 };
 
-const SwingProfile& profileFor(SwingType t) {
-    static const SwingProfile kProfiles[] = {
-        // Power: hard, small sweet spot, fast through zone
-        {"POWER", 'Z', 1.22f, 0.22f, 0.72f, 0.04f, 1.10f, 14.0f, sf::Color(255, 120, 90)},
-        // Contact: softer, big sweet spot, slower, more COR forgiveness on mishit
-        {"CONTACT", 'X', 0.72f, 0.32f, 1.45f, -0.02f, 0.95f, 22.0f, sf::Color(120, 220, 255)},
-        // Regular: balanced
-        {"REGULAR", 'C', 1.00f, 0.26f, 1.00f, 0.00f, 1.00f, 17.0f, sf::Color(255, 230, 80)},
+const SwingProfile& profileOf(SwingType t) {
+    static const SwingProfile k[] = {
+        {"POWER", 1.25f, 0.20f, 0.68f, 0.05f, 1.12f, 0.05f, sf::Color(255, 130, 90)},
+        {"CONTACT", 0.70f, 0.30f, 1.55f, -0.01f, 0.92f, 0.095f, sf::Color(110, 210, 255)},
+        {"REGULAR", 1.00f, 0.24f, 1.00f, 0.00f, 1.00f, 0.07f, sf::Color(255, 225, 70)},
     };
-    return kProfiles[static_cast<int>(t)];
+    return k[static_cast<int>(t)];
 }
 
-// ── Bat geometry (plate-view silhouette) ────────────────────────────────
+// ── Bat ─────────────────────────────────────────────────────────────────
 
 struct BatConfig {
-    float lengthM = 0.86f;
-    float barrelRadiusM = 0.033f;
-    float handleRadiusM = 0.014f;
-    float massKg = 0.90f;
-    float sweetSpotFromKnobM = 0.56f;
-    float sweetSpotWidthM = 0.11f;
+    float length = 0.86f;
+    float barrelR = 0.033f;
+    float handleR = 0.014f;
+    float mass = 0.90f;
+    float sweetFromKnob = 0.56f;
+    float sweetWidth = 0.11f;
     float baseCor = 0.50f;
-    float maxCor = 0.55f;
-    float minCor = 0.36f;
-    float pixelsPerMeter = 280.0f;
+    float maxCor = 0.56f;
+    float minCor = 0.34f;
 };
 
-struct AimState {
-    // PCI center in screen space (mouse, clamped to zone)
-    Vector2 pci;
-    // Bat angle in screen rad: 0 = pointing right (+X), CCW positive with y-down
-    // RHB default ~ 150–200° style diagonal across plate
-    float batAngle = deg2rad(-35.0f);
-    // Hands / knob position derived from PCI + angle so PCI sits on barrel
-    Vector2 knob;
-    float swingT = -1.0f; // <0 ready; 0..1 swinging
-    float omega = 0.0f;   // rad/s during swing
-    float displayAngle = 0.0f; // may lag during swing animation
+struct BatPose {
+    Vector3 hands{0.35f, 0.95f, 0.15f}; // RHB hands near plate
+    Vector3 axis{-0.55f, 0.05f, 0.83f};  // knob → tip
+    float roll = 0.0f;
+    float swingT = -1.0f;
+    float omega = 0.0f;
+    Vector3 swingAxis{0, 1, 0};
     SwingType type = SwingType::Regular;
+    Vector3 pci{0.0f, 0.85f, kPlateZ + 0.12f};
+    bool locked = false; // freeze aim while swinging
 
     bool swinging() const {
         return swingT >= 0.0f && swingT < 1.0f;
     }
 };
 
-// Unit direction along bat from knob → tip
-Vector2 batAxis(float angle) {
-    return Vector2(std::cos(angle), std::sin(angle));
+Vector3 batPoint(const BatPose& b, float s) {
+    return b.hands + b.axis * s;
 }
 
-Vector2 batPointFromKnob(const Vector2& knob, float angle, float sMeters, float ppm) {
-    return knob + batAxis(angle) * (sMeters * ppm);
-}
-
-// Place knob so the sweet-spot / PCI lies under the mouse along the bat axis.
-void updateKnobFromPci(AimState& aim, const BatConfig& cfg) {
-    float s = cfg.sweetSpotFromKnobM;
-    Vector2 axis = batAxis(aim.batAngle);
-    aim.knob = aim.pci - axis * (s * cfg.pixelsPerMeter);
-}
-
-float batRadiusM(const BatConfig& cfg, float sMeters) {
-    float t = clampf(sMeters / cfg.lengthM, 0.0f, 1.0f);
+float batRadius(const BatConfig& c, float s) {
+    float t = clampf(s / c.length, 0.0f, 1.0f);
     if (t < 0.42f) {
-        return lerp(cfg.handleRadiusM, cfg.barrelRadiusM * 0.75f, t / 0.42f);
+        return lerp(c.handleR, c.barrelR * 0.75f, t / 0.42f);
     }
-    return lerp(cfg.barrelRadiusM * 0.75f, cfg.barrelRadiusM, (t - 0.42f) / 0.58f);
+    return lerp(c.barrelR * 0.75f, c.barrelR, (t - 0.42f) / 0.58f);
 }
 
-float sweetFactor(const BatConfig& cfg, float sMeters, float widthScale) {
-    float width = cfg.sweetSpotWidthM * widthScale;
-    float d = std::abs(sMeters - cfg.sweetSpotFromKnobM);
-    float half = width * 0.5f;
+float sweetFactor(const BatConfig& c, float s, float widthScale) {
+    float w = c.sweetWidth * widthScale;
+    float d = std::abs(s - c.sweetFromKnob);
+    float half = w * 0.5f;
     if (d <= half) {
         return 1.0f;
     }
-    float extra = (d - half) / std::max(cfg.lengthM * 0.35f, 0.01f);
+    float extra = (d - half) / std::max(c.length * 0.35f, 0.01f);
     return clampf(1.0f - extra * 0.9f, 0.12f, 1.0f);
 }
 
-// Closest point on bat segment to world point
+void orientBat(BatPose& bat, const Vector3& pci) {
+    bat.pci = pci;
+    Vector3 to = pci - bat.hands;
+    if (to.magnitude() < 0.08f) {
+        to = Vector3(-0.5f, 0.0f, 0.5f);
+    }
+    bat.axis = safeNorm(to);
+    Vector3 up(0, 1, 0);
+    Vector3 side = safeNorm(up.cross(bat.axis), Vector3(1, 0, 0));
+    bat.swingAxis = safeNorm(bat.axis.cross(side), up);
+}
+
+Vector3 batPointVelocity(const BatPose& bat, float s) {
+    Vector3 r = bat.axis * s;
+    Vector3 w = bat.swingAxis * bat.omega;
+    return w.cross(r);
+}
+
 void closestOnBat(
-    const Vector2& knob,
-    float angle,
+    const BatPose& bat,
     const BatConfig& cfg,
-    const Vector2& point,
+    const Vector3& p,
     float& outS,
-    Vector2& outPt
+    Vector3& outPt
 ) {
-    Vector2 tip = batPointFromKnob(knob, angle, cfg.lengthM, cfg.pixelsPerMeter);
-    Vector2 ab = tip - knob;
+    Vector3 a = bat.hands;
+    Vector3 b = batPoint(bat, cfg.length);
+    Vector3 ab = b - a;
     float ab2 = ab.dot(ab);
-    float t = 0.0f;
-    if (ab2 > 1e-8f) {
-        t = clampf((point - knob).dot(ab) / ab2, 0.0f, 1.0f);
-    }
-    outPt = knob + ab * t;
-    outS = t * cfg.lengthM;
+    float t = ab2 > 1e-8f ? clampf((p - a).dot(ab) / ab2, 0.0f, 1.0f) : 0.0f;
+    outPt = a + ab * t;
+    outS = t * cfg.length;
 }
 
-// Bat point velocity during swing: rotate about knob with omega
-Vector2 batPointVelocity(const Vector2& knob, float angle, float omega, float sMeters, float ppm) {
-    // Screen y-down: d(axis)/dθ = (-sin θ, cos θ)
-    float c = std::cos(angle);
-    float s = std::sin(angle);
-    Vector2 dAxis(-s, c);
-    return dAxis * (sMeters * ppm * omega);
-}
-
-// ── Swing animation ─────────────────────────────────────────────────────
-
-void startSwing(AimState& aim) {
-    if (aim.swinging()) {
+void startSwing(BatPose& bat) {
+    if (bat.swinging()) {
         return;
     }
-    aim.swingT = 0.0f;
-    aim.displayAngle = aim.batAngle;
-    aim.omega = 0.0f;
+    bat.swingT = 0.0f;
+    bat.omega = 0.0f;
+    bat.locked = true;
 }
 
-float swingAngleOffset(float t01) {
-    float u = smooth01(t01);
-    // From +18° before contact to −22° after (RHB sweep through the ball).
-    return deg2rad(lerp(18.0f, -22.0f, u));
-}
-
-void updateSwing(AimState& aim, const SwingProfile& prof, float dt) {
-    if (aim.swingT < 0.0f) {
-        aim.displayAngle = aim.batAngle;
-        aim.omega = 0.0f;
+void updateSwing(BatPose& bat, const SwingProfile& prof, float dt) {
+    if (bat.swingT < 0.0f) {
+        bat.omega = 0.0f;
         return;
     }
 
-    float dur = prof.swingDuration;
-    float prev = aim.swingT;
-    aim.swingT = std::min(1.0f, aim.swingT + dt / dur);
+    float prev = bat.swingT;
+    bat.swingT = std::min(1.0f, bat.swingT + dt / prof.duration);
 
-    float a0 = aim.batAngle + swingAngleOffset(prev);
-    float a1 = aim.batAngle + swingAngleOffset(aim.swingT);
-    aim.displayAngle = a1;
+    auto speedCurve = [](float t) {
+        float u = clampf(t, 0.0f, 1.0f);
+        return 6.0f * u * (1.0f - u);
+    };
+    // Positive omega: rotate through the pitch (RHB feel)
+    float peak = 15.0f * prof.power;
+    bat.omega = peak * speedCurve(bat.swingT);
+
+    float dTheta = 0.0f;
     if (dt > 1e-6f) {
-        aim.omega = (a1 - a0) / dt * prof.power;
+        // Use average omega over step for rotation
+        float prevW = peak * speedCurve(prev);
+        dTheta = 0.5f * (prevW + bat.omega) * dt;
     }
-    if (aim.swingT >= 1.0f) {
-        aim.omega = 0.0f;
+    if (std::abs(dTheta) > 1e-7f) {
+        Vector3 k = bat.swingAxis;
+        Vector3 v = bat.axis;
+        float c = std::cos(dTheta);
+        float s = std::sin(dTheta);
+        bat.axis = safeNorm(v * c + k.cross(v) * s + k * (k.dot(v) * (1.0f - c)));
+    }
+
+    if (bat.swingT >= 1.0f) {
+        bat.omega = 0.0f;
+        bat.swingT = -1.0f;
+        bat.locked = false;
     }
 }
 
-// ── Contact ─────────────────────────────────────────────────────────────
+// ── Hit ─────────────────────────────────────────────────────────────────
 
-struct ContactResult {
+struct HitInfo {
     bool hit = false;
-    float exitMph = 0.0f;
-    float launchDeg = 0.0f;
-    float batMph = 0.0f;
-    float sweet = 0.0f;
-    float sMeters = 0.0f;
-    Vector2 point;
+    float exitMph = 0;
+    float launchDeg = 0;
+    float batMph = 0;
+    float sweet = 0;
+    float s = 0;
+    Vector3 point;
 };
 
-ContactResult tryContact(
-    Body2D& ball,
-    const AimState& aim,
+HitInfo tryHit(
+    Body3D& ball,
+    const BatPose& bat,
     const BatConfig& cfg,
     const SwingProfile& prof,
     bool& hasHit
 ) {
-    ContactResult r;
-    if (hasHit || !aim.swinging()) {
-        return r;
+    HitInfo h;
+    if (hasHit || !bat.swinging()) {
+        return h;
     }
 
     float s = 0.0f;
-    Vector2 closest;
-    closestOnBat(aim.knob, aim.displayAngle, cfg, ball.position, s, closest);
+    Vector3 closest;
+    closestOnBat(bat, cfg, ball.position, s, closest);
 
-    float rBat = batRadiusM(cfg, s) * cfg.pixelsPerMeter * 1.15f; // slight forgiveness
-    Vector2 delta = ball.position - closest;
+    float rBat = batRadius(cfg, s) * 1.25f;
+    Vector3 delta = ball.position - closest;
     float dist = delta.magnitude();
-    float minDist = ball.radius + rBat;
-    if (dist > minDist || dist < 1e-5f) {
-        return r;
+    float minD = ball.radius + rBat;
+    if (dist > minD || dist < 1e-5f) {
+        return h;
     }
 
-    Vector2 n = delta * (1.0f / dist);
-    Vector2 vBat = batPointVelocity(aim.knob, aim.displayAngle, aim.omega, s, cfg.pixelsPerMeter);
-    Vector2 vRel = ball.velocity - vBat;
+    Vector3 n = delta * (1.0f / dist);
+    Vector3 vBat = batPointVelocity(bat, s);
+    Vector3 vRel = ball.velocity - vBat;
     float approach = vRel.dot(n);
     if (approach >= 0.0f) {
-        return r;
+        return h;
     }
 
-    float sweet = sweetFactor(cfg, s, prof.sweetWidthScale);
-    float cor = lerp(cfg.minCor, cfg.maxCor + prof.corBonus, sweet);
-    cor = clampf(cor, 0.30f, 0.58f);
-
-    float tip = clampf(s / cfg.lengthM, 0.0f, 1.0f);
-    float mEff = cfg.massKg * prof.massScale * lerp(1.3f, 0.55f, tip) * lerp(0.75f, 1.15f, sweet);
+    float sweet = sweetFactor(cfg, s, prof.sweetScale);
+    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus, sweet), 0.28f, 0.58f);
+    float tip = clampf(s / cfg.length, 0.0f, 1.0f);
+    float mEff =
+        cfg.mass * prof.massScale * lerp(1.3f, 0.55f, tip) * lerp(0.75f, 1.15f, sweet);
     float mBall = std::max(ball.mass, 0.05f);
-    float invM = 1.0f / mBall + 1.0f / mEff;
-    float j = -(1.0f + cor) * approach / invM;
-    j *= lerp(0.90f, 1.12f, sweet) * lerp(0.95f, 1.08f, (prof.power - 0.7f) / 0.55f);
+    float j = -(1.0f + cor) * approach / (1.0f / mBall + 1.0f / mEff);
+    j *= lerp(0.9f, 1.12f, sweet) * lerp(0.95f, 1.1f, (prof.power - 0.7f) / 0.55f);
 
-    ball.velocity += n * (j / mBall);
+    ball.velocity = ball.velocity + n * (j / mBall);
 
-    Vector2 tangent(-n.y, n.x);
-    float vT = vRel.dot(tangent);
-    float mu = 0.16f * sweet;
-    float jt = clampf(-vT * mBall * 0.32f, -std::abs(j) * mu, std::abs(j) * mu);
-    ball.velocity += tangent * (jt / mBall);
-
-    float pen = minDist - dist;
-    ball.position += n * (pen + 0.5f);
+    Vector3 tan = safeNorm(n.cross(Vector3(0, 1, 0)), Vector3(1, 0, 0));
+    float vt = vRel.dot(tan);
+    float mu = 0.15f * sweet;
+    float jt = clampf(-vt * mBall * 0.3f, -std::abs(j) * mu, std::abs(j) * mu);
+    ball.velocity = ball.velocity + tan * (jt / mBall);
+    ball.position = ball.position + n * (minD - dist + 0.005f);
 
     hasHit = true;
-    r.hit = true;
-    r.sMeters = s;
-    r.sweet = sweet;
-    r.point = closest;
-    float ppm = cfg.pixelsPerMeter;
-    r.batMph = (vBat.magnitude() / ppm) * 2.236936f;
-    r.exitMph = (ball.velocity.magnitude() / ppm) * 2.236936f;
-    // Launch: 0 = toward top of screen (pitcher / OF in this layout uses −Y as “out”)
-    // Report angle: 0 horizontal to right, + up field (negative Y)
-    r.launchDeg = std::atan2(-ball.velocity.y, ball.velocity.x) * kDeg;
-    return r;
+    h.hit = true;
+    h.s = s;
+    h.sweet = sweet;
+    h.point = closest;
+    h.batMph = vBat.magnitude() * 2.236936f;
+    h.exitMph = ball.velocity.magnitude() * 2.236936f;
+    float horiz = std::sqrt(ball.velocity.x * ball.velocity.x + ball.velocity.z * ball.velocity.z);
+    h.launchDeg = std::atan2(ball.velocity.y, horiz) * kDeg;
+    return h;
 }
 
-// ── Drawing helpers ─────────────────────────────────────────────────────
+// ── Mesh helpers ────────────────────────────────────────────────────────
 
-void drawLine(
-    sf::RenderWindow& window,
-    sf::Vector2f a,
-    sf::Vector2f b,
-    sf::Color color,
-    float /*thickness*/
-) {
-    sf::Vertex line[] = {
-        sf::Vertex{a, color},
-        sf::Vertex{b, color}
-    };
-    window.draw(line, 2, sf::PrimitiveType::Lines);
-}
-
-// Rounded bat silhouette (The Show style outline)
-void drawBatSilhouette(
-    sf::RenderWindow& window,
-    const Vector2& knob,
-    float angle,
-    const BatConfig& cfg,
-    sf::Color outline,
-    float outlineScale = 1.0f
-) {
-    const int segs = 18;
-    std::vector<sf::Vector2f> left;
-    std::vector<sf::Vector2f> right;
-    left.reserve(segs + 1);
-    right.reserve(segs + 1);
-
-    Vector2 axis = batAxis(angle);
-    Vector2 perp(-axis.y, axis.x);
-    float ppm = cfg.pixelsPerMeter;
-
-    for (int i = 0; i <= segs; i++) {
-        float t = static_cast<float>(i) / segs;
-        float s = t * cfg.lengthM;
-        float r = batRadiusM(cfg, s) * ppm * outlineScale;
-        // Fatter visual barrel for readable silhouette
-        if (t > 0.4f) {
-            r *= 1.25f;
+Mesh3D makeBatMesh(const BatConfig& cfg) {
+    Mesh3D mesh;
+    const int slices = 12;
+    const int along = 18;
+    // Bat along +Y from knob (0) to tip (length)
+    for (int i = 0; i <= along; i++) {
+        float t = static_cast<float>(i) / along;
+        float s = t * cfg.length;
+        float r = batRadius(cfg, s);
+        for (int j = 0; j < slices; j++) {
+            float a = (static_cast<float>(j) / slices) * kPi * 2.0f;
+            Vector3 n(std::cos(a), 0.0f, std::sin(a));
+            mesh.vertices.push_back(n * r + Vector3(0.0f, s, 0.0f));
+            mesh.vertexNormals.push_back(n);
         }
-        Vector2 c = knob + axis * (s * ppm);
-        left.push_back(sf::Vector2f(c.x + perp.x * r, c.y + perp.y * r));
-        right.push_back(sf::Vector2f(c.x - perp.x * r, c.y - perp.y * r));
     }
-
-    // Outline path: left tip→knob, arc at tip, right tip→knob
-    for (int i = 0; i < segs; i++) {
-        drawLine(window, left[i], left[i + 1], outline, 2.0f);
-        drawLine(window, right[i], right[i + 1], outline, 2.0f);
+    for (int i = 0; i < along; i++) {
+        for (int j = 0; j < slices; j++) {
+            int j1 = (j + 1) % slices;
+            int a = i * slices + j;
+            int b = i * slices + j1;
+            int c = (i + 1) * slices + j;
+            int d = (i + 1) * slices + j1;
+            mesh.triangles.push_back({a, c, b});
+            mesh.triangles.push_back({b, c, d});
+            bool barrel = static_cast<float>(i) / along > 0.4f;
+            sf::Color col = barrel ? sf::Color(175, 118, 58) : sf::Color(145, 95, 48);
+            mesh.triangleColors.push_back(col);
+            mesh.triangleColors.push_back(col);
+        }
     }
-    // Tip cap
-    drawLine(window, left.back(), right.back(), outline, 2.0f);
-    // Knob cap
-    drawLine(window, left.front(), right.front(), outline, 2.0f);
-
-    // Soft fill (semi-transparent quads)
-    for (int i = 0; i < segs; i++) {
-        sf::Color fill = outline;
-        fill.a = 28;
-        sf::Vertex quad[] = {
-            sf::Vertex{left[i], fill},
-            sf::Vertex{left[i + 1], fill},
-            sf::Vertex{right[i + 1], fill},
-            sf::Vertex{right[i], fill}
-        };
-        window.draw(quad, 4, sf::PrimitiveType::TriangleFan);
-    }
+    mesh.rebuildNormals();
+    return mesh;
 }
 
-void drawPci(sf::RenderWindow& window, Vector2 center, float radius, sf::Color color) {
-    sf::CircleShape ring(radius);
-    ring.setOrigin(sf::Vector2f(radius, radius));
-    ring.setPosition(sf::Vector2f(center.x, center.y));
-    ring.setFillColor(sf::Color(color.r, color.g, color.b, 200));
-    ring.setOutlineThickness(2.5f);
-    ring.setOutlineColor(sf::Color(color.r, color.g, color.b, 255));
-    window.draw(ring);
+// Row-major matrix: columns of basis are (m0,m4,m8), (m1,m5,m9), (m2,m6,m10)
+// transform: x' = m0*x + m1*y + m2*z + m3
+// Local +Y → bat.axis, local +X → right, local +Z → forward
+Matrix4 batModelMatrix(const BatPose& bat) {
+    Vector3 y = bat.axis;
+    Vector3 x = safeNorm(Vector3(0, 1, 0).cross(y), Vector3(1, 0, 0));
+    if (x.magnitude() < 0.2f) {
+        x = safeNorm(Vector3(1, 0, 0).cross(y));
+    }
+    Vector3 z = safeNorm(x.cross(y));
+    x = safeNorm(y.cross(z));
 
-    // Inner core
-    float inner = radius * 0.35f;
-    sf::CircleShape core(inner);
-    core.setOrigin(sf::Vector2f(inner, inner));
-    core.setPosition(sf::Vector2f(center.x, center.y));
-    core.setFillColor(sf::Color(255, 255, 255, 220));
-    window.draw(core);
+    // Roll around bat axis
+    float c = std::cos(bat.roll);
+    float s = std::sin(bat.roll);
+    Vector3 xr = x * c + z * s;
+    Vector3 zr = z * c - x * s;
+
+    Matrix4 r = Matrix4::identity();
+    // Rows: map local (x,y,z) with basis xr, y, zr as columns in row-major
+    // local X → xr: column 0
+    r.values[0] = xr.x;
+    r.values[4] = xr.y;
+    r.values[8] = xr.z;
+    // local Y → axis
+    r.values[1] = y.x;
+    r.values[5] = y.y;
+    r.values[9] = y.z;
+    // local Z → zr
+    r.values[2] = zr.x;
+    r.values[6] = zr.y;
+    r.values[10] = zr.z;
+
+    return Matrix4::translation(bat.hands) * r;
 }
 
-struct ZoneRect {
-    float left = 0;
-    float top = 0;
-    float width = 0;
-    float height = 0;
-    float right() const { return left + width; }
-    float bottom() const { return top + height; }
-    sf::Vector2f center() const {
-        return sf::Vector2f(left + width * 0.5f, top + height * 0.5f);
-    }
-};
+// Map mouse to plate-plane PCI (world X/Y at contact Z).
+Vector3 mouseToPci(
+    const Camera3D& cam,
+    float mouseX,
+    float mouseY,
+    float screenW,
+    float screenH
+) {
+    // NDC
+    float nx = (mouseX / screenW) * 2.0f - 1.0f;
+    float ny = 1.0f - (mouseY / screenH) * 2.0f;
 
-Vector2 clampToZone(Vector2 p, const ZoneRect& z, float margin) {
-    return Vector2(
-        clampf(p.x, z.left + margin, z.right() - margin),
-        clampf(p.y, z.top + margin, z.bottom() - margin)
+    // Camera basis
+    float cy = std::cos(cam.rotation.y);
+    float sy = std::sin(cam.rotation.y);
+    float cx = std::cos(cam.rotation.x);
+    float sx = std::sin(cam.rotation.x);
+    // Forward in this engine: based on rotation
+    Vector3 forward(sy * cx, -sx, cy * cx);
+    forward = safeNorm(forward);
+    Vector3 right = safeNorm(Vector3(0, 1, 0).cross(forward), Vector3(1, 0, 0));
+    Vector3 up = safeNorm(forward.cross(right));
+
+    float aspect = screenW / std::max(screenH, 1.0f);
+    // Approximate FOV from camera.fieldOfView (this project uses large values like 700)
+    float fovY = 0.9f; // ~50 deg
+    float tanHalf = std::tan(fovY * 0.5f);
+    Vector3 dir = safeNorm(forward + right * (nx * tanHalf * aspect) + up * (ny * tanHalf));
+
+    // Ray-plane z = kPlateZ + 0.12
+    float planeZ = kPlateZ + 0.12f;
+    if (std::abs(dir.z) < 1e-5f) {
+        return Vector3(0.0f, 0.85f, planeZ);
+    }
+    float t = (planeZ - cam.position.z) / dir.z;
+    if (t < 0.05f) {
+        t = 2.0f;
+    }
+    Vector3 hit = cam.position + dir * t;
+    hit.x = clampf(hit.x, -kZoneHalfW * 1.15f, kZoneHalfW * 1.15f);
+    hit.y = clampf(hit.y, kZoneBot - 0.05f, kZoneTop + 0.08f);
+    hit.z = planeZ;
+    return hit;
+}
+
+void resetPitch(Body3D& ball, PhysicsWorld3D& world, float speedMph) {
+    world = PhysicsWorld3D();
+    world.gravity = Vector3(0, -9.8f, 0);
+    world.setBounds(Vector3(-6, -1, kMoundZ - 2), Vector3(6, 5, 12));
+    world.airResistanceEnabled = false;
+
+    ball = Body3D(Vector3(0.05f, 1.55f, kMoundZ + 1.0f), 0.145f);
+    ball.setRadius(kBallR);
+    ball.restitution = 0.4f;
+    float speed = speedMph * 0.44704f; // m/s
+    // Toward plate center-ish
+    Vector3 target(0.0f, 0.85f, kPlateZ + 0.1f);
+    Vector3 dir = safeNorm(target - ball.position);
+    ball.velocity = dir * speed;
+    world.addBody(&ball);
+}
+
+void drawThickLine(
+    sf::RenderWindow& window,
+    const Camera3D& cam,
+    const Vector3& a,
+    const Vector3& b,
+    float thickness,
+    sf::Color color
+) {
+    ProjectedPoint3D pa = cam.projectPoint(a, window.getSize().x, window.getSize().y);
+    ProjectedPoint3D pb = cam.projectPoint(b, window.getSize().x, window.getSize().y);
+    if (!pa.visible || !pb.visible) {
+        return;
+    }
+    sf::Vector2f a2(pa.position.x, pa.position.y);
+    sf::Vector2f b2(pb.position.x, pb.position.y);
+    sf::Vector2f d = b2 - a2;
+    float len = std::sqrt(d.x * d.x + d.y * d.y);
+    if (len < 1e-3f) {
+        return;
+    }
+    sf::Vector2f n(-d.y / len, d.x / len);
+    sf::Vector2f o = n * (thickness * 0.5f);
+    sf::Vertex q[] = {
+        sf::Vertex{a2 + o, color},
+        sf::Vertex{a2 - o, color},
+        sf::Vertex{b2 - o, color},
+        sf::Vertex{b2 + o, color}
+    };
+    window.draw(q, 4, sf::PrimitiveType::TriangleFan);
+}
+
+void drawZoneOverlay(sf::RenderWindow& window, const Camera3D& cam, sf::Color col) {
+    Vector3 c00(-kZoneHalfW, kZoneBot, kPlateZ + 0.05f);
+    Vector3 c10(kZoneHalfW, kZoneBot, kPlateZ + 0.05f);
+    Vector3 c11(kZoneHalfW, kZoneTop, kPlateZ + 0.05f);
+    Vector3 c01(-kZoneHalfW, kZoneTop, kPlateZ + 0.05f);
+    drawThickLine(window, cam, c00, c10, 2.2f, col);
+    drawThickLine(window, cam, c10, c11, 2.2f, col);
+    drawThickLine(window, cam, c11, c01, 2.2f, col);
+    drawThickLine(window, cam, c01, c00, 2.2f, col);
+}
+
+void drawPciOverlay(
+    sf::RenderWindow& window,
+    const Camera3D& cam,
+    const Vector3& pci,
+    float radiusM,
+    sf::Color col
+) {
+    // Project a small ring around PCI in the plate plane
+    const int n = 20;
+    Vector3 prev;
+    for (int i = 0; i <= n; i++) {
+        float a = (static_cast<float>(i) / n) * kPi * 2.0f;
+        Vector3 p = pci + Vector3(std::cos(a) * radiusM, std::sin(a) * radiusM, 0.0f);
+        if (i > 0) {
+            drawThickLine(window, cam, prev, p, 2.0f, col);
+        }
+        prev = p;
+    }
+    // Cross
+    drawThickLine(
+        window, cam, pci + Vector3(-radiusM * 0.5f, 0, 0), pci + Vector3(radiusM * 0.5f, 0, 0), 1.5f, col
+    );
+    drawThickLine(
+        window, cam, pci + Vector3(0, -radiusM * 0.5f, 0), pci + Vector3(0, radiusM * 0.5f, 0), 1.5f, col
     );
 }
 
-// ── Pitch ───────────────────────────────────────────────────────────────
+// Screen-space bat silhouette (The Show–style) from projected bat edges
+void drawBatSilhouette2D(
+    sf::RenderWindow& window,
+    const Camera3D& cam,
+    const BatPose& bat,
+    const BatConfig& cfg,
+    sf::Color col
+) {
+    const int segs = 12;
+    std::vector<sf::Vector2f> left;
+    std::vector<sf::Vector2f> right;
+    float sw = static_cast<float>(window.getSize().x);
+    float sh = static_cast<float>(window.getSize().y);
 
-struct PitchState {
-    float speedMph = 90.0f;
-};
+    Vector3 side = safeNorm(bat.axis.cross(Vector3(0, 1, 0)), Vector3(1, 0, 0));
+    // Prefer side perpendicular to view for readable silhouette
+    Vector3 toCam = safeNorm(cam.position - bat.hands);
+    side = safeNorm(bat.axis.cross(toCam), side);
 
-void resetPitch(Body2D& ball, const PitchState& pitch, const ZoneRect& zone, float ppm) {
-    // Ball starts above zone (pitcher side = top of screen) and flies down toward plate
-    float cx = zone.left + zone.width * 0.5f;
-    ball.position = Vector2(cx + 10.0f, zone.top - 80.0f);
-    float speedMs = pitch.speedMph * 0.44704f;
-    float speedPx = speedMs * ppm * 0.55f; // scale for readable timing
-    // Toward plate center with slight side noise-free aim
-    Vector2 target(cx, zone.top + zone.height * 0.62f);
-    Vector2 dir = target - ball.position;
-    float m = dir.magnitude();
-    if (m > 1e-4f) {
-        dir = dir * (1.0f / m);
+    for (int i = 0; i <= segs; i++) {
+        float t = static_cast<float>(i) / segs;
+        float s = t * cfg.length;
+        float r = batRadius(cfg, s) * (t > 0.4f ? 1.35f : 1.1f);
+        Vector3 c = batPoint(bat, s);
+        Vector3 pl = c + side * r;
+        Vector3 pr = c - side * r;
+        ProjectedPoint3D al = cam.projectPoint(pl, sw, sh);
+        ProjectedPoint3D ar = cam.projectPoint(pr, sw, sh);
+        if (al.visible) {
+            left.push_back(sf::Vector2f(al.position.x, al.position.y));
+        }
+        if (ar.visible) {
+            right.push_back(sf::Vector2f(ar.position.x, ar.position.y));
+        }
     }
-    ball.velocity = dir * speedPx;
-    ball.acceleration = Vector2();
+    auto drawPoly = [&](const std::vector<sf::Vector2f>& pts) {
+        for (size_t i = 1; i < pts.size(); i++) {
+            sf::Vertex line[] = {
+                sf::Vertex{pts[i - 1], col},
+                sf::Vertex{pts[i], col}
+            };
+            window.draw(line, 2, sf::PrimitiveType::Lines);
+        }
+    };
+    drawPoly(left);
+    drawPoly(right);
+    if (!left.empty() && !right.empty()) {
+        sf::Vertex tip[] = {
+            sf::Vertex{left.back(), col},
+            sf::Vertex{right.back(), col}
+        };
+        sf::Vertex kn[] = {
+            sf::Vertex{left.front(), col},
+            sf::Vertex{right.front(), col}
+        };
+        window.draw(tip, 2, sf::PrimitiveType::Lines);
+        window.draw(kn, 2, sf::PrimitiveType::Lines);
+    }
 }
 
 } // namespace
 
 int main() {
+    sf::ContextSettings glSettings;
+    glSettings.depthBits = 24;
+    glSettings.antiAliasingLevel = 4;
+
     sf::RenderWindow window(
         sf::VideoMode(sf::Vector2u(1280, 720)),
-        "Bat Physics | Z power  X contact  C regular  |  Mouse aim  Space swing"
+        "Bat Physics 3D | Z power  X contact  C regular  |  Mouse aim",
+        sf::Style::Default,
+        sf::State::Windowed,
+        glSettings
     );
     window.setFramerateLimit(60);
     window.setVerticalSyncEnabled(true);
-    window.setMouseCursorVisible(false);
 
-    DemoFpsCounter fpsCounter("Bat Physics | Z/X/C swing types | Mouse aim");
+    DemoFpsCounter fps("Bat Physics 3D | Z/X/C | Mouse PCI");
     sf::Font font;
     bool fontOk = loadUiFont(font);
 
-    // Plate aim zone (center of window) — The Show–style frame
-    ZoneRect zone;
-    zone.width = 420.0f;
-    zone.height = 480.0f;
-    zone.left = (1280.0f - zone.width) * 0.5f;
-    zone.top = (720.0f - zone.height) * 0.42f;
+    Camera3D camera;
+    // Catcher / umpire-ish view looking toward pitcher (−Z)
+    lookAt(camera, Vector3(0.15f, 1.55f, 3.8f), Vector3(0.0f, 0.95f, kPlateZ - 2.0f));
+    camera.fieldOfView = 780.0f;
+    camera.nearPlane = 0.08f;
 
     BatConfig batCfg;
-    AimState aim;
-    aim.pci = Vector2(zone.center().x, zone.center().y + 40.0f);
-    aim.batAngle = deg2rad(-38.0f);
-    aim.type = SwingType::Regular;
-    updateKnobFromPci(aim, batCfg);
+    BatPose bat;
+    orientBat(bat, Vector3(0.0f, 0.85f, kPlateZ + 0.12f));
 
-    // Freeze aim at swing start so mouse motion mid-swing doesn't teleport bat
-    AimState frozenAim = aim;
-    bool aimFrozen = false;
+    Mesh3D batMesh = makeBatMesh(batCfg);
+    Mesh3D ballMesh = BaseballVisual3D::makeMesh(24, 36);
+    Mesh3D plateMesh = Mesh3D::box(0.43f, 0.03f, 0.43f);
 
-    PhysicsWorld2D world;
-    world.gravity = Vector2(0.0f, 80.0f);
-    world.setBounds(1280.0f, 900.0f);
+    GlRenderer gl;
+    bool useGL = gl.initialize(window);
+    GlMesh glBat;
+    GlMesh glBall;
+    GlMesh glPlate;
+    if (useGL) {
+        glBat.upload(batMesh);
+        glBall.upload(ballMesh);
+        glPlate.upload(plateMesh);
+    }
 
-    Body2D ball(Vector2(100, 100), 0.145f);
-    ball.setRadius(0.037f * batCfg.pixelsPerMeter * 0.85f);
-    ball.restitution = 0.4f;
-    world.addBody(&ball);
+    FrameBuffer fb(window.getSize().x, window.getSize().y);
+    RasterMeshRenderCache cache;
 
-    PitchState pitch;
-    resetPitch(ball, pitch, zone, batCfg.pixelsPerMeter);
+    PhysicsWorld3D world;
+    Body3D ball;
+    float pitchMph = 90.0f;
+    resetPitch(ball, world, pitchMph);
 
     bool hasHit = false;
-    ContactResult lastHit;
-    std::string status = "Aim with mouse · Z Power · X Contact · C Regular · Space swing";
-    sf::Color statusColor(220, 230, 220);
-    std::vector<Vector2> trail;
+    HitInfo lastHit;
+    std::string status = "Mouse aim · Z Power · X Contact · C Regular · Space swing";
+    sf::Color statusCol(220, 230, 220);
+    std::vector<Vector3> trail;
 
-    // Optional: rotate bat with mouse wheel or Q/E
-    float batAngleAdjust = aim.batAngle;
-
+    float batRoll = 0.0f;
     sf::Clock clock;
+
     while (window.isOpen()) {
         float dt = std::min(clock.restart().asSeconds(), 0.05f);
-        const SwingProfile& prof = profileFor(aim.type);
+        const SwingProfile& prof = profileOf(bat.type);
 
-        while (const std::optional event = window.pollEvent()) {
+        while (auto event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) {
                 window.close();
             }
-            if (const auto* resized = event->getIf<sf::Event::Resized>()) {
+            if (const auto* r = event->getIf<sf::Event::Resized>()) {
                 window.setView(sf::View(sf::FloatRect(
-                    sf::Vector2f(0, 0),
-                    sf::Vector2f(static_cast<float>(resized->size.x), static_cast<float>(resized->size.y))
+                    {0, 0},
+                    {static_cast<float>(r->size.x), static_cast<float>(r->size.y)}
                 )));
-                float w = static_cast<float>(resized->size.x);
-                float h = static_cast<float>(resized->size.y);
-                zone.left = (w - zone.width) * 0.5f;
-                zone.top = (h - zone.height) * 0.42f;
+                fb.resize(static_cast<int>(r->size.x), static_cast<int>(r->size.y));
             }
             if (const auto* key = event->getIf<sf::Event::KeyPressed>()) {
                 using K = sf::Keyboard::Key;
                 if (key->code == K::Escape) {
                     window.close();
                 } else if (key->code == K::Z) {
-                    aim.type = SwingType::Power;
-                    status = "POWER swing selected";
-                    statusColor = profileFor(SwingType::Power).accent;
+                    bat.type = SwingType::Power;
+                    status = "POWER";
+                    statusCol = profileOf(SwingType::Power).color;
                 } else if (key->code == K::X) {
-                    aim.type = SwingType::Contact;
-                    status = "CONTACT swing selected";
-                    statusColor = profileFor(SwingType::Contact).accent;
+                    bat.type = SwingType::Contact;
+                    status = "CONTACT";
+                    statusCol = profileOf(SwingType::Contact).color;
                 } else if (key->code == K::C) {
-                    aim.type = SwingType::Regular;
-                    status = "REGULAR swing selected";
-                    statusColor = profileFor(SwingType::Regular).accent;
+                    bat.type = SwingType::Regular;
+                    status = "REGULAR";
+                    statusCol = profileOf(SwingType::Regular).color;
                 } else if (key->code == K::Space) {
-                    if (!aim.swinging()) {
-                        frozenAim = aim;
-                        aimFrozen = true;
-                        startSwing(aim);
-                        hasHit = false;
-                        status = std::string(prof.name) + " swing!";
-                        statusColor = prof.accent;
-                    }
+                    startSwing(bat);
+                    hasHit = false;
+                    status = std::string(prof.name) + " swing";
+                    statusCol = prof.color;
                 } else if (key->code == K::R) {
-                    aim.swingT = -1.0f;
-                    aim.omega = 0.0f;
-                    aimFrozen = false;
+                    bat.swingT = -1.0f;
+                    bat.locked = false;
+                    bat.omega = 0.0f;
                     hasHit = false;
                     lastHit = {};
                     trail.clear();
-                    resetPitch(ball, pitch, zone, batCfg.pixelsPerMeter);
+                    resetPitch(ball, world, pitchMph);
+                    orientBat(bat, bat.pci);
                     status = "Reset";
-                    statusColor = sf::Color(180, 210, 200);
+                    statusCol = sf::Color(180, 210, 200);
                 } else if (key->code == K::LBracket) {
-                    pitch.speedMph = std::max(60.0f, pitch.speedMph - 2.0f);
+                    pitchMph = std::max(60.0f, pitchMph - 2.0f);
                 } else if (key->code == K::RBracket) {
-                    pitch.speedMph = std::min(105.0f, pitch.speedMph + 2.0f);
+                    pitchMph = std::min(105.0f, pitchMph + 2.0f);
                 } else if (key->code == K::Q) {
-                    batAngleAdjust -= deg2rad(4.0f);
+                    batRoll -= 0.08f;
                 } else if (key->code == K::E) {
-                    batAngleAdjust += deg2rad(4.0f);
+                    batRoll += 0.08f;
                 }
             }
-            if (const auto* mouse = event->getIf<sf::Event::MouseButtonPressed>()) {
-                if (mouse->button == sf::Mouse::Button::Left && !aim.swinging()) {
-                    frozenAim = aim;
-                    aimFrozen = true;
-                    startSwing(aim);
+            if (const auto* m = event->getIf<sf::Event::MouseButtonPressed>()) {
+                if (m->button == sf::Mouse::Button::Left) {
+                    startSwing(bat);
                     hasHit = false;
-                    status = std::string(prof.name) + " swing!";
-                    statusColor = prof.accent;
+                    status = std::string(prof.name) + " swing";
+                    statusCol = prof.color;
                 }
             }
-            if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>()) {
-                batAngleAdjust += deg2rad(wheel->delta * 3.0f);
+            if (const auto* wh = event->getIf<sf::Event::MouseWheelScrolled>()) {
+                batRoll += wh->delta * 0.06f;
             }
         }
 
-        // Mouse aim only when not swinging; freeze geometry at swing start.
-        if (!aim.swinging()) {
-            aimFrozen = false;
+        // Aim
+        if (!bat.locked) {
             sf::Vector2i mp = sf::Mouse::getPosition(window);
-            Vector2 mouse(static_cast<float>(mp.x), static_cast<float>(mp.y));
-            aim.pci = clampToZone(mouse, zone, 28.0f);
-            aim.batAngle = batAngleAdjust;
-            updateKnobFromPci(aim, batCfg);
-            aim.displayAngle = aim.batAngle;
+            Vector3 pci = mouseToPci(
+                camera,
+                static_cast<float>(mp.x),
+                static_cast<float>(mp.y),
+                static_cast<float>(window.getSize().x),
+                static_cast<float>(window.getSize().y)
+            );
+            bat.roll = batRoll;
+            orientBat(bat, pci);
         }
 
-        updateSwing(aim, prof, dt);
+        updateSwing(bat, prof, dt);
 
-        // Contact uses frozen aim pose + current swing angle/omega.
-        AimState contactAim = aimFrozen ? frozenAim : aim;
-        contactAim.swingT = aim.swingT;
-        contactAim.omega = aim.omega;
-        contactAim.displayAngle = aim.displayAngle;
-        contactAim.type = aim.type;
-        if (aim.swinging()) {
-            // Recompute knob so PCI stays fixed while barrel rotates through.
-            Vector2 axis = batAxis(contactAim.displayAngle);
-            contactAim.knob =
-                contactAim.pci - axis * (batCfg.sweetSpotFromKnobM * batCfg.pixelsPerMeter);
+        // Physics
+        float acc = 0.0f;
+        acc += dt;
+        while (acc >= kFixed) {
+            world.step(kFixed);
+            HitInfo hit = tryHit(ball, bat, batCfg, prof, hasHit);
+            if (hit.hit) {
+                lastHit = hit;
+                std::ostringstream oss;
+                oss << std::fixed << std::setprecision(0)
+                    << prof.name << " HIT  exit " << lastHit.exitMph << " mph  LA "
+                    << lastHit.launchDeg << "°  bat " << lastHit.batMph << " mph  sweet "
+                    << (lastHit.sweet * 100.0f) << "%";
+                status = oss.str();
+                statusCol = lastHit.sweet > 0.85f ? sf::Color(120, 255, 160)
+                    : (lastHit.sweet > 0.5f ? sf::Color(255, 230, 120) : sf::Color(255, 150, 100));
+            }
+            acc -= kFixed;
         }
 
-        world.step(dt);
-        ContactResult hit = tryContact(ball, contactAim, batCfg, prof, hasHit);
-        if (hit.hit) {
-            lastHit = hit;
-            std::ostringstream oss;
-            oss << std::fixed << std::setprecision(0)
-                << prof.name << " HIT  exit " << lastHit.exitMph << " mph  "
-                << "LA " << lastHit.launchDeg << "°  bat " << lastHit.batMph
-                << " mph  sweet " << (lastHit.sweet * 100.0f) << "%";
-            status = oss.str();
-            statusColor = lastHit.sweet > 0.85f ? sf::Color(120, 255, 160)
-                : (lastHit.sweet > 0.5f ? sf::Color(255, 230, 120) : sf::Color(255, 150, 100));
-        }
-
-        // Auto re-pitch
-        if (ball.position.y > zone.bottom() + 200.0f ||
-            ball.position.x < -100.0f ||
-            ball.position.x > 1400.0f ||
-            (hasHit && ball.position.y < zone.top - 250.0f)) {
-            if (aim.swingT < 0.0f || aim.swingT >= 1.0f) {
-                aim.swingT = -1.0f;
-                aimFrozen = false;
+        // Re-pitch when ball is gone
+        if (ball.position.z > 8.0f || ball.position.y < -0.5f || ball.position.z < kMoundZ - 1.0f) {
+            if (!bat.swinging()) {
                 hasHit = false;
                 trail.clear();
-                resetPitch(ball, pitch, zone, batCfg.pixelsPerMeter);
+                resetPitch(ball, world, pitchMph);
             }
         }
 
-        if (trail.empty() || (ball.position - trail.back()).magnitude() > 10.0f) {
+        if (trail.empty() || (ball.position - trail.back()).magnitude() > 0.12f) {
             trail.push_back(ball.position);
-            if (trail.size() > 70) {
+            if (trail.size() > 100) {
                 trail.erase(trail.begin());
             }
         }
 
-        // ── Draw ────────────────────────────────────────────────────────
-        window.clear(sf::Color(28, 55, 42)); // grass
+        Matrix4 batXform = batModelMatrix(bat);
+        Matrix4 ballXform =
+            Matrix4::translation(ball.position) *
+            Matrix4::scale(Vector3(kBallR, kBallR, kBallR));
+        Matrix4 plateXform = Matrix4::translation(Vector3(0.0f, 0.02f, kPlateZ));
 
-        // Dirt oval under zone
-        {
-            sf::CircleShape dirt(zone.width * 0.62f);
-            dirt.setScale(sf::Vector2f(1.0f, 0.72f));
-            dirt.setOrigin(sf::Vector2f(zone.width * 0.62f, zone.width * 0.62f));
-            dirt.setPosition(sf::Vector2f(zone.center().x, zone.bottom() - 40.0f));
-            dirt.setFillColor(sf::Color(150, 105, 70));
-            window.draw(dirt);
+        // ── 3D ──────────────────────────────────────────────────────────
+        if (useGL) {
+            gl.beginFrame(window, camera, sf::Color(18, 40, 32));
+            gl.drawGround(8.0f, kMoundZ - 1.0f, 10.0f, sf::Color(34, 70, 48));
+            gl.drawMesh(glPlate, plateXform);
+            gl.drawMesh(glBat, batXform);
+            gl.drawMesh(glBall, ballXform);
+            gl.endFrame(window);
+        } else {
+            fb.clear(sf::Color(18, 40, 32));
+            fb.clearDepth(std::numeric_limits<float>::infinity());
+            rasterizeMeshTriangles(fb, camera, plateMesh, plateXform, sf::Color(230, 225, 210), cache);
+            rasterizeMeshTriangles(fb, camera, batMesh, batXform, sf::Color(170, 115, 55), cache);
+            rasterizeMeshTriangles(fb, camera, ballMesh, ballXform, sf::Color(245, 245, 240), cache);
+            window.clear();
+            fb.present(window);
         }
 
-        // Pitcher marker (top of zone)
-        {
-            sf::CircleShape mound(28.0f);
-            mound.setOrigin(sf::Vector2f(28.0f, 28.0f));
-            mound.setPosition(sf::Vector2f(zone.center().x, zone.top - 50.0f));
-            mound.setFillColor(sf::Color(160, 115, 80));
-            window.draw(mound);
-            sf::CircleShape pitcher(10.0f);
-            pitcher.setOrigin(sf::Vector2f(10.0f, 10.0f));
-            pitcher.setPosition(sf::Vector2f(zone.center().x, zone.top - 55.0f));
-            pitcher.setFillColor(sf::Color(200, 200, 210));
-            window.draw(pitcher);
-        }
-
-        // Zone frame (white-ish)
-        {
-            sf::RectangleShape frame(sf::Vector2f(zone.width, zone.height));
-            frame.setPosition(sf::Vector2f(zone.left, zone.top));
-            frame.setFillColor(sf::Color(0, 0, 0, 0));
-            frame.setOutlineThickness(4.0f);
-            frame.setOutlineColor(sf::Color(210, 215, 220, 200));
-            window.draw(frame);
-            // Inner dirt fill slightly
-            sf::RectangleShape fill(sf::Vector2f(zone.width - 8.0f, zone.height - 8.0f));
-            fill.setPosition(sf::Vector2f(zone.left + 4.0f, zone.top + 4.0f));
-            fill.setFillColor(sf::Color(140, 95, 62, 50));
-            window.draw(fill);
-        }
-
-        // Home plate
-        {
-            float px = zone.center().x;
-            float py = zone.bottom() - 70.0f;
-            sf::ConvexShape plate;
-            plate.setPointCount(5);
-            plate.setPoint(0, sf::Vector2f(px - 22.0f, py));
-            plate.setPoint(1, sf::Vector2f(px + 22.0f, py));
-            plate.setPoint(2, sf::Vector2f(px + 22.0f, py + 18.0f));
-            plate.setPoint(3, sf::Vector2f(px, py + 36.0f));
-            plate.setPoint(4, sf::Vector2f(px - 22.0f, py + 18.0f));
-            plate.setFillColor(sf::Color(235, 230, 215));
-            window.draw(plate);
-        }
-
-        // Ball trail
+        // Trail + zone + PCI + silhouette overlay
         for (size_t i = 1; i < trail.size(); i++) {
             float a = static_cast<float>(i) / static_cast<float>(trail.size());
-            sf::Vertex line[] = {
-                sf::Vertex{
-                    sf::Vector2f(trail[i - 1].x, trail[i - 1].y),
-                    sf::Color(255, 255, 240, static_cast<std::uint8_t>(30 + a * 150))
-                },
-                sf::Vertex{
-                    sf::Vector2f(trail[i].x, trail[i].y),
-                    sf::Color(255, 255, 240, static_cast<std::uint8_t>(30 + a * 150))
-                }
-            };
-            window.draw(line, 2, sf::PrimitiveType::Lines);
+            sf::Color c(255, 255, 230, static_cast<std::uint8_t>(40 + a * 160));
+            drawThickLine(window, camera, trail[i - 1], trail[i], 2.0f, c);
         }
+        drawZoneOverlay(window, camera, sf::Color(200, 210, 220, 180));
+        drawPciOverlay(window, camera, bat.pci, prof.pciR, prof.color);
+        drawBatSilhouette2D(window, camera, bat, batCfg, prof.color);
 
-        // Ball
-        {
-            sf::CircleShape b(ball.radius);
-            b.setOrigin(sf::Vector2f(ball.radius, ball.radius));
-            b.setPosition(sf::Vector2f(ball.position.x, ball.position.y));
-            b.setFillColor(sf::Color(250, 250, 245));
-            b.setOutlineThickness(1.5f);
-            b.setOutlineColor(sf::Color(180, 40, 45));
-            window.draw(b);
-        }
-
-        // Bat silhouette + PCI (The Show–style yellow outline)
-        {
-            float drawAngle = aim.swinging() ? contactAim.displayAngle : aim.batAngle;
-            Vector2 pciPos = aimFrozen ? frozenAim.pci : aim.pci;
-            Vector2 drawKnob = aim.knob;
-            if (aim.swinging()) {
-                Vector2 axis = batAxis(drawAngle);
-                drawKnob = pciPos - axis * (batCfg.sweetSpotFromKnobM * batCfg.pixelsPerMeter);
-            } else {
-                drawKnob = aim.knob;
-            }
-
-            sf::Color batCol = prof.accent;
-            batCol.a = 255;
-            drawBatSilhouette(window, drawKnob, drawAngle, batCfg, batCol, 1.08f);
-            drawPci(window, pciPos, prof.pciRadiusPx, batCol);
-
-            if (lastHit.hit && hasHit) {
-                sf::CircleShape flash(12.0f);
-                flash.setOrigin(sf::Vector2f(12.0f, 12.0f));
-                flash.setPosition(sf::Vector2f(lastHit.point.x, lastHit.point.y));
-                flash.setFillColor(sf::Color(255, 255, 150, 140));
+        // Contact flash
+        if (lastHit.hit && hasHit) {
+            ProjectedPoint3D p = camera.projectPoint(
+                lastHit.point,
+                static_cast<float>(window.getSize().x),
+                static_cast<float>(window.getSize().y)
+            );
+            if (p.visible) {
+                sf::CircleShape flash(8.0f);
+                flash.setOrigin({8, 8});
+                flash.setPosition({p.position.x, p.position.y});
+                flash.setFillColor(sf::Color(255, 255, 120, 160));
                 window.draw(flash);
             }
         }
 
-        // HUD (text only)
         if (fontOk) {
-            const SwingProfile& p = profileFor(aim.type);
-            drawText(window, font, "Bat Physics", 20, {24, 16}, sf::Color(240, 245, 240));
-            drawText(window, font, status, 15, {24, 46}, statusColor);
+            drawText(window, font, "Bat Physics 3D", 20, {22, 14}, sf::Color(240, 245, 240));
+            drawText(window, font, status, 15, {22, 42}, statusCol);
 
             std::ostringstream modes;
-            modes << "Z Power  X Contact  C Regular   [" << p.name << "  pwr "
-                  << std::fixed << std::setprecision(2) << p.power << "]";
-            drawText(window, font, modes.str(), 14, {24, 72}, p.accent);
+            modes << "Z Power   X Contact   C Regular    [" << prof.name << "  pwr "
+                  << std::fixed << std::setprecision(2) << prof.power << "]";
+            drawText(window, font, modes.str(), 14, {22, 68}, prof.color);
 
             std::ostringstream hud;
             hud << std::fixed << std::setprecision(0)
-                << "Pitch " << pitch.speedMph << " mph   "
-                << "Mouse aim · Q/E or wheel bat angle   Space/LMB swing   R reset   [ ] speed";
-            drawText(window, font, hud.str(), 12, {24, 96}, sf::Color(170, 195, 185));
+                << "Pitch " << pitchMph
+                << " mph   Mouse aim PCI   Q/E roll   Space/LMB swing   R reset   [ ] speed";
+            drawText(window, font, hud.str(), 12, {22, 92}, sf::Color(160, 190, 180));
 
             if (lastHit.hit) {
                 std::ostringstream hit;
                 hit << std::fixed << std::setprecision(0)
-                    << "Last: exit " << lastHit.exitMph << " mph @ "
-                    << lastHit.launchDeg << "° · bat " << lastHit.batMph
-                    << " mph · sweet " << (lastHit.sweet * 100.0f) << "% · s="
-                    << std::setprecision(2) << lastHit.sMeters << " m";
-                drawText(window, font, hit.str(), 13, {24, 120}, sf::Color(255, 220, 140));
+                    << "Last: exit " << lastHit.exitMph << " mph @ " << lastHit.launchDeg
+                    << "° LA · bat " << lastHit.batMph << " mph · sweet "
+                    << (lastHit.sweet * 100.0f) << "% · along bat "
+                    << std::setprecision(2) << lastHit.s << " m";
+                drawText(window, font, hit.str(), 13, {22, 116}, sf::Color(255, 220, 140));
             }
-
-            // Legend bottom
-            drawText(
-                window, font,
-                "Yellow bat = silhouette / PCI (aim). Power = small PCI + high exit. Contact = big PCI + soft.",
-                11, {24, 688}, sf::Color(140, 170, 160)
-            );
         }
 
-        fpsCounter.frame(window);
+        fps.frame(window);
         window.display();
     }
 

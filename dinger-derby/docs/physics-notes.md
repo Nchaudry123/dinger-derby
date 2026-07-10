@@ -27,14 +27,13 @@ Pitch identity in the simulator is **speed + RPM + spin axis**, not baked break 
 
 # Bat–ball contact (`bat_physics_demo`)
 
-Side-view swing lab (separate from the pitching simulator):
+**3D batting cage** (separate from the pitching simulator):
 
-1. **Kinematic bat** — angle profile about the hands (pivot); point velocity **v_bat = f(ω, s)** along the barrel.
-2. **Segment vs circle** contact; radius tapers handle → barrel.
-3. **Sweet spot** scales COR and effective bat mass (mishits lose energy).
-4. **Impulse** with finite effective bat mass:  
-   `j = −(1+e) v_rel·n / (1/m_ball + 1/m_eff)`  
-   Exit speed / launch angle read from post-impulse ball velocity.
-5. Light **tangential friction** for spin feel.
+1. **Mouse PCI** on the plate plane (X / height); bat orients hands → aim.
+2. **Swing types** Z Power · X Contact · C Regular (power, duration, sweet size, COR).
+3. **Kinematic bat** about the hands; **v_bat = ω × r** along the barrel.
+4. **Capsule vs sphere** contact; sweet spot scales COR and effective mass.
+5. **Impulse** `j = −(1+e) v_rel·n / (1/m + 1/m_eff)` → exit mph + launch angle.
+6. Overlay: zone, PCI ring, projected bat silhouette.
 
-Demo: `./build/bat_physics_demo` — Space swing, R reset, `[ ]` pitch speed, `- =` power, `1/2/3` height, `A/D` timing.
+`./build/bat_physics_demo` — mouse aim, Z/X/C, Space swing, R reset, `[ ]` pitch speed.

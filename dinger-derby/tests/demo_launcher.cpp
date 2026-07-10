@@ -33,7 +33,7 @@ std::vector<DemoEntry> makeDemoEntries() {
         {"Baseball 3D", "baseball_3d_demo", "High-poly baseball showcase"},
         {"Pitching Simulator", "pitching_simulator_demo", "Aim box and pitch-type physics"},
         {"Character Viewer", "character_viewer_demo", "New CharacterModel3D workshop (orbit + poses)"},
-        {"Bat Physics", "bat_physics_demo", "Swing lab: sweet spot, COR, exit vel & launch angle"}
+        {"Bat Physics 3D", "bat_physics_demo", "3D cage: mouse PCI, Z/X/C swings, sweet spot & exit vel"}
     };
 }
 
