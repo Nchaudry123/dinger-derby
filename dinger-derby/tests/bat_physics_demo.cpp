@@ -63,7 +63,8 @@ constexpr float strikeZoneHalfWidth = 0.46f;
 constexpr float strikeZoneHalfHeight = 0.55f;
 const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
 // Huge open field — no practical wall/ceiling box (ball can fly freely).
-const Vector3 boundsMinimum(-80.0f, -2.0f, -120.0f);
+// Ground plane is y = 0 (ball sits on radius when settled).
+const Vector3 boundsMinimum(-80.0f, 0.0f, -120.0f);
 const Vector3 boundsMaximum(80.0f, 80.0f, 80.0f);
 
 // Same unit conversion as pitching_simulator_demo (1 world unit ≈ 2 feet).
@@ -599,8 +600,8 @@ HitInfo tryHit(
     Vector3 closest;
     closestOnBat(bat, cfg, ball.position, s, closest);
 
-    // Practice: slightly fatter bat + mild sweet-spot magnet (not free rockets).
-    float rScale = practiceMode ? 2.2f : 1.25f;
+    // Practice: slightly fatter bat + mild sweet-spot magnet.
+    float rScale = practiceMode ? 2.0f : 1.20f;
     float rBat = batRadius(cfg, s) * rScale;
     Vector3 delta = ball.position - closest;
     float dist = delta.magnitude();
@@ -610,15 +611,14 @@ HitInfo tryHit(
         Vector3 sweetPt = batPoint(bat, cfg.sweetFromKnob);
         float dSweet = (ball.position - sweetPt).magnitude();
         float nearPlate = std::abs(ball.position.z - plateZ);
-        bool contactWindow = bat.swingT >= 0.28f && bat.swingT <= 0.58f;
-        if (contactWindow && nearPlate < 0.40f && dSweet < 0.22f) {
+        bool contactWindow = bat.swingT >= 0.30f && bat.swingT <= 0.55f;
+        if (contactWindow && nearPlate < 0.35f && dSweet < 0.18f) {
             closest = sweetPt;
             s = cfg.sweetFromKnob;
             delta = ball.position - closest;
             dist = std::max(delta.magnitude(), 1e-4f);
             minD = ball.radius + rBat;
             Vector3 nSnap = delta * (1.0f / dist);
-            // Keep ball on bat surface without huge position jumps.
             ball.position = closest + nSnap * (ball.radius + batRadius(cfg, s));
             delta = ball.position - closest;
             dist = delta.magnitude();
@@ -629,90 +629,98 @@ HitInfo tryHit(
         return h;
     }
 
-    // Contact normal: from bat into ball (points roughly outfield if squared up).
+    // Geometric normal: bat surface → ball center (where you hit on the ball).
     Vector3 n = delta * (1.0f / dist);
-    // Bias normal slightly toward bat path plane so undercut pop-ups are rarer on
-    // center contact — still allow topspin/grounders if you hit on top of the ball.
-    {
-        Vector3 vBatHint = batPointVelocity(bat, s, dt);
-        if (vBatHint.magnitude() > 0.5f) {
-            Vector3 batDir = safeNorm(vBatHint);
-            // Prefer contact facing the swing direction (through the ball).
-            Vector3 preferred = safeNorm(batDir * 0.65f + Vector3(0, 0, -1) * 0.35f);
-            if (n.dot(preferred) < 0.0f) {
-                n = n * -1.0f;
-            }
-            n = safeNorm(n * 0.82f + preferred * 0.18f);
+    // Orient so n faces the swing (outfield side when squared up).
+    Vector3 vBat = batPointVelocity(bat, s, dt);
+    if (vBat.magnitude() > 0.5f) {
+        Vector3 batDir = safeNorm(vBat);
+        if (n.dot(batDir) < 0.0f) {
+            n = n * -1.0f;
         }
+    } else if (n.dot(Vector3(0, 0, -1)) < 0.0f) {
+        n = n * -1.0f;
     }
 
-    Vector3 vBat = batPointVelocity(bat, s, dt);
+    // Vertical contact quality: hitting under the ball (contact low on ball)
+    // adds loft; hitting on top drives it down. Derived from geometry, not free juice.
+    float undercut = clampf((ball.position.y - closest.y) / std::max(ball.radius, 0.02f), -1.2f, 1.2f);
+    // undercut > 0 → bat below ball center → more launch
+    // undercut < 0 → bat above center → more ground ball
+
     Vector3 vRel = ball.velocity - vBat;
     float approach = vRel.dot(n);
-    // Must be closing on the bat face (practice: tiny grace).
-    if (approach >= (practiceMode ? 1.0f : 0.0f)) {
-        return h;
-    }
-    if (practiceMode && approach > -4.0f) {
-        approach = -std::max(6.0f, vBat.magnitude() * 0.28f);
-        vRel = n * approach + (vRel - n * vRel.dot(n));
+    if (approach >= 0.0f) {
+        return h; // separating — no hit
     }
 
-    float sweetScale = practiceMode ? prof.sweetScale * 1.35f : prof.sweetScale;
+    float sweetScale = practiceMode ? prof.sweetScale * 1.25f : prof.sweetScale;
     float sweet = sweetFactor(cfg, s, sweetScale);
-    // Realistic COR band; power swing adds a little, mishits stay dead.
-    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus, sweet), 0.30f, 0.56f);
+    // Real wood/aluminum COR is modest; sweet spot is king.
+    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus * 0.5f, sweet), 0.28f, 0.50f);
     float tip = clampf(s / cfg.length, 0.0f, 1.0f);
+    // Effective bat mass: higher near knob, lower at tip (end-loaded feel).
     float mEff =
-        cfg.mass * prof.massScale * lerp(1.25f, 0.60f, tip) * lerp(0.70f, 1.10f, sweet);
+        cfg.mass * prof.massScale * lerp(1.35f, 0.55f, tip) * lerp(0.65f, 1.05f, sweet);
     float mBall = std::max(ball.mass, 0.05f);
 
-    // Standard 1D collision impulse along n (no free loft boost).
+    // Moving-bat elastic collision along contact normal.
     float j = -(1.0f + cor) * approach / (1.0f / mBall + 1.0f / mEff);
-    // Power / sweet add modest juice only — not 50%+ skyrockets.
-    j *= lerp(0.92f, 1.12f, sweet) * lerp(0.96f, 1.10f, (prof.power - 0.7f) / 0.55f);
+    // Power/sweet: small efficiency change only.
+    j *= lerp(0.88f, 1.06f, sweet) * lerp(0.94f, 1.06f, (prof.power - 0.7f) / 0.55f);
     if (practiceMode) {
-        j *= 1.08f;
+        j *= 1.05f;
     }
     ball.velocity = ball.velocity + n * (j / mBall);
 
-    // Friction: kill some spin-tangent relative speed (slice/hook, not loft).
-    Vector3 tan = safeNorm(n.cross(Vector3(0, 1, 0)), Vector3(1, 0, 0));
-    float vt = vRel.dot(tan);
-    float jt = clampf(-vt * mBall * 0.22f, -std::abs(j) * 0.12f, std::abs(j) * 0.12f);
-    ball.velocity = ball.velocity + tan * (jt / mBall);
-
-    // Carry from bat speed only along the bat's motion (level swings stay level).
-    if (vBat.magnitude() > 0.5f) {
-        Vector3 batDir = safeNorm(vBat);
-        // Cap how much of bat speed becomes exit — sweet + power matter.
-        float carryFrac = lerp(0.12f, 0.32f, sweet) * lerp(0.90f, 1.08f, (prof.power - 0.7f) / 0.55f);
-        if (practiceMode) {
-            carryFrac *= 1.10f;
-        }
-        // Only the component through the ball (along n), not free vertical add.
-        float alongN = std::max(0.0f, batDir.dot(n));
-        ball.velocity = ball.velocity + n * (vBat.magnitude() * alongN * carryFrac);
+    // Tangential friction (spray / slice) — no loft here.
+    Vector3 tanAxis = safeNorm(n.cross(Vector3(0, 1, 0)), Vector3(1, 0, 0));
+    Vector3 bitangent = safeNorm(n.cross(tanAxis), Vector3(0, 1, 0));
+    for (const Vector3& t : {tanAxis, bitangent}) {
+        float vt = (ball.velocity - vBat).dot(t);
+        float mu = 0.18f * lerp(0.7f, 1.0f, sweet);
+        float jt = clampf(-vt * mBall * mu, -std::abs(j) * 0.20f, std::abs(j) * 0.20f);
+        ball.velocity = ball.velocity + t * (jt / mBall);
     }
 
-    // Soft launch-angle clamp: natural pop-ups allowed, absurd skyballs limited.
+    // Attack angle: transfer a fraction of bat velocity (includes swing plane loft).
+    // Only the part "through" the ball — level swings stay level.
+    if (vBat.magnitude() > 1.0f) {
+        float batMph = vBat.magnitude() * 2.236936f;
+        // Soft-cap bat tip speed so FD noise doesn't explode exit (real BB ~70–90 mph tip).
+        float tipScale = clampf(batMph / 85.0f, 0.35f, 1.15f);
+        float carry = lerp(0.08f, 0.22f, sweet) * tipScale;
+        if (practiceMode) {
+            carry *= 1.06f;
+        }
+        float alongN = std::max(0.0f, safeNorm(vBat).dot(n));
+        ball.velocity = ball.velocity + n * (vBat.magnitude() * alongN * carry);
+    }
+
+    // Undercut / over-the-top: modest launch tweak from contact height only.
     {
         float horiz = std::sqrt(
             ball.velocity.x * ball.velocity.x + ball.velocity.z * ball.velocity.z
         );
-        float maxUp = horiz * std::tan(42.0f * pi / 180.0f); // ~42° max LA
-        float minUp = -horiz * std::tan(18.0f * pi / 180.0f); // allow choppers
-        if (horiz > 1.0f) {
+        // undercut +1 → add loft; −1 → subtract (chop)
+        float loftKick = undercut * lerp(2.5f, 5.5f, sweet);
+        ball.velocity.y += loftKick;
+        // Realistic launch window: chops to high flies, no sky-rockets.
+        if (horiz > 0.8f) {
+            float maxUp = horiz * std::tan(38.0f * pi / 180.0f);
+            float minUp = -horiz * std::tan(22.0f * pi / 180.0f);
             ball.velocity.y = clampf(ball.velocity.y, minUp, maxUp);
         }
-        // Weak mishits shouldn't get free fly-ball juice.
-        if (sweet < 0.35f && ball.velocity.y > horiz * 0.25f) {
-            ball.velocity.y *= 0.55f;
+        // Handle/mishit: deaden exit and kill loft.
+        if (sweet < 0.40f) {
+            ball.velocity = ball.velocity * lerp(0.55f, 0.85f, sweet / 0.40f);
         }
     }
 
-    // Separate ball from bat so we don't multi-hit.
-    ball.position = ball.position + n * (minD - dist + 0.004f);
+    // Separate surfaces.
+    ball.position = ball.position + n * (minD - dist + 0.003f);
+    // Dead bounce on ground later — zero restitution for batted ball.
+    ball.restitution = 0.0f;
 
     hasHit = true;
     h.hit = true;
@@ -722,14 +730,12 @@ HitInfo tryHit(
     h.batMph = vBat.magnitude() * 2.236936f;
     h.exitMph = ball.velocity.magnitude() * 2.236936f;
     float horiz = std::sqrt(ball.velocity.x * ball.velocity.x + ball.velocity.z * ball.velocity.z);
-    h.launchDeg = std::atan2(ball.velocity.y, horiz) * kDeg;
-    // Immediate classification from exit; distance refined on landing.
+    h.launchDeg = std::atan2(ball.velocity.y, std::max(horiz, 1e-4f)) * kDeg;
     h.distanceFeet = projectLandingDistanceFeet(ball.position, ball.velocity);
-    classifyHit(h, ball.velocity, ball.position + ball.velocity * 0.35f);
-    // Prefer projected landing distance for the quality call.
+    classifyHit(h, ball.velocity, ball.position + ball.velocity * 0.25f);
     h.distanceFeet = projectLandingDistanceFeet(ball.position, ball.velocity);
-    if (h.fair && h.distanceFeet >= 340.0f && h.exitMph >= 92.0f && h.launchDeg >= 18.0f &&
-        h.launchDeg <= 42.0f) {
+    if (h.fair && h.distanceFeet >= 340.0f && h.exitMph >= 95.0f && h.launchDeg >= 20.0f &&
+        h.launchDeg <= 38.0f) {
         h.quality = "Home Run";
     } else if (!h.fair) {
         h.quality = "Foul";
@@ -1160,6 +1166,7 @@ int main() {
     bool swungThisPitch = false;
     bool pitchResolved = false;
     bool landingLogged = false;
+    bool ballSettled = false; // true once batted ball sticks on the ground
     float hrBannerTimer = 0.0f;
     Vector3 plateCrossPos = strikeZoneCenter;
     float prevBallZ = moundZ;
@@ -1251,8 +1258,9 @@ int main() {
         world.airResistanceEnabled = false;
         baseball = Body3D(Vector3(0, 1.5f, moundZ), 0.145f);
         baseball.setRadius(baseballRadius);
-        baseball.restitution = 0.4f;
+        baseball.restitution = 0.15f; // pitch path; set to 0 after contact
         baseball.velocity = Vector3();
+        baseball.angularVelocity = Vector3();
         world.addBody(&baseball);
         deliveryAge = 0.0f;
         ballReleased = false;
@@ -1260,6 +1268,7 @@ int main() {
         swungThisPitch = false;
         pitchResolved = false;
         landingLogged = false;
+        ballSettled = false;
         hrBannerTimer = 0.0f;
         prevBallZ = moundZ;
         plateCrossPos = strikeZoneCenter;
@@ -1460,18 +1469,29 @@ int main() {
             float acc = dt;
             while (acc >= fixedStep) {
                 prevBallZ = baseball.position.z;
-                world.step(fixedStep);
+
+                if (ballSettled) {
+                    // Stay planted — no bounce, no roll.
+                    baseball.velocity = Vector3();
+                    baseball.angularVelocity = Vector3();
+                    baseball.acceleration = Vector3();
+                    baseball.position.y = baseball.radius + 0.01f;
+                } else {
+                    world.step(fixedStep);
+                }
+
                 HitInfo hit = tryHit(baseball, bat, batCfg, prof, hasHit, fixedStep, practiceMode);
                 if (hit.hit) {
                     lastHit = hit;
                     followBallCam = true;
-                    // Light air after contact so flight arcs more like pitching sim.
+                    // Flight: drag on, no bounce when it eventually lands.
                     world.airResistanceEnabled = true;
-                    world.setAtmosphere(0.06f);
-                    baseball.dragCoefficient = 0.32f;
-                    baseball.airResistanceScale = 0.9f;
+                    world.setAtmosphere(0.07f);
+                    baseball.dragCoefficient = 0.35f;
+                    baseball.airResistanceScale = 0.95f;
+                    baseball.restitution = 0.0f;
+                    baseball.magnusScale = 0.0f; // no weird post-contact rise from residual spin
                     resolvePitch("HIT");
-                    // Timing feel: ball vs plate depth at contact.
                     float zErr = baseball.position.z - plateZ;
                     const char* timing = "On time";
                     if (zErr < -0.28f) {
@@ -1497,23 +1517,37 @@ int main() {
                     }
                 }
 
-                // Refine distance when the ball lands.
-                if (hasHit && !landingLogged && baseball.position.y < 0.18f &&
-                    baseball.velocity.y <= 0.0f) {
-                    landingLogged = true;
-                    float dx = baseball.position.x;
-                    float dz = baseball.position.z - plateZ;
-                    lastHit.distanceFeet = std::sqrt(dx * dx + dz * dz) * feetPerWorldUnit;
-                    if (lastHit.fair && lastHit.distanceFeet >= 340.0f && lastHit.exitMph >= 92.0f &&
-                        lastHit.launchDeg >= 18.0f && lastHit.launchDeg <= 42.0f) {
-                        lastHit.quality = "Home Run";
+                // Stick the ball on first ground contact — no roll, no bounce.
+                if (hasHit && !ballSettled) {
+                    const float groundY = baseball.radius + 0.01f;
+                    bool nearGround = baseball.position.y <= groundY + 0.04f;
+                    bool falling = baseball.velocity.y <= 0.8f;
+                    if (nearGround && falling) {
+                        baseball.position.y = groundY;
+                        baseball.velocity = Vector3();
+                        baseball.angularVelocity = Vector3();
+                        baseball.acceleration = Vector3();
+                        baseball.restitution = 0.0f;
+                        ballSettled = true;
+
+                        if (!landingLogged) {
+                            landingLogged = true;
+                            float dx = baseball.position.x;
+                            float dz = baseball.position.z - plateZ;
+                            lastHit.distanceFeet = std::sqrt(dx * dx + dz * dz) * feetPerWorldUnit;
+                            if (lastHit.fair && lastHit.distanceFeet >= 340.0f &&
+                                lastHit.exitMph >= 95.0f && lastHit.launchDeg >= 20.0f &&
+                                lastHit.launchDeg <= 38.0f) {
+                                lastHit.quality = "Home Run";
+                            }
+                            std::ostringstream oss;
+                            oss << std::fixed << std::setprecision(0)
+                                << lastHit.quality << " lands  " << lastHit.distanceFeet << " ft  "
+                                << lastHit.exitMph << " mph  LA " << lastHit.launchDeg << "°  "
+                                << (lastHit.fair ? "FAIR" : "FOUL") << "  ·  " << countString();
+                            status = oss.str();
+                        }
                     }
-                    std::ostringstream oss;
-                    oss << std::fixed << std::setprecision(0)
-                        << lastHit.quality << " lands  " << lastHit.distanceFeet << " ft  "
-                        << lastHit.exitMph << " mph  LA " << lastHit.launchDeg << "°  "
-                        << (lastHit.fair ? "FAIR" : "FOUL") << "  ·  " << countString();
-                    status = oss.str();
                 }
 
                 // Sample plate-crossing xy for called balls/strikes.
