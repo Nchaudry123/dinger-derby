@@ -491,6 +491,82 @@ Matrix4 batModelMatrix(const BatPose& bat) {
     return Matrix4::translation(bat.hands) * r;
 }
 
+// Same unit conversion as pitching_simulator_demo (1 world unit ≈ 2 feet).
+float mphToWorldUnitsPerSecond(float mph) {
+    return mph * 5280.0f / 3600.0f / feetPerWorldUnit;
+}
+
+// Gravity-only launch aimed at the strike zone — same idea as the pitching
+// iterative solver (no Magnus here so path stays readable for batting).
+Vector3 launchVelocityTowardPlate(
+    const Vector3& start,
+    const Vector3& aim,
+    float pitchSpeedMph
+) {
+    float pitchSpeed = mphToWorldUnitsPerSecond(pitchSpeedMph);
+    float distance = std::max(1.0f, aim.z - start.z);
+    float flightTime = distance / std::max(1.0f, pitchSpeed * 0.94f);
+
+    float vx = (aim.x - start.x) / flightTime;
+    float vy = (aim.y - start.y + 0.5f * 9.8f * flightTime * flightTime) / flightTime;
+
+    auto assemble = [&](float xv, float yv) {
+        float maxSide = pitchSpeed * 0.22f;
+        xv = clampf(xv, -maxSide, maxSide);
+        yv = clampf(yv, pitchSpeed * std::tan(-12.0f * pi / 180.0f), pitchSpeed * std::tan(24.0f * pi / 180.0f));
+        float lat2 = xv * xv + yv * yv;
+        float maxLat = pitchSpeed * 0.55f;
+        if (lat2 > maxLat * maxLat && lat2 > 1e-8f) {
+            float sc = maxLat / std::sqrt(lat2);
+            xv *= sc;
+            yv *= sc;
+            lat2 = xv * xv + yv * yv;
+        }
+        float zv = std::sqrt(std::max(pitchSpeed * pitchSpeed - lat2, pitchSpeed * pitchSpeed * 0.55f));
+        return Vector3(xv, yv, zv);
+    };
+
+    Vector3 vel = assemble(vx, vy);
+
+    // 1–2 correction passes with gravity integration (matches pitching feel).
+    for (int iter = 0; iter < 6; iter++) {
+        Vector3 p = start;
+        Vector3 v = vel;
+        Vector3 prev = p;
+        bool crossed = false;
+        Vector3 plateHit = p;
+        for (int step = 0; step < 900; step++) {
+            prev = p;
+            v.y -= 9.8f * fixedStep;
+            p = p + v * fixedStep;
+            if (p.z >= plateZ && v.z > 0.0f) {
+                float seg = p.z - prev.z;
+                float t = seg <= 1e-6f ? 1.0f : (plateZ - prev.z) / seg;
+                t = clampf(t, 0.0f, 1.0f);
+                plateHit = prev + (p - prev) * t;
+                plateHit.z = plateZ;
+                crossed = true;
+                break;
+            }
+            if (p.y < -1.0f || p.z > plateZ + 8.0f) {
+                break;
+            }
+        }
+        if (!crossed) {
+            vel = assemble(vel.x, vel.y + 1.0f);
+            continue;
+        }
+        float errX = aim.x - plateHit.x;
+        float errY = aim.y - plateHit.y;
+        if (errX * errX + errY * errY < 0.0004f) {
+            break;
+        }
+        float T = clampf(distance / std::max(1.0f, vel.z * 0.94f), 0.25f, 1.2f);
+        vel = assemble(vel.x + errX / T * 0.92f, vel.y + errY / T * 0.92f);
+    }
+    return vel;
+}
+
 Vector3 mouseToPci(const Camera3D& cam, float mx, float my, float sw, float sh) {
     float nx = (mx / sw) * 2.0f - 1.0f;
     float ny = 1.0f - (my / sh) * 2.0f;
@@ -502,23 +578,23 @@ Vector3 mouseToPci(const Camera3D& cam, float mx, float my, float sw, float sh) 
     Vector3 right = safeNorm(Vector3(0, 1, 0).cross(forward), Vector3(1, 0, 0));
     Vector3 up = safeNorm(forward.cross(right));
     float aspect = sw / std::max(sh, 1.0f);
-    float tanHalf = std::tan(0.45f);
+    // Match catcher FOV (~700 “units” in this engine ≈ ~50–55° vertical)
+    float tanHalf = std::tan(0.48f);
     Vector3 dir = safeNorm(forward + right * (nx * tanHalf * aspect) + up * (ny * tanHalf));
-    // Plate plane
-    float planeZ = plateZ + 0.05f;
+    float planeZ = plateZ;
     if (std::abs(dir.z) < 1e-5f) {
         return strikeZoneCenter;
     }
     float t = (planeZ - cam.position.z) / dir.z;
-    if (t < 0.1f) {
-        t = 5.0f;
+    if (t < 0.05f) {
+        t = 2.0f;
     }
     Vector3 hit = cam.position + dir * t;
-    hit.x = clampf(hit.x, -strikeZoneHalfWidth * 1.2f, strikeZoneHalfWidth * 1.2f);
+    hit.x = clampf(hit.x, -strikeZoneHalfWidth, strikeZoneHalfWidth);
     hit.y = clampf(
         hit.y,
-        strikeZoneCenter.y - strikeZoneHalfHeight - 0.08f,
-        strikeZoneCenter.y + strikeZoneHalfHeight + 0.08f
+        strikeZoneCenter.y - strikeZoneHalfHeight,
+        strikeZoneCenter.y + strikeZoneHalfHeight
     );
     hit.z = planeZ;
     return hit;
@@ -614,14 +690,14 @@ int main() {
     sf::Font font;
     bool fontOk = loadUiFont(font);
 
-    // Batter-side camera looking toward pitcher on the mound
+    // Same catcher-view camera as pitching_simulator_demo.
     Camera3D camera;
     lookAt(
         camera,
-        Vector3(1.1f, 1.65f, plateZ + 2.4f),
-        Vector3(0.0f, 1.35f, moundZ + 2.0f)
+        Vector3(0.0f, 1.28f, plateZ + 0.95f),
+        Vector3(0.0f, 1.55f, moundZ + 1.2f)
     );
-    camera.fieldOfView = 780.0f;
+    camera.fieldOfView = 700.0f;
     camera.nearPlane = 0.08f;
 
     // Same assets as pitching sim
@@ -709,12 +785,10 @@ int main() {
 
     auto releaseBall = [&]() {
         Vector3 hand = pitcherAnim.throwHandWorld(pitcherWorldTransform());
+        // Aim at strike-zone center — same target language as pitching sim.
+        Vector3 aim = strikeZoneCenter;
         baseball.position = hand;
-        float speed = pitchMph * 0.44704f;
-        // Toward center of zone (simple four-seam path)
-        Vector3 target = strikeZoneCenter + Vector3(0.0f, 0.0f, 0.0f);
-        Vector3 dir = safeNorm(target - hand, Vector3(0, 0, 1));
-        baseball.velocity = dir * speed;
+        baseball.velocity = launchVelocityTowardPlate(hand, aim, pitchMph);
         ballReleased = true;
         status = "Ball in flight — swing!";
         statusCol = sf::Color(180, 230, 255);
