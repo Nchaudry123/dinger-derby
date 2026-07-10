@@ -243,7 +243,7 @@ inline void rasterizeMeshTriangles(
 
     for (const Vector3& vertex : mesh.vertices) {
         Vector3 world = transform.transformPoint(vertex);
-        Vector3 cameraSpace = world - camera.position;
+        Vector3 cameraSpace = camera.worldToCameraPoint(world);
 
         cache.worldVertices.push_back(world);
         cache.cameraVertices.push_back(cameraSpace);

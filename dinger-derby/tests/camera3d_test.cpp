@@ -31,6 +31,19 @@ void testProjectsOffsetPointWithPerspectiveScale() {
     assert(nearlyEqual(point.position.y, 290.0f));
 }
 
+void testCameraRotationChangesViewDirection() {
+    Camera3D camera;
+    camera.position = Vector3(0.0f, 0.0f, 0.0f);
+    camera.rotation.y = 3.1415926535f / 2.0f;
+
+    ProjectedPoint3D point =
+        camera.projectPoint(Vector3(5.0f, 0.0f, 0.0f), 1280.0f, 720.0f);
+
+    assert(point.visible);
+    assert(nearlyEqual(point.position.x, 640.0f));
+    assert(nearlyEqual(point.position.y, 360.0f));
+}
+
 void testRejectsPointsBehindNearPlane() {
     Camera3D camera;
 
@@ -63,6 +76,7 @@ void testRejectsSphereOutsideScreenBounds() {
 int main() {
     testProjectsCenterPointToScreenCenter();
     testProjectsOffsetPointWithPerspectiveScale();
+    testCameraRotationChangesViewDirection();
     testRejectsPointsBehindNearPlane();
     testSeesSphereInsideProjection();
     testRejectsSphereBehindNearPlane();

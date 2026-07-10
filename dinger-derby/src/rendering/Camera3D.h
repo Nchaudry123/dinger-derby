@@ -23,6 +23,8 @@ public:
         float screenHeight
     ) const;
 
+    Vector3 worldToCameraPoint(const Vector3& worldPoint) const;
+
     bool canSeeSphere(
         const Vector3& center,
         float radius,
