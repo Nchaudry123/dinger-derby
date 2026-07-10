@@ -31,7 +31,7 @@ constexpr float pitchingDistanceFeet = 60.5f;
 constexpr float pitchAirDensity = 0.075f;
 constexpr float plateZ = pitchingDistanceFeet / feetPerWorldUnit;
 constexpr float moundZ = 0.0f;
-constexpr float strikeZoneHalfWidth = 0.36f;
+constexpr float strikeZoneHalfWidth = 0.46f;
 constexpr float strikeZoneHalfHeight = 0.55f;
 const Vector3 releasePoint(-0.22f, 1.72f, moundZ);
 const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
@@ -460,6 +460,24 @@ void drawCatcherTarget(
     drawThickProjectedLine(window, camera, target + Vector3(0.07f, 0.0f, 0.0f), target + Vector3(0.18f, 0.0f, 0.0f), 2.2f, ghost);
     drawThickProjectedLine(window, camera, target + Vector3(0.0f, -0.18f, 0.0f), target + Vector3(0.0f, -0.07f, 0.0f), 2.2f, ghost);
     drawThickProjectedLine(window, camera, target + Vector3(0.0f, 0.07f, 0.0f), target + Vector3(0.0f, 0.18f, 0.0f), 2.2f, ghost);
+}
+
+void drawCatcherSilhouette(sf::RenderWindow& window, const Camera3D& camera) {
+    const float z = plateZ + 0.82f;
+    const sf::Color gear(25, 43, 55, 190);
+    const sf::Color outline(95, 185, 190, 105);
+    const sf::Color mitt(150, 110, 65, 215);
+
+    drawProjectedDot(window, camera, Vector3(0.0f, 2.02f, z), 15.0f, gear);
+    drawThickProjectedLine(window, camera, Vector3(-0.19f, 1.88f, z), Vector3(0.19f, 1.88f, z), 4.0f, outline);
+    drawThickProjectedLine(window, camera, Vector3(-0.24f, 1.66f, z), Vector3(0.24f, 1.66f, z), 20.0f, gear);
+    drawThickProjectedLine(window, camera, Vector3(-0.18f, 1.85f, z), Vector3(-0.32f, 1.47f, z), 5.0f, outline);
+    drawThickProjectedLine(window, camera, Vector3(0.18f, 1.85f, z), Vector3(0.32f, 1.47f, z), 5.0f, outline);
+    drawThickProjectedLine(window, camera, Vector3(-0.32f, 1.45f, z), Vector3(-0.56f, 1.12f, z + 0.06f), 7.0f, gear);
+    drawThickProjectedLine(window, camera, Vector3(0.32f, 1.45f, z), Vector3(0.56f, 1.12f, z + 0.06f), 7.0f, gear);
+    drawThickProjectedLine(window, camera, Vector3(-0.16f, 1.30f, z), Vector3(-0.42f, 0.70f, z + 0.10f), 8.0f, gear);
+    drawThickProjectedLine(window, camera, Vector3(0.16f, 1.30f, z), Vector3(0.42f, 0.70f, z + 0.10f), 8.0f, gear);
+    drawProjectedDot(window, camera, Vector3(-0.58f, 1.26f, z - 0.08f), 13.0f, mitt);
 }
 
 PitchResult classifyPitchResult(const Vector3& platePosition) {
@@ -991,6 +1009,7 @@ int main() {
 
         drawFieldGuide(window, overlayCamera);
         drawHomePlate(window, overlayCamera);
+        drawCatcherSilhouette(window, overlayCamera);
         drawCatcherTarget(window, overlayCamera, aimPoint, pitches[selectedPitch]);
         drawProjectedPolyline(window, overlayCamera, trail, pitches[activePitch].color);
         drawStrikeZone(window, overlayCamera, aimPoint, pitches[selectedPitch]);
