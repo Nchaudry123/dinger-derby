@@ -1067,6 +1067,126 @@ Vector3 Layout::parkCenter() const {
     return Vector3(0.0f, 4.0f, plateZ() - maxWallR() * 0.42f);
 }
 
+void Layout::polarFromHome(const Vector3& worldPos, float& radiusOut, float& angleRadOut) const {
+    float dx = worldPos.x;
+    float dz = worldPos.z - plateZ();
+    radiusOut = std::sqrt(dx * dx + dz * dz);
+    angleRadOut = std::atan2(dx, -dz); // 0 = CF (−Z)
+}
+
+float Layout::radiusFromHome(const Vector3& worldPos) const {
+    float r = 0.0f;
+    float a = 0.0f;
+    polarFromHome(worldPos, r, a);
+    (void)a;
+    return r;
+}
+
+WallClearResult evaluateWallClear(
+    const Layout& layout,
+    Vector3 position,
+    Vector3 velocity,
+    float gravityY,
+    float dragK
+) {
+    WallClearResult out;
+    float r0 = 0.0f;
+    float ang0 = 0.0f;
+    layout.polarFromHome(position, r0, ang0);
+    out.sprayDeg = ang0 * (180.0f / pi);
+    out.fair = std::abs(out.sprayDeg) <= layout.foulAngleDegrees + 0.5f;
+    out.fenceFeet = layout.wallFeetAtAngle(ang0);
+    out.wallTopY = layout.wallHeightAtAngle(ang0);
+
+    if (!out.fair) {
+        // Still project landing distance for readout.
+        out.landFeet = r0 * layout.feetPerUnit;
+    }
+
+    const float dt = 1.0f / 180.0f;
+    const int maxSteps = 4000;
+    const float groundY = 0.05f;
+    float prevR = r0;
+    Vector3 pos = position;
+    Vector3 vel = velocity;
+
+    for (int i = 0; i < maxSteps; i++) {
+        Vector3 prevPos = pos;
+
+        // Quadratic drag (direction opposite velocity) + gravity.
+        float spd = vel.magnitude();
+        Vector3 acc(0.0f, gravityY, 0.0f);
+        if (spd > 1e-4f && dragK > 0.0f) {
+            acc = acc - vel * (dragK * spd);
+        }
+        vel = vel + acc * dt;
+        pos = pos + vel * dt;
+
+        float r = 0.0f;
+        float ang = 0.0f;
+        layout.polarFromHome(pos, r, ang);
+        float wallR = layout.wallRAtAngle(ang);
+        float wallH = layout.wallHeightAtAngle(ang);
+
+        // Crossed fence radius this step (outward).
+        if (prevR < wallR && r >= wallR) {
+            float u = (wallR - prevR) / std::max(r - prevR, 1e-5f);
+            u = std::clamp(u, 0.0f, 1.0f);
+            float yFence = prevPos.y + (pos.y - prevPos.y) * u;
+
+            out.sprayDeg = ang * (180.0f / pi);
+            out.fair = std::abs(out.sprayDeg) <= layout.foulAngleDegrees + 0.5f;
+            out.fenceFeet = layout.wallFeetAtAngle(ang);
+            out.wallTopY = wallH;
+            out.heightAtFence = yFence;
+            out.marginFeet = (yFence - wallH) * layout.feetPerUnit;
+
+            if (out.fair && yFence >= wallH - 0.05f) {
+                out.clearsWall = true;
+                // Keep integrating for landing distance past the wall.
+            } else if (out.fair) {
+                out.hitsWallFace = true;
+                out.landFeet = out.fenceFeet;
+                return out;
+            } else {
+                // Foul past the foul line — not an HR clear.
+                out.landFeet = r * layout.feetPerUnit;
+                return out;
+            }
+        }
+
+        if (pos.y <= groundY && vel.y <= 0.0f) {
+            pos.y = groundY;
+            float landR = 0.0f;
+            float landA = 0.0f;
+            layout.polarFromHome(pos, landR, landA);
+            out.landFeet = landR * layout.feetPerUnit;
+            out.sprayDeg = landA * (180.0f / pi);
+            out.fair = std::abs(out.sprayDeg) <= layout.foulAngleDegrees + 0.5f;
+            return out;
+        }
+
+        // Escaped far past park without landing.
+        if (r > layout.maxWallR() + 120.0f) {
+            out.landFeet = r * layout.feetPerUnit;
+            if (out.clearsWall) {
+                return out;
+            }
+            break;
+        }
+
+        prevR = r;
+    }
+
+    float endR = 0.0f;
+    float endA = 0.0f;
+    layout.polarFromHome(pos, endR, endA);
+    if (out.landFeet <= 0.0f) {
+        out.landFeet = endR * layout.feetPerUnit;
+    }
+    return out;
+}
+
 Layout defaultPlayLayout() {
     Layout L;
     L.wallDistanceFeet = 401.0f;

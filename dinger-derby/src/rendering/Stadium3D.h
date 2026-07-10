@@ -67,7 +67,37 @@ struct Layout {
 
     // Max fence radius (for ground size / far plane).
     float maxWallR() const;
+
+    // Horizontal distance (world units) and spray angle from home.
+    // angleRad: 0 = CF (−Z), + toward +X (RF).
+    void polarFromHome(const Vector3& worldPos, float& radiusOut, float& angleRadOut) const;
+    float radiusFromHome(const Vector3& worldPos) const;
 };
+
+// Result of sampling a batted-ball arc against the asymmetric OF fence.
+// clearsWall: ball crosses fence radius above wall top (true HR geometry).
+// hitsWallFace: ball reaches fence radius below top (wall ball / double).
+struct WallClearResult {
+    bool fair = true;
+    bool clearsWall = false;
+    bool hitsWallFace = false;
+    float sprayDeg = 0.0f;
+    float fenceFeet = 0.0f;
+    float wallTopY = 0.0f;       // world Y of wall top at impact spray
+    float heightAtFence = 0.0f;  // ball Y when crossing fence radius
+    float marginFeet = 0.0f;     // (heightAtFence - wallTopY) * feetPerUnit
+    float landFeet = 0.0f;       // ground landing distance from home (feet)
+};
+
+// Integrate exit velocity with gravity + light quadratic drag (matches bat demo
+// post-contact atmosphere closely enough for HR calls).
+WallClearResult evaluateWallClear(
+    const Layout& layout,
+    Vector3 position,
+    Vector3 velocity,
+    float gravityY = -9.8f,
+    float dragK = 0.012f
+);
 
 // Fan sections for cheer-wave animation (draw each with a small Y bob).
 constexpr int kFanSectorCount = 16;
