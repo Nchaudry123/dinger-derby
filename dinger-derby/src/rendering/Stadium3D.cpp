@@ -300,7 +300,7 @@ void addDiskSector(
     }
 }
 
-// Dirt with subtle radial banding (fake texture without image maps).
+// Dirt with radial + angular banding (wear rings + pie slices).
 void addTexturedDirtDisk(
     Mesh3D& m,
     const Vector3& center,
@@ -315,15 +315,116 @@ void addTexturedDirtDisk(
         float u1 = static_cast<float>(r + 1) / rings;
         float r0 = radius * u0;
         float r1 = radius * u1;
-        float mul = 0.90f + 0.12f * static_cast<float>((r + (r % 2)) % 3) / 2.0f;
-        if (r % 2 == 0) {
-            mul *= 0.94f;
+        for (int s = 0; s < segs; s++) {
+            float a0 = (static_cast<float>(s) / segs) * pi * 2.0f;
+            float a1 = (static_cast<float>(s + 1) / segs) * pi * 2.0f;
+            // Wear: darker toward center, slight angular mottling
+            float mul = 0.88f + 0.14f * u1;
+            mul *= 0.94f + 0.10f * static_cast<float>((s + r * 3) % 4) / 3.0f;
+            if ((s + r) % 5 == 0) {
+                mul *= 0.90f; // random-ish darker patches
+            }
+            sf::Color col = shadeColor(base, mul);
+            Vector3 c(center.x, y, center.z);
+            auto pt = [&](float a, float rad) {
+                return c + Vector3(std::cos(a) * rad, 0.0f, std::sin(a) * rad);
+            };
+            if (r0 < 1e-4f) {
+                addTri(m, c, pt(a0, r1), pt(a1, r1), col);
+            } else {
+                addQuad(m, pt(a0, r0), pt(a1, r0), pt(a1, r1), pt(a0, r1), col);
+            }
         }
-        sf::Color col = shadeColor(base, mul);
-        if (r0 < 1e-4f) {
-            addDisk(m, center, r1, y, segs, col);
-        } else {
-            addDiskRing(m, center, r0, r1, y, segs, col);
+    }
+}
+
+// Small darker dirt "wear blotch" (cleats / landing spots).
+void addDirtWearBlotch(
+    Mesh3D& m,
+    const Vector3& center,
+    float radius,
+    float y,
+    sf::Color base,
+    int seed
+) {
+    float mul = 0.78f + 0.08f * static_cast<float>(seed % 5) / 4.0f;
+    addDisk(m, center, radius, y, 14, shadeColor(base, mul));
+    addDisk(m, center + Vector3(radius * 0.25f, 0, radius * 0.1f), radius * 0.55f, y + 0.001f, 10,
+            shadeColor(base, mul * 0.92f));
+}
+
+// Point inside diamond UV: (0,0)=home, (1,0)=1B, (1,1)=2B, (0,1)=3B.
+Vector3 diamondLerp(
+    const Vector3& home,
+    const Vector3& b1,
+    const Vector3& b2,
+    const Vector3& b3,
+    float u,
+    float v
+) {
+    Vector3 a = home * (1.0f - u) + b1 * u;
+    Vector3 b = b3 * (1.0f - u) + b2 * u;
+    Vector3 p = a * (1.0f - v) + b * v;
+    p.y = 0.0f;
+    return p;
+}
+
+// Diagonal / checker mow pattern across the infield grass skin.
+void addInfieldMowPattern(
+    Mesh3D& m,
+    const Vector3& home,
+    const Vector3& b1,
+    const Vector3& b2,
+    const Vector3& b3,
+    float scale,
+    float y,
+    int grid,
+    sf::Color grassA,
+    sf::Color grassB
+) {
+    // Scale corners toward diamond center so we stay inside the skin.
+    Vector3 c = (home + b1 + b2 + b3) * 0.25f;
+    auto sc = [&](const Vector3& p) {
+        Vector3 d = p - c;
+        d.y = 0.0f;
+        return c + d * scale;
+    };
+    Vector3 H = sc(home);
+    Vector3 B1 = sc(b1);
+    Vector3 B2 = sc(b2);
+    Vector3 B3 = sc(b3);
+
+    for (int j = 0; j < grid; j++) {
+        for (int i = 0; i < grid; i++) {
+            float u0 = static_cast<float>(i) / grid;
+            float u1 = static_cast<float>(i + 1) / grid;
+            float v0 = static_cast<float>(j) / grid;
+            float v1 = static_cast<float>(j + 1) / grid;
+            // Shrink slightly so cells don't fight dirt paths at edges
+            const float inset = 0.03f;
+            u0 = inset + u0 * (1.0f - 2.0f * inset);
+            u1 = inset + u1 * (1.0f - 2.0f * inset);
+            v0 = inset + v0 * (1.0f - 2.0f * inset);
+            v1 = inset + v1 * (1.0f - 2.0f * inset);
+
+            Vector3 p00 = diamondLerp(H, B1, B2, B3, u0, v0);
+            Vector3 p10 = diamondLerp(H, B1, B2, B3, u1, v0);
+            Vector3 p11 = diamondLerp(H, B1, B2, B3, u1, v1);
+            Vector3 p01 = diamondLerp(H, B1, B2, B3, u0, v1);
+
+            // Diagonal stripes (broadcast-style) with light checker modulation
+            int band = static_cast<int>(std::floor((u0 + v0) * grid * 0.85f));
+            int check = (i + j) & 1;
+            sf::Color col = (band & 1) ? grassA : grassB;
+            if (check) {
+                col = shadeColor(col, 0.96f);
+            }
+            // Alternate stripe direction mid-diamond for that "two-way mow" look
+            if (u0 + v0 > 1.0f) {
+                int band2 = static_cast<int>(std::floor((u0 - v0 + 1.0f) * grid * 0.7f));
+                col = (band2 & 1) ? grassB : grassA;
+            }
+            addFlatQuad(m, p00, p10, p11, p01, y + static_cast<float>((i + j) % 3) * 0.0003f, col);
         }
     }
 }
@@ -456,48 +557,79 @@ Mesh3D buildField(const Layout& L) {
     {
         auto outer = expandDiamond(1.04f);
         auto inner = expandDiamond(0.92f);
-        // Four trapezoid lips home→1B→2B→3B
         for (int e = 0; e < 4; e++) {
             int n = (e + 1) % 4;
-            addFlatQuad(
-                m,
-                outer[e],
-                outer[n],
-                inner[n],
-                inner[e],
-                0.020f,
-                shadeColor(dirt, (e % 2) ? 0.96f : 1.0f)
-            );
+            // Segment the lip for dirt mottling along each side
+            const int segs = 8;
+            for (int s = 0; s < segs; s++) {
+                float t0 = static_cast<float>(s) / segs;
+                float t1 = static_cast<float>(s + 1) / segs;
+                auto lerpV = [](const Vector3& a, const Vector3& b, float t) {
+                    return a * (1.0f - t) + b * t;
+                };
+                Vector3 o0 = lerpV(outer[e], outer[n], t0);
+                Vector3 o1 = lerpV(outer[e], outer[n], t1);
+                Vector3 i0 = lerpV(inner[e], inner[n], t0);
+                Vector3 i1 = lerpV(inner[e], inner[n], t1);
+                float mul = 0.93f + 0.10f * static_cast<float>((e + s) % 3) / 2.0f;
+                if ((e + s) % 4 == 0) {
+                    mul *= 0.88f; // wear on the lip
+                }
+                addFlatQuad(m, o0, o1, i1, i0, 0.020f, shadeColor(dirt, mul));
+            }
         }
     }
-    // Infield grass skin (main visual mass of the diamond interior)
+
+    // Infield grass skin + diagonal mow pattern (broadcast look)
     {
         auto g = expandDiamond(0.91f);
-        addFlatQuad(m, g[0], g[1], g[2], g[3], 0.018f, grassInfield);
-        // Subtle checker mow on the skin
-        auto g2 = expandDiamond(0.78f);
-        addFlatQuad(m, g2[0], g2[1], g2[2], g2[3], 0.019f, shadeColor(grassInfield, 0.92f));
-        auto g3 = expandDiamond(0.62f);
-        addFlatQuad(m, g3[0], g3[1], g3[2], g3[3], 0.020f, shadeColor(grassInfield, 1.04f));
+        addFlatQuad(m, g[0], g[1], g[2], g[3], 0.017f, grassInfield);
+        sf::Color mowA = grassInfield;
+        sf::Color mowB = shadeColor(grassInfield, 0.88f);
+        sf::Color mowC = shadeColor(grassInfield, 1.06f);
+        // Dense diagonal grid across the skin
+        addInfieldMowPattern(m, home, b1, b2, b3, 0.88f, 0.019f, 14, mowA, mowB);
+        // Lighter cross-bands for two-way mow depth
+        addInfieldMowPattern(m, home, b1, b2, b3, 0.72f, 0.0205f, 10, mowC, mowB);
     }
 
-    // Base paths — realistic ~6 ft wide (3 world units ≈ 6 ft at 2 ft/unit… use ~1.5)
+    // Base paths — realistic width with wear variation along the path
     const float pathHw = 1.45f;
     const float pathY = 0.028f;
-    addDirtPath(m, home, b1, pathHw, pathY, dirtPath);
-    addDirtPath(m, b1, b2, pathHw, pathY, dirtPath);
-    addDirtPath(m, b2, b3, pathHw, pathY, dirtPath);
-    addDirtPath(m, b3, home, pathHw, pathY, dirtPath);
-    // Slightly darker edge strips on paths
-    addDirtPath(m, home, b1, pathHw * 0.22f, pathY + 0.002f, dirtDark);
-    addDirtPath(m, b1, b2, pathHw * 0.22f, pathY + 0.002f, dirtDark);
-    addDirtPath(m, b2, b3, pathHw * 0.22f, pathY + 0.002f, dirtDark);
-    addDirtPath(m, b3, home, pathHw * 0.22f, pathY + 0.002f, dirtDark);
-    // Pitcher → 2B cut (narrower)
-    addDirtPath(m, L.mound(), b2, pathHw * 0.55f, pathY, shadeColor(dirtPath, 0.97f));
+    auto wearPath = [&](const Vector3& a, const Vector3& b, float hw) {
+        addDirtPath(m, a, b, hw, pathY, dirtPath);
+        addDirtPath(m, a, b, hw * 0.22f, pathY + 0.002f, dirtDark);
+        // Cleat wear blotches along the path
+        Vector3 d = b - a;
+        d.y = 0.0f;
+        float len = d.magnitude();
+        if (len < 1e-3f) {
+            return;
+        }
+        d = d * (1.0f / len);
+        Vector3 side(-d.z, 0, d.x);
+        int spots = std::max(3, static_cast<int>(len / 4.5f));
+        for (int s = 0; s < spots; s++) {
+            float t = (static_cast<float>(s) + 0.5f) / static_cast<float>(spots);
+            float off = ((s % 3) - 1) * hw * 0.35f;
+            Vector3 p = a + d * (len * t) + side * off;
+            p.y = 0.0f;
+            addDirtWearBlotch(m, p, 0.35f + 0.15f * static_cast<float>(s % 3), pathY + 0.003f, dirtDark, s + 7);
+        }
+    };
+    wearPath(home, b1, pathHw);
+    wearPath(b1, b2, pathHw);
+    wearPath(b2, b3, pathHw);
+    wearPath(b3, home, pathHw);
+    // Pitcher → 2B cut (narrower) + landing wear
+    wearPath(L.mound(), b2, pathHw * 0.55f);
 
     // Mound circle (textured) + raised mound
-    addTexturedDirtDisk(m, L.mound(), 6.8f, 0.026f, 6, 36, dirt);
+    addTexturedDirtDisk(m, L.mound(), 6.8f, 0.026f, 7, 40, dirt);
+    // Heavy wear ring around the rubber / landing zone (front of mound)
+    addDiskRing(m, L.mound() + Vector3(0, 0, 1.2f), 1.2f, 2.8f, 0.029f, 24, shadeColor(dirtDark, 0.92f));
+    addDirtWearBlotch(m, L.mound() + Vector3(0.3f, 0, 1.8f), 1.1f, 0.030f, dirtDark, 3);
+    addDirtWearBlotch(m, L.mound() + Vector3(-0.4f, 0, 1.5f), 0.85f, 0.030f, dirtDark, 5);
     {
         Vector3 c(0.0f, 0.10f, L.moundZ());
         const int n = 28;
@@ -532,9 +664,8 @@ Mesh3D buildField(const Layout& L) {
         addBox(m, Vector3(0.0f, 0.20f, L.moundZ()), 1.05f, 0.05f, 0.28f, sf::Color(235, 230, 215));
     }
 
-    // Home plate dirt circle (full) + darker batter's path
-    addTexturedDirtDisk(m, home, 7.2f, 0.026f, 5, 36, dirt);
-    // Dirt arc from plate toward mound (−Z = angle −π/2 in disk coords)
+    // Home plate dirt circle + wear toward mound / boxes
+    addTexturedDirtDisk(m, home, 7.2f, 0.026f, 6, 40, dirt);
     addDiskSector(
         m,
         home,
@@ -545,11 +676,19 @@ Mesh3D buildField(const Layout& L) {
         28,
         shadeColor(dirt, 0.97f)
     );
+    // Batter box wear (darker packed dirt)
+    addDirtWearBlotch(m, home + Vector3(-1.4f, 0, -0.2f), 1.0f, 0.031f, dirtDark, 11);
+    addDirtWearBlotch(m, home + Vector3(1.4f, 0, -0.2f), 1.0f, 0.031f, dirtDark, 12);
+    addDirtWearBlotch(m, home + Vector3(0.0f, 0, 0.9f), 0.9f, 0.031f, dirtDark, 13); // catcher
+    addDirtWearBlotch(m, home + Vector3(0.2f, 0, -2.2f), 1.2f, 0.030f, dirtDark, 14); // toward mound
 
-    // Base cutouts (textured)
-    addTexturedDirtDisk(m, b1, 3.4f, 0.029f, 4, 24, dirt);
-    addTexturedDirtDisk(m, b2, 3.4f, 0.029f, 4, 24, dirt);
-    addTexturedDirtDisk(m, b3, 3.4f, 0.029f, 4, 24, dirt);
+    // Base cutouts + pivot wear
+    addTexturedDirtDisk(m, b1, 3.4f, 0.029f, 5, 28, dirt);
+    addTexturedDirtDisk(m, b2, 3.4f, 0.029f, 5, 28, dirt);
+    addTexturedDirtDisk(m, b3, 3.4f, 0.029f, 5, 28, dirt);
+    addDirtWearBlotch(m, b1 + Vector3(-0.4f, 0, 0.3f), 0.7f, 0.032f, dirtDark, 21);
+    addDirtWearBlotch(m, b2 + Vector3(0.0f, 0, 0.5f), 0.75f, 0.032f, dirtDark, 22);
+    addDirtWearBlotch(m, b3 + Vector3(0.4f, 0, 0.3f), 0.7f, 0.032f, dirtDark, 23);
 
     // Home plate (regulation-ish silhouette, tip to catcher +Z)
     {
