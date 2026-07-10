@@ -723,34 +723,65 @@ Vector3 movementAccelerationForPitch(
     return acceleration + turbulenceForce * variation.turbulenceStrength * turbulenceRamp + magnus;
 }
 
+// Ballistic launch from the true hand position so aim height stays accurate.
 Vector3 calculateLaunchVelocity(
     const PitchProfile& pitch,
     const Vector3& aimPoint,
     float pitchSpeedMph,
-    const PitchFlightVariation& variation
+    const PitchFlightVariation& variation,
+    const Vector3& startPosition
 ) {
     float pitchSpeed = mphToWorldUnitsPerSecond(pitchSpeedMph);
-    Vector3 actualReleasePoint = releasePoint + variation.releaseOffset;
-    float distance = aimPoint.z - actualReleasePoint.z;
-    float dragSlowdownEstimate = std::clamp(0.95f - pitch.dragCoefficient * pitch.airScale * 0.10f, 0.86f, 0.95f);
+    float distance = std::max(1.0f, aimPoint.z - startPosition.z);
+    float dragSlowdownEstimate = std::clamp(
+        0.95f - pitch.dragCoefficient * pitch.airScale * 0.10f,
+        0.86f,
+        0.95f
+    );
     float flightTime = distance / std::max(1.0f, pitchSpeed * dragSlowdownEstimate);
+
+    // Approximate break over the second half of flight.
     float movementInfluence = std::max(0.0f, 1.0f - pitch.breakStartZ) * 0.24f;
     float estimatedAx = pitch.breakAcceleration.x * variation.breakScale.x * movementInfluence;
-    float estimatedAy = -9.8f + pitch.breakAcceleration.y * variation.breakScale.y * movementInfluence;
-    float desiredVx = (aimPoint.x - actualReleasePoint.x - 0.5f * estimatedAx * flightTime * flightTime) / flightTime;
+    float estimatedAy =
+        -9.8f + pitch.breakAcceleration.y * variation.breakScale.y * movementInfluence;
+
+    float t2 = flightTime * flightTime;
+    float desiredVx =
+        (aimPoint.x - startPosition.x - 0.5f * estimatedAx * t2) / flightTime;
     float desiredVy =
-        (aimPoint.y - actualReleasePoint.y - 0.5f * estimatedAy * flightTime * flightTime) / flightTime +
+        (aimPoint.y - startPosition.y - 0.5f * estimatedAy * t2) / flightTime +
         pitch.liftCompensation +
         variation.liftOffset;
 
-    float maxSideVelocity = pitchSpeed * 0.16f;
-    float minVerticalVelocity = pitchSpeed * std::tan(-4.0f * pi / 180.0f);
-    float maxVerticalVelocity = pitchSpeed * std::tan(6.8f * pi / 180.0f);
+    // Clamps allow enough loft when the hand is below the target (common at release).
+    float maxSideVelocity = pitchSpeed * 0.20f;
+    float minVerticalVelocity = pitchSpeed * std::tan(-10.0f * pi / 180.0f);
+    float maxVerticalVelocity = pitchSpeed * std::tan(22.0f * pi / 180.0f);
     desiredVx = std::clamp(desiredVx, -maxSideVelocity, maxSideVelocity);
     desiredVy = std::clamp(desiredVy, minVerticalVelocity, maxVerticalVelocity);
 
-    float forwardVelocitySquared = pitchSpeed * pitchSpeed - desiredVx * desiredVx - desiredVy * desiredVy;
-    float desiredVz = std::sqrt(std::max(forwardVelocitySquared, pitchSpeed * pitchSpeed * 0.82f));
+    float lateralSquared = desiredVx * desiredVx + desiredVy * desiredVy;
+    float forwardVelocitySquared = pitchSpeed * pitchSpeed - lateralSquared;
+    // Prefer keeping the solved vertical aim; only borrow from forward speed if needed.
+    float desiredVz = 0.0f;
+    if (forwardVelocitySquared > pitchSpeed * pitchSpeed * 0.55f) {
+        desiredVz = std::sqrt(forwardVelocitySquared);
+    } else {
+        // Hand much lower than target: keep vy, reduce |vx| slightly, use remaining for vz.
+        float maxLateral = pitchSpeed * 0.55f;
+        float lateral = std::sqrt(lateralSquared);
+        if (lateral > maxLateral && lateral > 0.0001f) {
+            float scale = maxLateral / lateral;
+            desiredVx *= scale;
+            desiredVy *= scale;
+        }
+        desiredVz = std::sqrt(std::max(
+            pitchSpeed * pitchSpeed - desiredVx * desiredVx - desiredVy * desiredVy,
+            pitchSpeed * pitchSpeed * 0.55f
+        ));
+    }
+
     return Vector3(desiredVx, desiredVy, desiredVz);
 }
 
@@ -851,18 +882,13 @@ void launchPitch(
     baseball.dragCoefficient = pitch.dragCoefficient * variation.dragScale;
     baseball.airResistanceScale = pitch.airScale;
     Vector3 commandedAimPoint = clampAimPoint(aimPoint + variation.commandOffset);
-    // Aim solver still uses mound release semantics; hand position is the actual spawn.
-    baseball.velocity = calculateLaunchVelocity(pitch, commandedAimPoint, pitchSpeedMph, variation);
-    // Nudge aim slightly from true hand so velocity points toward plate.
-    Vector3 toPlate = commandedAimPoint - startPosition;
-    float toPlateLen = toPlate.magnitude();
-    if (toPlateLen > 0.5f) {
-        float speed = baseball.velocity.magnitude();
-        Vector3 desiredDir = toPlate * (1.0f / toPlateLen);
-        // Blend physics aim direction with hand→plate direction for a real throw path.
-        Vector3 blended = (baseball.velocity.normalized() * 0.55f + desiredDir * 0.45f).normalized();
-        baseball.velocity = blended * speed;
-    }
+    baseball.velocity = calculateLaunchVelocity(
+        pitch,
+        commandedAimPoint,
+        pitchSpeedMph,
+        variation,
+        startPosition
+    );
     world.addBody(&baseball);
 
     trail.clear();
