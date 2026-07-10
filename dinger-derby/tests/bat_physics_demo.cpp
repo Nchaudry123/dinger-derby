@@ -61,7 +61,7 @@ constexpr float kDeg = 180.0f / pi;
 constexpr float fixedStep = 1.0f / 180.0f;
 constexpr float baseballRadius = 0.065f;
 // Drawn larger than physics radius so the ball stays readable in flight.
-constexpr float baseballVisualScale = 2.85f;
+constexpr float baseballVisualScale = 3.35f; // readability over pure scale realism
 constexpr float feetPerWorldUnit = 2.0f;
 constexpr float pitchingDistanceFeet = 60.5f;
 constexpr float plateZ = pitchingDistanceFeet / feetPerWorldUnit; // ~30.25
@@ -2149,9 +2149,9 @@ int main() {
                 spinY += 8.0f * fixedStep;
                 acc -= fixedStep;
             }
-            if (trail.empty() || (baseball.position - trail.back()).magnitude() > 0.20f) {
+            if (trail.empty() || (baseball.position - trail.back()).magnitude() > 0.12f) {
                 trail.push_back(baseball.position);
-                if (trail.size() > 220) {
+                if (trail.size() > 320) {
                     trail.erase(trail.begin());
                 }
             }
@@ -2249,9 +2249,10 @@ int main() {
             gl.drawMesh(glStadiumField, stadiumXform);
             // Contact shadows (ball + pitcher feet) for outdoor depth.
             {
-                float ballShadowR = 0.28f + baseball.position.y * 0.04f;
-                ballShadowR = clampf(ballShadowR, 0.22f, 0.85f);
-                float ballAlpha = clampf(0.42f - baseball.position.y * 0.03f, 0.12f, 0.42f);
+                // Larger / softer shadow so the ball's ground track is obvious.
+                float ballShadowR = 0.38f + baseball.position.y * 0.055f;
+                ballShadowR = clampf(ballShadowR, 0.30f, 1.15f);
+                float ballAlpha = clampf(0.50f - baseball.position.y * 0.028f, 0.14f, 0.50f);
                 gl.drawGroundShadow(baseball.position, ballShadowR, ballAlpha);
                 gl.drawGroundShadow(Vector3(0.0f, 0.0f, moundZ), 0.55f, 0.28f);
             }
@@ -2336,8 +2337,11 @@ int main() {
         }
         for (size_t i = 1; i < trail.size(); i++) {
             float a = static_cast<float>(i) / static_cast<float>(trail.size());
-            sf::Color c(255, 240, 180, static_cast<std::uint8_t>(50 + a * 190));
-            drawThickProjectedLine(window, camera, trail[i - 1], trail[i], 3.5f, c);
+            // Dual-pass trail: soft outer glow + bright core
+            sf::Color outer(255, 200, 80, static_cast<std::uint8_t>(30 + a * 90));
+            sf::Color core(255, 250, 210, static_cast<std::uint8_t>(70 + a * 185));
+            drawThickProjectedLine(window, camera, trail[i - 1], trail[i], 6.5f, outer);
+            drawThickProjectedLine(window, camera, trail[i - 1], trail[i], 3.2f, core);
         }
 
         // Screen-space halo so the ball stays easy to track in flight / on drop.
@@ -2348,18 +2352,23 @@ int main() {
                 static_cast<float>(window.getSize().y)
             );
             if (bp.visible) {
-                float rOuter = followBallCam ? 14.0f : 11.0f;
+                float rOuter = followBallCam ? 18.0f : 14.0f;
+                sf::CircleShape glow(rOuter * 1.35f);
+                glow.setOrigin({rOuter * 1.35f, rOuter * 1.35f});
+                glow.setPosition({bp.position.x, bp.position.y});
+                glow.setFillColor(sf::Color(255, 230, 100, 35));
+                window.draw(glow);
                 sf::CircleShape halo(rOuter);
                 halo.setOrigin({rOuter, rOuter});
                 halo.setPosition({bp.position.x, bp.position.y});
                 halo.setFillColor(sf::Color(0, 0, 0, 0));
-                halo.setOutlineThickness(2.2f);
-                halo.setOutlineColor(sf::Color(255, 245, 120, 210));
+                halo.setOutlineThickness(2.8f);
+                halo.setOutlineColor(sf::Color(255, 245, 120, 230));
                 window.draw(halo);
-                sf::CircleShape core(rOuter * 0.42f);
-                core.setOrigin({rOuter * 0.42f, rOuter * 0.42f});
+                sf::CircleShape core(rOuter * 0.48f);
+                core.setOrigin({rOuter * 0.48f, rOuter * 0.48f});
                 core.setPosition({bp.position.x, bp.position.y});
-                core.setFillColor(sf::Color(255, 250, 220, 90));
+                core.setFillColor(sf::Color(255, 250, 230, 110));
                 window.draw(core);
             }
         }
