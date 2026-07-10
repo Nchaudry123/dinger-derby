@@ -59,8 +59,14 @@ constexpr float moundZ = 0.0f;
 constexpr float strikeZoneHalfWidth = 0.46f;
 constexpr float strikeZoneHalfHeight = 0.55f;
 const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
-const Vector3 boundsMinimum(-3.2f, -40.0f, -2.0f);
-const Vector3 boundsMaximum(3.2f, 3.6f, plateZ + 4.0f);
+// Huge open field — no practical wall/ceiling box (ball can fly freely).
+const Vector3 boundsMinimum(-80.0f, -2.0f, -120.0f);
+const Vector3 boundsMaximum(80.0f, 80.0f, 80.0f);
+
+// Same unit conversion as pitching_simulator_demo (1 world unit ≈ 2 feet).
+float mphToWorldUnitsPerSecond(float mph) {
+    return mph * 5280.0f / 3600.0f / feetPerWorldUnit;
+}
 
 bool loadUiFont(sf::Font& font) {
     for (const char* path : {
@@ -112,6 +118,35 @@ void lookAt(Camera3D& cam, const Vector3& pos, const Vector3& target) {
     cam.rotation.y = std::atan2(to.x, to.z);
     cam.rotation.x = -std::atan2(to.y, h);
     cam.rotation.z = 0.0f;
+}
+
+void applyCatcherCamera(Camera3D& cam) {
+    lookAt(
+        cam,
+        Vector3(0.0f, 1.28f, plateZ + 0.95f),
+        Vector3(0.0f, 1.55f, moundZ + 1.2f)
+    );
+    cam.fieldOfView = 700.0f;
+    cam.nearPlane = 0.08f;
+}
+
+// Chase cam: sit behind/above the ball looking along its flight.
+void applyBallFollowCamera(Camera3D& cam, const Vector3& ballPos, const Vector3& ballVel) {
+    float speed = ballVel.magnitude();
+    Vector3 forward = speed > 0.8f ? safeNorm(ballVel) : Vector3(0.0f, 0.15f, -1.0f);
+    // Prefer staying on the outfield side of the ball (toward −Z from plate).
+    if (forward.dot(Vector3(0, 0, -1)) < 0.15f && speed > 0.8f) {
+        // Still useful when ball is sliced foul — keep a readable chase offset.
+        forward = safeNorm(forward + Vector3(0, 0.05f, -0.35f));
+    }
+    Vector3 right = safeNorm(Vector3(0, 1, 0).cross(forward), Vector3(1, 0, 0));
+    float dist = clampf(2.8f + speed * 0.04f, 2.6f, 7.5f);
+    Vector3 pos = ballPos - forward * dist + Vector3(0, 1.15f, 0) + right * 0.15f;
+    pos.y = std::max(pos.y, 0.85f);
+    Vector3 target = ballPos + forward * 2.2f + Vector3(0, 0.15f, 0);
+    lookAt(cam, pos, target);
+    cam.fieldOfView = 820.0f;
+    cam.nearPlane = 0.12f;
 }
 
 Matrix4 pitcherWorldTransform() {
@@ -250,8 +285,8 @@ struct BatConfig {
     float mass = 0.90f;
     float sweetFromKnob = 0.56f;
     float sweetWidth = 0.11f;
-    float minCor = 0.34f;
-    float maxCor = 0.56f;
+    float minCor = 0.42f;
+    float maxCor = 0.68f; // easier to drive the ball hard
 };
 
 struct BatPose {
@@ -545,18 +580,46 @@ HitInfo tryHit(
     if (practiceMode) {
         sweet = clampf(sweet + 0.25f, 0.0f, 1.0f);
     }
-    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus, sweet), 0.28f, 0.58f);
+    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus, sweet), 0.35f, 0.78f);
     float tip = clampf(s / cfg.length, 0.0f, 1.0f);
     float mEff =
         cfg.mass * prof.massScale * lerp(1.3f, 0.55f, tip) * lerp(0.75f, 1.15f, sweet);
     float mBall = std::max(ball.mass, 0.05f);
     float j = -(1.0f + cor) * approach / (1.0f / mBall + 1.0f / mEff);
-    j *= lerp(0.9f, 1.12f, sweet) * lerp(0.95f, 1.1f, (prof.power - 0.7f) / 0.55f);
+    // Stronger impulse so contact sends the ball flying.
+    j *= lerp(1.15f, 1.55f, sweet) * lerp(1.05f, 1.35f, (prof.power - 0.7f) / 0.55f);
+    if (practiceMode) {
+        j *= 1.35f;
+    }
     ball.velocity = ball.velocity + n * (j / mBall);
     Vector3 tan = safeNorm(n.cross(Vector3(0, 1, 0)), Vector3(1, 0, 0));
     float vt = vRel.dot(tan);
     float jt = clampf(-vt * mBall * 0.3f, -std::abs(j) * 0.15f * sweet, std::abs(j) * 0.15f * sweet);
     ball.velocity = ball.velocity + tan * (jt / mBall);
+
+    // Blend in bat speed and a healthy outfield loft so even soft contact carries.
+    Vector3 outfield = safeNorm(Vector3(0.0f, 0.22f, -1.0f)); // toward mound / OF from plate
+    Vector3 launchDir = safeNorm(n * 0.55f + outfield * 0.45f + Vector3(0, 0.25f, 0) * sweet, outfield);
+    float batCarry = vBat.magnitude() * lerp(0.35f, 0.72f, sweet) * (practiceMode ? 1.25f : 1.0f);
+    ball.velocity = ball.velocity + launchDir * batCarry;
+
+    // Minimum exit velocity so hits "send flying" instead of dribbling.
+    float minExit = mphToWorldUnitsPerSecond(practiceMode ? 78.0f : 58.0f);
+    float exitSpeed = ball.velocity.magnitude();
+    if (exitSpeed < minExit) {
+        Vector3 dir = exitSpeed > 1e-3f ? ball.velocity * (1.0f / exitSpeed) : launchDir;
+        // Prefer some upward + outfield component.
+        dir = safeNorm(dir + Vector3(0, 0.35f, -0.25f), launchDir);
+        ball.velocity = dir * minExit;
+    } else {
+        // Mild overall juice.
+        ball.velocity = ball.velocity * (practiceMode ? 1.18f : 1.08f);
+    }
+    // Guarantee a readable launch angle (pop flies / liners, not rollers).
+    if (ball.velocity.y < 6.0f) {
+        ball.velocity.y = lerp(ball.velocity.y, 14.0f + sweet * 10.0f, practiceMode ? 0.85f : 0.55f);
+    }
+
     ball.position = ball.position + n * (minD - dist + 0.006f);
 
     hasHit = true;
@@ -632,11 +695,6 @@ Matrix4 batModelMatrix(const BatPose& bat) {
     r.values[6] = zr.y;
     r.values[10] = zr.z;
     return Matrix4::translation(bat.hands) * r;
-}
-
-// Same unit conversion as pitching_simulator_demo (1 world unit ≈ 2 feet).
-float mphToWorldUnitsPerSecond(float mph) {
-    return mph * 5280.0f / 3600.0f / feetPerWorldUnit;
 }
 
 // Gravity-only launch aimed at the strike zone — same idea as the pitching
@@ -924,15 +982,10 @@ int main() {
     sf::Font font;
     bool fontOk = loadUiFont(font);
 
-    // Same catcher-view camera as pitching_simulator_demo.
+    // Start in catcher view; switches to ball-follow after a hit.
     Camera3D camera;
-    lookAt(
-        camera,
-        Vector3(0.0f, 1.28f, plateZ + 0.95f),
-        Vector3(0.0f, 1.55f, moundZ + 1.2f)
-    );
-    camera.fieldOfView = 700.0f;
-    camera.nearPlane = 0.08f;
+    applyCatcherCamera(camera);
+    bool followBallCam = false;
 
     // Same assets as pitching sim
     Mesh3D baseballMesh = BaseballVisual3D::makeMesh(48, 96);
@@ -1004,6 +1057,7 @@ int main() {
     auto beginPitch = [&]() {
         world = PhysicsWorld3D();
         world.gravity = Vector3(0, -9.8f, 0);
+        // Open park — no tight box walls/ceiling clamping exit trajectories.
         world.setBounds(boundsMinimum, boundsMaximum);
         world.airResistanceEnabled = false;
         baseball = Body3D(Vector3(0, 1.5f, moundZ), 0.145f);
@@ -1014,6 +1068,8 @@ int main() {
         deliveryAge = 0.0f;
         ballReleased = false;
         hasHit = false;
+        followBallCam = false;
+        applyCatcherCamera(camera);
         practiceRepitchTimer = -1.0f;
         trail.clear();
         spinX = spinY = spinZ = 0;
@@ -1159,7 +1215,8 @@ int main() {
         }
 
         // Aim: static silhouette only (no swing motion until Space/LMB).
-        if (!bat.swinging()) {
+        // Freeze aim while the chase cam is following a hit.
+        if (!bat.swinging() && !followBallCam) {
             sf::Vector2i mp = sf::Mouse::getPosition(window);
             Vector3 pci = mouseToPci(
                 camera,
@@ -1170,7 +1227,7 @@ int main() {
             );
             bat.plateAngle = batRoll; // Q/E / wheel rotates the flat bat
             orientBatAim(bat, pci, batCfg);
-        } else {
+        } else if (bat.swinging()) {
             // Only while swinging: load → contact → finish path.
             updateSwing(bat, prof, dt);
         }
@@ -1183,6 +1240,7 @@ int main() {
                 HitInfo hit = tryHit(baseball, bat, batCfg, prof, hasHit, fixedStep, practiceMode);
                 if (hit.hit) {
                     lastHit = hit;
+                    followBallCam = true;
                     std::ostringstream oss;
                     oss << std::fixed << std::setprecision(0)
                         << (practiceMode ? "PRACTICE " : "")
@@ -1192,25 +1250,30 @@ int main() {
                     status = oss.str();
                     statusCol = lastHit.sweet > 0.85f ? sf::Color(120, 255, 160)
                         : (lastHit.sweet > 0.5f ? sf::Color(255, 230, 120) : sf::Color(255, 150, 100));
-                    if (practiceMode) {
-                        practiceRepitchTimer = 1.6f; // auto next pitch
-                    }
+                    // Watch the flight before auto-repitch in practice.
+                    practiceRepitchTimer = practiceMode ? 5.5f : -1.0f;
                 }
                 spinY += 8.0f * fixedStep;
                 acc -= fixedStep;
             }
-            if (trail.empty() || (baseball.position - trail.back()).magnitude() > 0.15f) {
+            if (trail.empty() || (baseball.position - trail.back()).magnitude() > 0.20f) {
                 trail.push_back(baseball.position);
-                if (trail.size() > 120) {
+                if (trail.size() > 220) {
                     trail.erase(trail.begin());
                 }
             }
-            // Practice: auto-rethrow after ball is past / long miss.
+            // Practice: auto-rethrow after ball is past / long miss (no hit).
             if (practiceMode && !hasHit) {
                 if (baseball.position.z > plateZ + 1.2f || baseball.position.y < 0.15f) {
                     if (practiceRepitchTimer < 0.0f) {
                         practiceRepitchTimer = 1.1f;
                     }
+                }
+            }
+            // After a hit, repitch once the ball settles / leaves the park.
+            if (practiceMode && hasHit && practiceRepitchTimer < 0.0f) {
+                if (baseball.position.y < 0.2f || baseball.position.magnitude() > 90.0f) {
+                    practiceRepitchTimer = 1.4f;
                 }
             }
         }
@@ -1219,6 +1282,11 @@ int main() {
             if (practiceRepitchTimer <= 0.0f && !bat.swinging()) {
                 beginPitch();
             }
+        }
+
+        // Camera: catcher for pitch/swing, chase the ball after contact.
+        if (followBallCam && hasHit) {
+            applyBallFollowCamera(camera, baseball.position, baseball.velocity);
         }
 
         // Skin pitcher
@@ -1239,16 +1307,21 @@ int main() {
         // Never draw the solid 3D bat — outline + sweet spot only (The Show style).
         if (useGL) {
             gl.beginFrame(window, camera, sf::Color(5, 8, 14));
-            gl.drawGround(4.0f, -2.0f, plateZ + 4.0f, sf::Color(20, 28, 24));
-            gl.drawMesh(glPitcher, pitcherXform);
+            // Large open ground so fly balls still have a floor under the chase cam.
+            gl.drawGround(40.0f, -40.0f, 40.0f, sf::Color(20, 28, 24));
+            if (!followBallCam) {
+                gl.drawMesh(glPitcher, pitcherXform);
+            }
             gl.drawMesh(glBall, ballXform);
             gl.endFrame(window);
         } else {
             frameBuffer.clear(sf::Color(5, 8, 14));
             frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
-            rasterizeMeshTriangles(
-                frameBuffer, camera, pitcherMesh, pitcherXform, sf::Color(230, 230, 235), pitcherCache
-            );
+            if (!followBallCam) {
+                rasterizeMeshTriangles(
+                    frameBuffer, camera, pitcherMesh, pitcherXform, sf::Color(230, 230, 235), pitcherCache
+                );
+            }
             rasterizeMeshTrianglesSupersampled(
                 frameBuffer, camera, baseballMesh, ballXform, sf::Color(230, 220, 205), ballCache, 2
             );
@@ -1256,16 +1329,18 @@ int main() {
             frameBuffer.present(window);
         }
 
-        drawFieldGuide(window, camera);
-        drawHomePlate(window, camera);
-        drawStrikeZone(window, camera, sf::Color(200, 215, 220, 180));
+        if (!followBallCam) {
+            drawFieldGuide(window, camera);
+            drawHomePlate(window, camera);
+            drawStrikeZone(window, camera, sf::Color(200, 215, 220, 180));
+            // Yellow bat outline + small yellow sweet-spot circle only.
+            drawBatOutlineAndSweetSpot(window, camera, bat, batCfg);
+        }
         for (size_t i = 1; i < trail.size(); i++) {
             float a = static_cast<float>(i) / static_cast<float>(trail.size());
             sf::Color c(255, 240, 180, static_cast<std::uint8_t>(40 + a * 170));
             drawThickProjectedLine(window, camera, trail[i - 1], trail[i], 2.0f, c);
         }
-        // Yellow bat outline + small yellow sweet-spot circle only.
-        drawBatOutlineAndSweetSpot(window, camera, bat, batCfg);
 
         if (lastHit.hit && hasHit) {
             ProjectedPoint3D p = camera.projectPoint(
@@ -1308,7 +1383,9 @@ int main() {
             drawText(
                 window,
                 font,
-                "Yellow outline = bat   ·   Small yellow circle = best contact",
+                followBallCam
+                    ? "Camera following ball  ·  R new pitch"
+                    : "Yellow outline = bat   ·   Small yellow circle = best contact",
                 12,
                 {22, 112},
                 batOutlineCol
