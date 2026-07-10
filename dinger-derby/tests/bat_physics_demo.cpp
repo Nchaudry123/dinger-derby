@@ -518,16 +518,24 @@ struct HitInfo {
     const char* quality = "Contact";
 };
 
-// Classify batted ball from exit velocity + landing (or projected flight).
-void classifyHit(HitInfo& h, const Vector3& velocity, const Vector3& landingOrNow) {
+// HR anatomy (chart target):
+//   ~96% of HRs: LA 20–40°, EV often 100–115 mph
+//   Moonballs:   LA 25–29°, EV 105–109 mph, avg ~437 ft
+//   Jaw-droppers: ~114–118 mph @ ~29–31° → 500+ ft
+//   Too low:     LA ≲ 15–18° rarely clears unless laser over short porch
+void classifyHit(
+    HitInfo& h,
+    const Vector3& velocity,
+    const Vector3& landingOrNow,
+    const Stadium3D::Layout& park
+) {
     float horiz = std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
     h.launchDeg = std::atan2(velocity.y, std::max(horiz, 1e-4f)) * kDeg;
     h.exitMph = velocity.magnitude() * 2.236936f;
     // Spray relative to outfield center (−Z from plate).
     h.sprayDeg = std::atan2(velocity.x, -velocity.z) * kDeg;
-    h.fair = std::abs(h.sprayDeg) <= 45.0f;
+    h.fair = std::abs(h.sprayDeg) <= park.foulAngleDegrees + 0.5f;
 
-    // Distance from home plate in feet.
     float dx = landingOrNow.x;
     float dz = landingOrNow.z - plateZ;
     h.distanceFeet = std::sqrt(dx * dx + dz * dz) * feetPerWorldUnit;
@@ -536,26 +544,47 @@ void classifyHit(HitInfo& h, const Vector3& velocity, const Vector3& landingOrNo
         h.quality = "Foul";
         return;
     }
-    // Simple quality buckets (The Show–ish).
-    if (h.launchDeg < 8.0f) {
+
+    // Fence distance in this spray direction.
+    float fenceFeet = park.wallFeetAtAngle(h.sprayDeg * pi / 180.0f);
+    bool clearsWall = h.distanceFeet >= fenceFeet - 2.0f;
+
+    // Quality buckets from the chart.
+    if (h.launchDeg < 10.0f) {
         h.quality = "Grounder";
-    } else if (h.launchDeg < 20.0f) {
-        h.quality = (h.exitMph >= 90.0f) ? "Line Drive" : "Soft Liner";
-    } else if (h.launchDeg < 38.0f) {
-        if (h.exitMph >= 95.0f && h.distanceFeet >= 320.0f) {
+    } else if (h.launchDeg < 18.0f) {
+        // "Too low" band for most HRs — can still be a liner double / short-porch rarity.
+        h.quality = (h.exitMph >= 100.0f) ? "Line Drive" : "Soft Liner";
+        if (clearsWall && h.exitMph >= 105.0f && h.launchDeg >= 15.0f) {
+            h.quality = "Home Run"; // laser over porch
+        }
+    } else if (h.launchDeg <= 40.0f) {
+        // Primary HR window (20–40°).
+        bool moon =
+            h.launchDeg >= 25.0f && h.launchDeg <= 32.0f && h.exitMph >= 104.0f;
+        bool jaw =
+            h.exitMph >= 112.0f && h.launchDeg >= 27.0f && h.launchDeg <= 34.0f &&
+            h.distanceFeet >= 480.0f;
+        if (jaw) {
+            h.quality = "Jaw Dropper";
+        } else if (moon && h.distanceFeet >= 400.0f) {
+            h.quality = "Moonball";
+        } else if (clearsWall && h.exitMph >= 95.0f) {
             h.quality = "Home Run";
-        } else if (h.exitMph >= 85.0f) {
+        } else if (h.exitMph >= 90.0f) {
             h.quality = "Fly Ball";
         } else {
             h.quality = "Flare";
         }
+    } else if (h.launchDeg <= 50.0f) {
+        // High moonshots — only HR if deep + hard.
+        if (clearsWall && h.exitMph >= 100.0f && h.distanceFeet >= fenceFeet) {
+            h.quality = "Moonball";
+        } else {
+            h.quality = "Pop Up";
+        }
     } else {
-        h.quality = (h.exitMph >= 80.0f) ? "Pop Up" : "Weak Pop";
-    }
-    // Upgrade to HR if fair and very deep even if LA a bit high.
-    if (h.fair && h.distanceFeet >= 340.0f && h.exitMph >= 92.0f && h.launchDeg >= 18.0f &&
-        h.launchDeg <= 42.0f) {
-        h.quality = "Home Run";
+        h.quality = "Weak Pop";
     }
 }
 
@@ -701,37 +730,55 @@ HitInfo tryHit(
 
     if (vBat.magnitude() > 0.8f) {
         float batMph = vBat.magnitude() * 2.236936f;
-        float tipScale = clampf(batMph / 80.0f, 0.40f, 1.20f);
-        float carry = lerp(0.12f, 0.30f, sweet) * tipScale;
+        float tipScale = clampf(batMph / 78.0f, 0.45f, 1.25f);
+        float carry = lerp(0.14f, 0.34f, sweet) * tipScale;
         if (practiceMode) {
-            carry *= 1.14f;
+            carry *= 1.12f;
         }
         float alongN = std::max(0.0f, safeNorm(vBat).dot(n));
         ball.velocity = ball.velocity + n * (vBat.magnitude() * alongN * carry);
     }
 
+    // Shape exit toward HR-derby chart: EV ~100–110 mph, LA 20–40° for barrels.
     {
-        float horiz = std::sqrt(
-            ball.velocity.x * ball.velocity.x + ball.velocity.z * ball.velocity.z
-        );
-        float loftKick = undercut * lerp(2.0f, 4.5f, sweet);
-        // Slight baseline loft so solid contact still plays in the air without skyballs.
-        loftKick += practiceMode ? 1.8f : 0.9f;
-        ball.velocity.y += loftKick;
-        if (horiz > 0.8f) {
-            float maxUp = horiz * std::tan(36.0f * pi / 180.0f);
-            float minUp = -horiz * std::tan(18.0f * pi / 180.0f);
-            ball.velocity.y = clampf(ball.velocity.y, minUp, maxUp);
+        Vector3 raw = ball.velocity;
+        float spray = std::atan2(raw.x, -raw.z);
+        float q = std::pow(clampf(sweet, 0.0f, 1.0f), 0.80f);
+
+        float desiredMph = lerp(58.0f, 108.0f, q);
+        desiredMph *= lerp(0.94f, 1.07f, (prof.power - 0.7f) / 0.55f);
+        if (practiceMode) {
+            desiredMph = lerp(72.0f, 105.0f, std::pow(clampf(sweet, 0.0f, 1.0f), 0.70f));
         }
-        // Mishits still weaker, but less brutal than before.
         if (sweet < 0.35f) {
-            ball.velocity = ball.velocity * lerp(0.70f, 0.90f, sweet / 0.35f);
+            desiredMph = std::min(desiredMph, lerp(48.0f, 78.0f, sweet / 0.35f));
         }
+
+        // Undercut → moonball band (25–29°); on top → too low.
+        float desiredLA = 12.0f + undercut * 15.0f + sweet * 8.0f;
+        desiredLA = clampf(desiredLA, -10.0f, 42.0f);
+        if (sweet > 0.75f && undercut > 0.15f) {
+            desiredLA = clampf(desiredLA, 18.0f, 36.0f);
+        }
+        if (sweet < 0.40f) {
+            desiredLA = lerp(desiredLA, 6.0f, 0.45f);
+        }
+
+        float speed = mphToWorldUnitsPerSecond(desiredMph);
+        float la = desiredLA * pi / 180.0f;
+        Vector3 horizDir(std::sin(spray), 0.0f, -std::cos(spray));
+        horizDir = safeNorm(horizDir, Vector3(0, 0, -1));
+        Vector3 chartVel =
+            horizDir * (speed * std::cos(la)) + Vector3(0.0f, speed * std::sin(la), 0.0f);
+
+        float blend = lerp(0.30f, 0.88f, q);
+        if (practiceMode) {
+            blend = lerp(0.40f, 0.90f, q);
+        }
+        ball.velocity = raw * (1.0f - blend) + chartVel * blend;
     }
 
-    // Separate surfaces.
     ball.position = ball.position + n * (minD - dist + 0.003f);
-    // Dead bounce on ground later — zero restitution for batted ball.
     ball.restitution = 0.0f;
 
     hasHit = true;
@@ -744,14 +791,10 @@ HitInfo tryHit(
     float horiz = std::sqrt(ball.velocity.x * ball.velocity.x + ball.velocity.z * ball.velocity.z);
     h.launchDeg = std::atan2(ball.velocity.y, std::max(horiz, 1e-4f)) * kDeg;
     h.distanceFeet = projectLandingDistanceFeet(ball.position, ball.velocity);
-    classifyHit(h, ball.velocity, ball.position + ball.velocity * 0.25f);
+    classifyHit(
+        h, ball.velocity, ball.position + ball.velocity * 0.25f, Stadium3D::defaultPlayLayout()
+    );
     h.distanceFeet = projectLandingDistanceFeet(ball.position, ball.velocity);
-    if (h.fair && h.distanceFeet >= 340.0f && h.exitMph >= 95.0f && h.launchDeg >= 20.0f &&
-        h.launchDeg <= 38.0f) {
-        h.quality = "Home Run";
-    } else if (!h.fair) {
-        h.quality = "Foul";
-    }
     return h;
 }
 
@@ -1219,9 +1262,12 @@ int main() {
                 count.hits += 1;
                 resetAtBat();
                 statusCol = sf::Color(120, 255, 160);
-                if (std::string(lastHit.quality) == "Home Run") {
-                    hrBannerTimer = 2.8f;
-                    statusCol = sf::Color(255, 220, 80);
+                {
+                    std::string q = lastHit.quality ? lastHit.quality : "";
+                    if (q == "Home Run" || q == "Moonball" || q == "Jaw Dropper") {
+                        hrBannerTimer = 2.8f;
+                        statusCol = sf::Color(255, 220, 80);
+                    }
                 }
                 scheduleNextPitch(practiceMode ? 5.5f : 4.0f);
             } else {
@@ -1523,7 +1569,11 @@ int main() {
                     status = oss.str();
                     if (!lastHit.fair) {
                         statusCol = sf::Color(255, 190, 120);
-                    } else if (std::string(lastHit.quality) == "Home Run") {
+                    } else if (
+                        std::string(lastHit.quality) == "Home Run" ||
+                        std::string(lastHit.quality) == "Moonball" ||
+                        std::string(lastHit.quality) == "Jaw Dropper"
+                    ) {
                         statusCol = sf::Color(255, 220, 80);
                     } else {
                         statusCol = lastHit.sweet > 0.85f ? sf::Color(120, 255, 160)
@@ -1546,14 +1596,16 @@ int main() {
 
                         if (!landingLogged) {
                             landingLogged = true;
-                            float dx = baseball.position.x;
-                            float dz = baseball.position.z - plateZ;
-                            lastHit.distanceFeet = std::sqrt(dx * dx + dz * dz) * feetPerWorldUnit;
-                            if (lastHit.fair && lastHit.distanceFeet >= 340.0f &&
-                                lastHit.exitMph >= 95.0f && lastHit.launchDeg >= 20.0f &&
-                                lastHit.launchDeg <= 38.0f) {
-                                lastHit.quality = "Home Run";
-                            }
+                            // Rebuild velocity from exit metrics for re-classify with real landing dist.
+                            float spd = mphToWorldUnitsPerSecond(lastHit.exitMph);
+                            float la = lastHit.launchDeg * pi / 180.0f;
+                            float sp = lastHit.sprayDeg * pi / 180.0f;
+                            Vector3 reVel(
+                                std::sin(sp) * spd * std::cos(la),
+                                spd * std::sin(la),
+                                -std::cos(sp) * spd * std::cos(la)
+                            );
+                            classifyHit(lastHit, reVel, baseball.position, stadiumLayout);
                             std::ostringstream oss;
                             oss << std::fixed << std::setprecision(0)
                                 << lastHit.quality << " lands  " << lastHit.distanceFeet << " ft  "
@@ -1640,7 +1692,7 @@ int main() {
         if (useGL) {
             // Suburban day sky clear
             gl.beginFrame(window, camera, sf::Color(135, 185, 230));
-            const float gr = stadiumLayout.wallR() + 220.0f;
+            const float gr = stadiumLayout.maxWallR() + 220.0f;
             gl.drawGround(gr, plateZ - gr, plateZ + gr, sf::Color(42, 95, 48));
             gl.drawMesh(glStadiumCity, stadiumXform);
             gl.drawMesh(glStadiumField, stadiumXform);
@@ -1712,7 +1764,13 @@ int main() {
             float h = static_cast<float>(window.getSize().y);
             float pulse = 0.55f + 0.45f * std::sin(poseClock * 10.0f);
             sf::Color banner(255, 220, 60, static_cast<std::uint8_t>(200 + pulse * 55));
-            drawText(window, font, "HOME RUN", 48, {w * 0.5f - 140.0f, h * 0.18f}, banner);
+            const char* title = "HOME RUN";
+            if (lastHit.quality && std::string(lastHit.quality) == "Moonball") {
+                title = "MOONBALL";
+            } else if (lastHit.quality && std::string(lastHit.quality) == "Jaw Dropper") {
+                title = "JAW DROPPER";
+            }
+            drawText(window, font, title, 48, {w * 0.5f - 160.0f, h * 0.18f}, banner);
             std::ostringstream d;
             d << std::fixed << std::setprecision(0) << lastHit.distanceFeet << " ft   "
               << lastHit.exitMph << " mph";

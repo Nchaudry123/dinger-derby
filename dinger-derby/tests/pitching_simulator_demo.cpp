@@ -1778,7 +1778,7 @@ int main() {
         Matrix4 stadiumXform = Matrix4::identity();
         if (useOpenGL) {
             gl.beginFrame(window, camera, sf::Color(135, 185, 230));
-            const float gr = stadiumLayout.wallR() + 220.0f;
+            const float gr = stadiumLayout.maxWallR() + 220.0f;
             gl.drawGround(gr, plateZ - gr, plateZ + gr, sf::Color(42, 95, 48));
             gl.drawMesh(glStadiumCity, stadiumXform);
             gl.drawMesh(glStadiumField, stadiumXform);

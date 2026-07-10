@@ -12,6 +12,9 @@
 //   Center field is −Z from home (past the mound)
 //   +X = first-base side when facing CF from home
 //
+// Dimensions inspired by Citizens Bank Park (asymmetric OF):
+//   LF 329 · LCF ~374–387 · deepest ~404 · CF ~401 · RCF ~369 · RF 330
+//
 // 1 world unit ≈ feetPerUnit feet (default 2).
 
 namespace Stadium3D {
@@ -19,8 +22,9 @@ namespace Stadium3D {
 struct Layout {
     float feetPerUnit = 2.0f;
     float pitchingDistanceFeet = 60.5f;
-    float wallDistanceFeet = 380.0f;
-    float wallHeightFeet = 12.0f;
+    // Fallback nominal CF (overridden by wallFeetAtAngle for the fence).
+    float wallDistanceFeet = 401.0f;
+    float wallHeightFeet = 11.0f;
     float foulAngleDegrees = 45.0f;
     float infieldRadiusFeet = 95.0f;
     float basePathFeet = 90.0f;
@@ -33,14 +37,26 @@ struct Layout {
     float basePath() const { return basePathFeet / feetPerUnit; }
     float moundZ() const { return 0.0f; }
 
+    // Asymmetric OF fence distance (feet) vs spray angle from CF.
+    // angleRad = 0 is CF (−Z); +angle toward +X (RF / 1B).
+    float wallFeetAtAngle(float angleRad) const;
+    float wallRAtAngle(float angleRad) const {
+        return wallFeetAtAngle(angleRad) / feetPerUnit;
+    }
+    // Slight height variation (LF wall taller, like many parks).
+    float wallHeightAtAngle(float angleRad) const;
+
     // Point on foul/outfield arc measured from home toward CF (−Z).
-    // angleRad = 0 is CF; +angle is toward +X (1B).
     Vector3 fromHome(float radius, float angleRad, float y = 0.0f) const;
+    Vector3 wallPoint(float angleRad, float yFraction = 0.0f) const;
 
     Vector3 home() const { return Vector3(0.0f, 0.0f, plateZ()); }
     Vector3 mound() const { return Vector3(0.0f, 0.0f, moundZ()); }
-    Vector3 cfWall() const { return fromHome(wallR(), 0.0f, wallH()); }
+    Vector3 cfWall() const { return wallPoint(0.0f, 1.0f); }
     Vector3 parkCenter() const;
+
+    // Max fence radius (for ground size / far plane).
+    float maxWallR() const;
 };
 
 struct Meshes {
@@ -54,7 +70,6 @@ struct Meshes {
 Layout defaultPlayLayout();
 Meshes build(const Layout& layout = defaultPlayLayout());
 
-// Suggested camera far plane for stadium-scale scenes.
 float recommendedFarPlane(const Layout& layout = defaultPlayLayout());
 
 } // namespace Stadium3D

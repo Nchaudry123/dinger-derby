@@ -94,8 +94,8 @@ void configureStadiumCamera(Camera3D& cam) {
 void applyPreset(Camera3D& cam, CamPreset p, const Stadium3D::Layout& L) {
     configureStadiumCamera(cam);
     const float plateZ = L.plateZ();
-    const float wallR = L.wallR();
-    const float wallH = L.wallH();
+    const float wallR = L.maxWallR();
+    const float wallH = L.wallHeightAtAngle(0.0f);
     switch (p) {
         case CamPreset::Batter:
             lookAt(
@@ -112,7 +112,7 @@ void applyPreset(Camera3D& cam, CamPreset p, const Stadium3D::Layout& L) {
         case CamPreset::CenterField:
             lookAt(
                 cam,
-                L.fromHome(wallR - 8.0f, 0.0f, wallH + 4.0f),
+                L.fromHome(L.wallRAtAngle(0.0f) - 8.0f, 0.0f, wallH + 4.0f),
                 Vector3(0.0f, 1.0f, plateZ - 10.0f)
             );
             cam.fieldOfView = 900.0f;
@@ -292,7 +292,7 @@ int main() {
         Matrix4 id = Matrix4::identity();
         if (useGL) {
             gl.beginFrame(window, camera, sf::Color(135, 185, 230));
-            const float gr = layout.wallR() + 220.0f;
+            const float gr = layout.maxWallR() + 220.0f;
             gl.drawGround(gr, layout.plateZ() - gr, layout.plateZ() + gr, sf::Color(42, 95, 48));
             gl.drawMesh(glCity, id);
             gl.drawMesh(glField, id);
@@ -315,9 +315,10 @@ int main() {
             );
             std::ostringstream info;
             info << "View: " << presetName(preset)
-                 << "   Wall " << static_cast<int>(layout.wallDistanceFeet) << " ft CF"
-                 << "   plateZ " << layout.plateZ()
-                 << "   zoom " << static_cast<int>(orbitDist);
+                 << "   LF " << static_cast<int>(layout.wallFeetAtAngle(-layout.foulAngleRad()))
+                 << " / CF " << static_cast<int>(layout.wallFeetAtAngle(0.0f))
+                 << " / RF " << static_cast<int>(layout.wallFeetAtAngle(layout.foulAngleRad()))
+                 << " ft   zoom " << static_cast<int>(orbitDist);
             drawText(window, font, info.str(), 14, {22, 46}, sf::Color(160, 200, 180));
             drawText(
                 window,
@@ -343,19 +344,24 @@ int main() {
                 projectLabel(layout.home() + Vector3(0, 1.2f, 0), "HOME", sf::Color(255, 240, 200));
                 projectLabel(layout.mound() + Vector3(0, 2.0f, 0), "MOUND", sf::Color(255, 220, 160));
                 projectLabel(
-                    layout.fromHome(layout.wallR(), 0.0f, layout.wallH() + 2.0f),
-                    "CF WALL",
+                    layout.wallPoint(0.0f, 1.0f) + Vector3(0, 2, 0),
+                    "CF 401",
                     sf::Color(180, 220, 255)
                 );
                 projectLabel(
-                    layout.fromHome(layout.wallR(), -layout.foulAngleRad(), layout.wallH() * 2.0f),
-                    "LF POLE",
+                    layout.wallPoint(-layout.foulAngleRad(), 1.0f) + Vector3(0, 2, 0),
+                    "LF 329",
                     sf::Color(255, 230, 100)
                 );
                 projectLabel(
-                    layout.fromHome(layout.wallR(), layout.foulAngleRad(), layout.wallH() * 2.0f),
-                    "RF POLE",
+                    layout.wallPoint(layout.foulAngleRad(), 1.0f) + Vector3(0, 2, 0),
+                    "RF 330",
                     sf::Color(255, 230, 100)
+                );
+                projectLabel(
+                    layout.wallPoint(-4.0f * 3.14159265f / 180.0f, 1.0f) + Vector3(0, 2, 0),
+                    "404 DEEP",
+                    sf::Color(255, 180, 120)
                 );
             }
         }
