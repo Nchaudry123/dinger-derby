@@ -83,6 +83,7 @@ add_dinger_demo(baseball_3d_demo tests/baseball_3d_demo.cpp)
 add_dinger_demo(pitching_simulator_demo tests/pitching_simulator_demo.cpp)
 add_dinger_demo(character_viewer_demo tests/character_viewer_demo.cpp)
 add_dinger_demo(bat_physics_demo tests/bat_physics_demo.cpp)
+add_dinger_demo(stadium_demo tests/stadium_demo.cpp)
 
 add_executable(physics_engine_test tests/physics_engine_test.cpp)
 target_link_libraries(physics_engine_test PRIVATE dinger_engine)
