@@ -759,6 +759,112 @@ Mesh3D buildField(const Layout& L) {
         addDisk(m, od3, odR * 0.85f, 0.025f, 16, shadeColor(grass, 0.95f));
     }
 
+    // ── Grass lip at dirt edges (clean cut between dirt and OF grass) ──
+    {
+        sf::Color lip = shadeColor(grass, 1.08f);
+        sf::Color lipDark = shadeColor(grassDark, 1.02f);
+        // Around home plate circle
+        addDiskRing(m, home, homeCircleR, homeCircleR + 0.35f, 0.016f, 36, lip);
+        // Around mound circle
+        addDiskRing(m, L.mound(), moundCircleR, moundCircleR + 0.32f, 0.016f, 32, lip);
+        // Around base cutouts
+        addDiskRing(m, b1, baseCutR, baseCutR + 0.28f, 0.017f, 24, lip);
+        addDiskRing(m, b2, baseCutR, baseCutR + 0.28f, 0.017f, 24, lip);
+        addDiskRing(m, b3, baseCutR, baseCutR + 0.28f, 0.017f, 24, lip);
+        // Thin grass strip outside diamond dirt lip (between lip dirt and OF)
+        {
+            auto outer = expandDiamond(1.04f);
+            auto grassOut = expandDiamond(1.10f);
+            for (int e = 0; e < 4; e++) {
+                int n = (e + 1) % 4;
+                const int segs = 10;
+                for (int s = 0; s < segs; s++) {
+                    float t0 = static_cast<float>(s) / segs;
+                    float t1 = static_cast<float>(s + 1) / segs;
+                    auto lerpV = [](const Vector3& a, const Vector3& b, float t) {
+                        return a * (1.0f - t) + b * t;
+                    };
+                    Vector3 i0 = lerpV(outer[e], outer[n], t0);
+                    Vector3 i1 = lerpV(outer[e], outer[n], t1);
+                    Vector3 o0 = lerpV(grassOut[e], grassOut[n], t0);
+                    Vector3 o1 = lerpV(grassOut[e], grassOut[n], t1);
+                    sf::Color c = ((e + s) & 1) ? lip : lipDark;
+                    addFlatQuad(m, i0, i1, o1, o0, 0.015f, c);
+                }
+            }
+        }
+    }
+
+    // ── Coaches' boxes (foul territory along 1B / 3B) ─────────────────
+    // Roughly 20×10 ft boxes, ~15 ft off the foul line into foul ground.
+    {
+        auto foulNormal = [](const Vector3& along, float preferXSign) {
+            Vector3 n(-along.z, 0.0f, along.x);
+            float nm = n.magnitude();
+            if (nm > 1e-4f) {
+                n = n * (1.0f / nm);
+            }
+            if (n.x * preferXSign < 0.0f) {
+                n = n * -1.0f;
+            }
+            return n;
+        };
+        // Place mid-baseline, offset into foul territory.
+        Vector3 mid1 = home * 0.35f + b1 * 0.65f;
+        Vector3 mid3 = home * 0.35f + b3 * 0.65f;
+        Vector3 n1 = foulNormal(b1 - home, +1.0f);
+        Vector3 n3 = foulNormal(b3 - home, -1.0f);
+        Vector3 along1 = (b1 - home);
+        along1.y = 0.0f;
+        float a1len = along1.magnitude();
+        if (a1len > 1e-4f) {
+            along1 = along1 * (1.0f / a1len);
+        }
+        Vector3 along3 = (b3 - home);
+        along3.y = 0.0f;
+        float a3len = along3.magnitude();
+        if (a3len > 1e-4f) {
+            along3 = along3 * (1.0f / a3len);
+        }
+        // 20 ft long × 10 ft deep → 10 × 5 world units; center 15 ft (7.5 u) off line.
+        const float boxLen = 10.0f;
+        const float boxDepth = 5.0f;
+        const float offLine = 7.5f;
+        auto placeCoachBox = [&](const Vector3& mid, const Vector3& along, const Vector3& foulN) {
+            Vector3 center = mid + foulN * (offLine + boxDepth * 0.5f);
+            // Local axes: along baseline, into foul
+            Vector3 ax = along * (boxLen * 0.5f);
+            Vector3 ay = foulN * (boxDepth * 0.5f);
+            Vector3 c0 = center - ax - ay;
+            Vector3 c1 = center + ax - ay;
+            Vector3 c2 = center + ax + ay;
+            Vector3 c3 = center - ax + ay;
+            // Slight dirt pad under chalk box
+            addFlatQuad(m, c0, c1, c2, c3, 0.018f, shadeColor(dirt, 0.94f));
+            // Store corners for chalk in lines mesh via global... just draw chalk here as thin white
+            sf::Color chalk(245, 245, 235);
+            auto edge = [&](const Vector3& a, const Vector3& b) {
+                Vector3 d = b - a;
+                d.y = 0.0f;
+                float len = d.magnitude();
+                if (len < 1e-4f) {
+                    return;
+                }
+                d = d * (1.0f / len);
+                Vector3 side(-d.z * 0.07f, 0, d.x * 0.07f);
+                Vector3 a0 = a + Vector3(0, 0.074f, 0);
+                Vector3 b0 = b + Vector3(0, 0.074f, 0);
+                addQuad(m, a0 + side, a0 - side, b0 - side, b0 + side, chalk);
+            };
+            edge(c0, c1);
+            edge(c1, c2);
+            edge(c2, c3);
+            edge(c3, c0);
+        };
+        placeCoachBox(mid1, along1, n1);
+        placeCoachBox(mid3, along3, n3);
+    }
+
     // Dugouts on foul side of baselines
     {
         Vector3 mid1 = (home + b1) * 0.5f;
