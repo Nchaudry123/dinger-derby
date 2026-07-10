@@ -182,12 +182,18 @@ int main() {
     GlMesh glStands;
     GlMesh glLines;
     GlMesh glCity;
+    std::vector<GlMesh> glFans(Stadium3D::kFanSectorCount);
     if (useGL) {
         glField.upload(meshes.field);
         glWalls.upload(meshes.walls);
         glStands.upload(meshes.stands);
         glLines.upload(meshes.lines);
         glCity.upload(meshes.city);
+        for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
+            if (i < static_cast<int>(meshes.fanSectors.size())) {
+                glFans[i].upload(meshes.fanSectors[i]);
+            }
+        }
     }
 
     Camera3D camera;
@@ -201,11 +207,12 @@ int main() {
     bool dragging = false;
     sf::Vector2i lastMouse;
     bool showLabels = true;
+    float cheerTime = 0.0f;
 
     sf::Clock clock;
     while (window.isOpen()) {
         float dt = std::min(clock.restart().asSeconds(), 0.05f);
-        (void)dt;
+        cheerTime += dt;
 
         while (auto event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) {
@@ -299,6 +306,16 @@ int main() {
             gl.drawMesh(glWalls, id);
             gl.drawMesh(glStands, id);
             gl.drawMesh(glLines, id);
+            // Low-poly fans: cheer wave around the bowl
+            for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
+                if (!glFans[i].valid()) {
+                    continue;
+                }
+                float bob = Stadium3D::fanCheerOffsetY(i, cheerTime);
+                Matrix4 fanX =
+                    Matrix4::translation(Vector3(0.0f, bob, 0.0f));
+                gl.drawMesh(glFans[i], fanX);
+            }
             gl.endFrame(window);
         } else {
             window.clear(sf::Color(135, 185, 230));

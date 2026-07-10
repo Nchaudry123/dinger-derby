@@ -1170,6 +1170,7 @@ int main() {
     GlMesh glStadiumStands;
     GlMesh glStadiumLines;
     GlMesh glStadiumCity;
+    std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useGL) {
@@ -1181,7 +1182,13 @@ int main() {
         glStadiumStands.upload(stadiumMeshes.stands);
         glStadiumLines.upload(stadiumMeshes.lines);
         glStadiumCity.upload(stadiumMeshes.city);
+        for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
+            if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
+                glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
+            }
+        }
     }
+    float stadiumCheerTime = 0.0f;
 
     FrameBuffer frameBuffer(window.getSize().x, window.getSize().y);
     RasterMeshRenderCache pitcherCache;
@@ -1483,6 +1490,7 @@ int main() {
         }
 
         poseClock += dt;
+        stadiumCheerTime += dt;
         if (hrBannerTimer > 0.0f) {
             hrBannerTimer = std::max(0.0f, hrBannerTimer - dt);
         }
@@ -1699,6 +1707,18 @@ int main() {
             gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);
             gl.drawMesh(glStadiumLines, stadiumXform);
+            // Crowd cheer wave (stronger after a big hit)
+            float cheerBoost = (hrBannerTimer > 0.0f) ? 1.6f : 1.0f;
+            for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
+                if (!glStadiumFans[i].valid()) {
+                    continue;
+                }
+                float bob = Stadium3D::fanCheerOffsetY(i, stadiumCheerTime) * cheerBoost;
+                gl.drawMesh(
+                    glStadiumFans[i],
+                    Matrix4::translation(Vector3(0.0f, bob, 0.0f)) * stadiumXform
+                );
+            }
             if (!followBallCam) {
                 gl.drawMesh(glPitcher, pitcherXform);
             }

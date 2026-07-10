@@ -1318,6 +1318,7 @@ int main() {
     GlMesh glStadiumStands;
     GlMesh glStadiumLines;
     GlMesh glStadiumCity;
+    std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useOpenGL) {
@@ -1329,7 +1330,13 @@ int main() {
         glStadiumStands.upload(stadiumMeshes.stands);
         glStadiumLines.upload(stadiumMeshes.lines);
         glStadiumCity.upload(stadiumMeshes.city);
+        for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
+            if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
+                glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
+            }
+        }
     }
+    float stadiumCheerTime = 0.0f;
 
     std::array<PitchProfile, 5> pitches = makePitchProfiles();
     int selectedPitch = 0;
@@ -1618,6 +1625,7 @@ int main() {
         }
 
         float dt = std::min(frameClock.restart().asSeconds(), 0.1f);
+        stadiumCheerTime += dt;
         if (resultBannerTimer > 0.0f) {
             resultBannerTimer = std::max(0.0f, resultBannerTimer - dt);
         }
@@ -1785,6 +1793,16 @@ int main() {
             gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);
             gl.drawMesh(glStadiumLines, stadiumXform);
+            for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
+                if (!glStadiumFans[i].valid()) {
+                    continue;
+                }
+                float bob = Stadium3D::fanCheerOffsetY(i, stadiumCheerTime);
+                gl.drawMesh(
+                    glStadiumFans[i],
+                    Matrix4::translation(Vector3(0.0f, bob, 0.0f)) * stadiumXform
+                );
+            }
             gl.drawMesh(glPitcher, pitcherTransform);
             if (cameraMode != PitchCameraMode::Catcher) {
                 gl.drawMesh(glCatcher, catcherTransform);

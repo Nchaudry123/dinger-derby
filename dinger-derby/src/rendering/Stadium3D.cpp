@@ -362,120 +362,286 @@ Mesh3D buildWalls(const Layout& L) {
     return m;
 }
 
+// Deterministic pseudo-random in [0,1) from integer seed.
+float hash01(int n) {
+    unsigned x = static_cast<unsigned>(n) * 1664525u + 1013904223u;
+    return static_cast<float>(x & 0xFFFFFFu) / static_cast<float>(0x1000000u);
+}
+
+// Inner radius of lower bowl seating for a given angle (full 360° stadium).
+float bowlInnerRadius(const Layout& L, float ang) {
+    // Normalize to [-pi, pi]
+    while (ang > pi) {
+        ang -= 2.0f * pi;
+    }
+    while (ang < -pi) {
+        ang += 2.0f * pi;
+    }
+    float fa = L.foulAngleRad();
+    if (std::abs(ang) <= fa + 0.05f) {
+        // Behind OF fence
+        return L.wallRAtAngle(ang) + 2.2f;
+    }
+    // Foul territory + wrap behind home (ang near ±pi)
+    float foulR = L.wallRAtAngle(ang >= 0.0f ? fa : -fa) + 2.2f;
+    float backR = 15.5f; // just behind catcher
+    float fromFoul = std::abs(ang) - fa;
+    float span = pi - fa;
+    float u = std::clamp(fromFoul / std::max(span, 0.01f), 0.0f, 1.0f);
+    // Ease toward the backstop so corners fill in.
+    u = u * u * (3.0f - 2.0f * u);
+    return foulR + (backR - foulR) * u;
+}
+
+float bowlBaseHeight(const Layout& L, float ang) {
+    float fa = L.foulAngleRad();
+    if (std::abs(ang) <= fa + 0.05f) {
+        return L.wallHeightAtAngle(ang) + 0.5f;
+    }
+    // Ramp up behind home
+    float u = std::clamp((std::abs(ang) - fa) / (pi - fa), 0.0f, 1.0f);
+    return 2.0f + u * 5.0f;
+}
+
+void addLowPolyFan(Mesh3D& m, const Vector3& seatTop, float scale, sf::Color shirt, sf::Color skin) {
+    float s = scale;
+    // Torso
+    addBox(m, seatTop + Vector3(0, 0.42f * s, 0), 0.38f * s, 0.55f * s, 0.28f * s, shirt);
+    // Head
+    addBox(m, seatTop + Vector3(0, 0.85f * s, 0), 0.26f * s, 0.26f * s, 0.26f * s, skin);
+    // Arms (slightly raised — "cheering" pose)
+    addBox(m, seatTop + Vector3(-0.28f * s, 0.55f * s, 0), 0.12f * s, 0.45f * s, 0.12f * s, skin);
+    addBox(m, seatTop + Vector3(0.28f * s, 0.55f * s, 0), 0.12f * s, 0.45f * s, 0.12f * s, skin);
+}
+
+sf::Color fanShirtColor(int seed) {
+    static const sf::Color shirts[] = {
+        sf::Color(200, 40, 50),   // red
+        sf::Color(30, 60, 160),   // blue
+        sf::Color(240, 240, 245), // white
+        sf::Color(20, 20, 25),    // black
+        sf::Color(230, 160, 40),  // gold
+        sf::Color(40, 120, 70),   // green
+        sf::Color(90, 50, 140),   // purple
+        sf::Color(50, 140, 180),  // teal
+    };
+    return shirts[static_cast<unsigned>(seed) % 8];
+}
+
+sf::Color fanSkinColor(int seed) {
+    static const sf::Color skins[] = {
+        sf::Color(240, 200, 170),
+        sf::Color(210, 160, 120),
+        sf::Color(160, 110, 80),
+        sf::Color(120, 80, 55),
+        sf::Color(250, 220, 190),
+    };
+    return skins[static_cast<unsigned>(seed) % 5];
+}
+
 Mesh3D buildStands(const Layout& L) {
     Mesh3D m;
-    const float aL = -L.foulAngleRad() - 0.12f;
-    const float aR = L.foulAngleRad() + 0.12f;
-    const float wallR = L.maxWallR();
-    const float wallH = L.wallH() + 2.0f;
     const float plateZ = L.plateZ();
-    sf::Color seat(70, 95, 140);
-    sf::Color riser(50, 68, 100);
-    sf::Color upper(90, 70, 75);
+    sf::Color seat(55, 100, 165);      // stadium blue seats
+    sf::Color seatAlt(45, 85, 145);
+    sf::Color riser(40, 55, 80);
+    sf::Color aisle(90, 95, 100);
+    sf::Color concourse(70, 75, 85);
+    sf::Color upper(100, 75, 80);
 
-    // Outfield bowl (uses max fence as inner radius so stands clear the deepest wall)
-    addStands(m, L, wallR + 2.5f, aL, aR, wallH, 12, 40, 3.2f, 1.15f, seat, riser);
-    addStands(
-        m,
-        L,
-        wallR + 2.5f + 12 * 3.2f,
-        aL * 0.85f,
-        aR * 0.85f,
-        wallH,
-        6,
-        32,
-        3.6f,
-        1.35f,
-        upper,
-        sf::Color(60, 48, 52)
-    );
+    // Full 360° lower bowl + upper deck
+    const int angSegs = 72;
+    const int lowerRows = 14;
+    const int upperRows = 8;
+    const float rowDepth = 2.6f;
+    const float rowRise = 1.05f;
+    const float upperGap = 3.5f;
 
-    // Behind home plate: backstop + grandstand (angle π is +Z behind catcher).
-    const float backL = pi - 1.05f;
-    const float backR = pi + 1.05f;
-    float backInner = 14.0f; // just behind catcher
-    // Backstop wall (padded fence)
+    for (int i = 0; i < angSegs; i++) {
+        float t0 = static_cast<float>(i) / angSegs;
+        float t1 = static_cast<float>(i + 1) / angSegs;
+        float ang0 = -pi + t0 * 2.0f * pi;
+        float ang1 = -pi + t1 * 2.0f * pi;
+        float angM = 0.5f * (ang0 + ang1);
+        float rIn = bowlInnerRadius(L, angM);
+        float yBase = bowlBaseHeight(L, angM);
+
+        // Aisle every 6 sectors
+        bool isAisle = (i % 6) == 0;
+        sf::Color rowSeat = isAisle ? aisle : ((i % 2) ? seat : seatAlt);
+
+        for (int row = 0; row < lowerRows; row++) {
+            float r0 = rIn + row * rowDepth;
+            float r1 = r0 + rowDepth * 0.92f;
+            float y0 = yBase + row * rowRise;
+            float y1 = y0 + rowRise * 0.85f;
+            // Seat tread
+            addQuad(
+                m,
+                L.fromHome(r0, ang0, y1),
+                L.fromHome(r0, ang1, y1),
+                L.fromHome(r1, ang1, y1),
+                L.fromHome(r1, ang0, y1),
+                rowSeat
+            );
+            // Riser
+            addQuad(
+                m,
+                L.fromHome(r0, ang0, y0),
+                L.fromHome(r0, ang1, y0),
+                L.fromHome(r0, ang1, y1),
+                L.fromHome(r0, ang0, y1),
+                riser
+            );
+        }
+
+        // Concourse shelf
+        float rLowTop = rIn + lowerRows * rowDepth;
+        float yConc = yBase + lowerRows * rowRise + 0.3f;
+        addQuad(
+            m,
+            L.fromHome(rLowTop, ang0, yConc),
+            L.fromHome(rLowTop, ang1, yConc),
+            L.fromHome(rLowTop + upperGap, ang1, yConc),
+            L.fromHome(rLowTop + upperGap, ang0, yConc),
+            concourse
+        );
+
+        // Upper deck
+        float rUp0 = rLowTop + upperGap;
+        float yUp0 = yConc + 1.2f;
+        for (int row = 0; row < upperRows; row++) {
+            float r0 = rUp0 + row * (rowDepth * 1.15f);
+            float r1 = r0 + rowDepth * 1.05f;
+            float y0 = yUp0 + row * (rowRise * 1.15f);
+            float y1 = y0 + rowRise;
+            addQuad(
+                m,
+                L.fromHome(r0, ang0, y1),
+                L.fromHome(r0, ang1, y1),
+                L.fromHome(r1, ang1, y1),
+                L.fromHome(r1, ang0, y1),
+                upper
+            );
+            addQuad(
+                m,
+                L.fromHome(r0, ang0, y0),
+                L.fromHome(r0, ang1, y0),
+                L.fromHome(r0, ang1, y1),
+                L.fromHome(r0, ang0, y1),
+                sf::Color(55, 45, 48)
+            );
+        }
+    }
+
+    // Backstop / netting behind home
+    const float backL = pi - 0.95f;
+    const float backR = pi + 0.95f;
+    float backInner = 12.5f;
     addArcWall(
-        m,
-        L,
-        backInner,
-        backL,
-        backR,
-        0.0f,
-        8.5f,
-        28,
-        sf::Color(90, 100, 110),
-        sf::Color(110, 120, 130)
+        m, L, backInner, backL, backR, 0.0f, 9.0f, 32,
+        sf::Color(90, 100, 110), sf::Color(110, 120, 130)
     );
-    // Netting plane (thin higher wall)
     addArcWall(
-        m,
-        L,
-        backInner + 0.4f,
-        backL + 0.05f,
-        backR - 0.05f,
-        4.0f,
-        16.0f,
-        24,
-        sf::Color(180, 190, 200, 90),
-        sf::Color(160, 170, 180, 100)
-    );
-    // Home-plate stands rising behind backstop
-    addStands(m, L, backInner + 2.0f, backL, backR, 6.0f, 10, 28, 2.8f, 1.1f, seat, riser);
-    addStands(
-        m,
-        L,
-        backInner + 2.0f + 10 * 2.8f,
-        backL + 0.08f,
-        backR - 0.08f,
-        6.0f,
-        5,
-        22,
-        3.2f,
-        1.25f,
-        upper,
-        sf::Color(60, 48, 52)
+        m, L, backInner + 0.35f, backL + 0.04f, backR - 0.04f, 5.0f, 18.0f, 28,
+        sf::Color(190, 200, 210, 85), sf::Color(170, 180, 190, 90)
     );
 
-    // Press boxes / camera decks behind home
-    addBox(
-        m,
-        Vector3(0.0f, 22.0f, plateZ + 28.0f),
-        22.0f,
-        6.0f,
-        8.0f,
-        sf::Color(55, 65, 80)
-    );
-    addBox(
-        m,
-        Vector3(0.0f, 26.5f, plateZ + 28.0f),
-        18.0f,
-        2.5f,
-        6.0f,
-        sf::Color(40, 50, 60)
-    );
+    // Press level behind home
+    addBox(m, Vector3(0.0f, 24.0f, plateZ + 32.0f), 28.0f, 7.0f, 10.0f, sf::Color(55, 65, 80));
+    addBox(m, Vector3(0.0f, 29.0f, plateZ + 32.0f), 22.0f, 2.8f, 7.0f, sf::Color(40, 50, 60));
+    // Facade glass
+    addBox(m, Vector3(0.0f, 24.0f, plateZ + 27.2f), 24.0f, 5.0f, 0.4f, sf::Color(100, 150, 190, 160));
+
+    // Dugout roofs already in field; add suite boxes on 1B/3B lines
+    addBox(m, Vector3(22.0f, 8.0f, plateZ - 8.0f), 10.0f, 4.0f, 6.0f, sf::Color(60, 70, 90));
+    addBox(m, Vector3(-22.0f, 8.0f, plateZ - 8.0f), 10.0f, 4.0f, 6.0f, sf::Color(60, 70, 90));
 
     sf::Color steel(180, 185, 190);
     auto tower = [&](float ang) {
-        Vector3 base = L.fromHome(wallR + 18.0f, ang, 0.0f);
-        addBox(m, base + Vector3(0, 22.0f, 0), 1.2f, 44.0f, 1.2f, steel);
-        addBox(m, base + Vector3(0, 44.0f, 0), 8.0f, 2.0f, 3.0f, sf::Color(240, 240, 220));
+        float r = bowlInnerRadius(L, ang) + 28.0f;
+        Vector3 base = L.fromHome(r, ang, 0.0f);
+        addBox(m, base + Vector3(0, 24.0f, 0), 1.4f, 48.0f, 1.4f, steel);
+        addBox(m, base + Vector3(0, 48.0f, 0), 9.0f, 2.2f, 3.5f, sf::Color(245, 245, 230));
     };
     tower(-0.55f);
     tower(0.0f);
     tower(0.55f);
-    // Lights behind home too
-    tower(pi - 0.35f);
-    tower(pi + 0.35f);
+    tower(pi - 0.4f);
+    tower(pi + 0.4f);
+    tower(pi * 0.5f);
+    tower(-pi * 0.5f);
 
     m.rebuildNormals();
     return m;
 }
 
-// Deterministic pseudo-random in [0,1) from integer seed.
-float hash01(int n) {
-    unsigned x = static_cast<unsigned>(n) * 1664525u + 1013904223u;
-    return static_cast<float>(x & 0xFFFFFFu) / static_cast<float>(0x1000000u);
+// Build low-poly fans in kFanSectors angular wedges for cheer animation.
+std::vector<Mesh3D> buildFanSectors(const Layout& L) {
+    std::vector<Mesh3D> sectors(kFanSectorCount);
+    const int angSamples = 96;
+    const int lowerRows = 14;
+    const int upperRows = 8;
+    const float rowDepth = 2.6f;
+    const float rowRise = 1.05f;
+    const float upperGap = 3.5f;
+
+    int fanId = 0;
+    for (int i = 0; i < angSamples; i++) {
+        float t = (static_cast<float>(i) + 0.5f) / angSamples;
+        float ang = -pi + t * 2.0f * pi;
+        int sector = static_cast<int>((t * kFanSectorCount)) % kFanSectorCount;
+        float rIn = bowlInnerRadius(L, ang);
+        float yBase = bowlBaseHeight(L, ang);
+
+        // Lower bowl fans — skip aisles, thin density for performance
+        for (int row = 1; row < lowerRows; row += 1) {
+            if ((i + row) % 2 != 0) {
+                continue; // checkerboard occupancy ~50%
+            }
+            if (i % 6 == 0) {
+                continue; // aisle
+            }
+            float r = rIn + (row + 0.45f) * rowDepth;
+            float y = yBase + (row + 1.0f) * rowRise;
+            Vector3 seat = L.fromHome(r, ang, y);
+            addLowPolyFan(
+                sectors[sector],
+                seat,
+                0.95f + 0.15f * hash01(fanId),
+                fanShirtColor(fanId),
+                fanSkinColor(fanId + 3)
+            );
+            fanId++;
+        }
+
+        // Upper deck fans (sparser)
+        float rLowTop = rIn + lowerRows * rowDepth;
+        float yConc = yBase + lowerRows * rowRise + 0.3f;
+        float rUp0 = rLowTop + upperGap;
+        float yUp0 = yConc + 1.2f;
+        for (int row = 0; row < upperRows; row += 1) {
+            if ((i + row * 3) % 3 != 0) {
+                continue;
+            }
+            float r = rUp0 + (row + 0.4f) * (rowDepth * 1.15f);
+            float y = yUp0 + (row + 1.0f) * (rowRise * 1.15f);
+            Vector3 seat = L.fromHome(r, ang, y);
+            addLowPolyFan(
+                sectors[sector],
+                seat,
+                0.9f,
+                fanShirtColor(fanId + 11),
+                fanSkinColor(fanId + 7)
+            );
+            fanId++;
+        }
+    }
+
+    for (auto& sec : sectors) {
+        sec.rebuildNormals();
+    }
+    return sectors;
 }
 
 Mesh3D buildCity(const Layout& L) {
@@ -687,11 +853,20 @@ Meshes build(const Layout& layout) {
     out.stands = buildStands(layout);
     out.lines = buildLines(layout);
     out.city = buildCity(layout);
+    out.fanSectors = buildFanSectors(layout);
     return out;
 }
 
 float recommendedFarPlane(const Layout& layout) {
     return std::max(3500.0f, layout.maxWallR() * 12.0f + 800.0f);
+}
+
+float fanCheerOffsetY(int sectorIndex, float timeSec) {
+    // Traveling wave of fans standing / bouncing.
+    float phase = static_cast<float>(sectorIndex) * 0.55f;
+    float wave = std::sin(timeSec * 5.5f + phase);
+    float wave2 = std::sin(timeSec * 3.2f + phase * 1.7f);
+    return 0.12f + 0.22f * std::max(0.0f, wave) + 0.06f * wave2;
 }
 
 } // namespace Stadium3D

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "Mesh3D.h"
 #include "../math/Vector3.h"
 
@@ -59,17 +61,25 @@ struct Layout {
     float maxWallR() const;
 };
 
+// Fan sections for cheer-wave animation (draw each with a small Y bob).
+constexpr int kFanSectorCount = 16;
+
 struct Meshes {
     Mesh3D field;
     Mesh3D walls;
-    Mesh3D stands;   // outfield + behind-home seating / backstop
+    Mesh3D stands;   // full bowl: seats, aisles, concourses, backstop
     Mesh3D lines;
     Mesh3D city;     // suburban skyline backdrop (full ring)
+    // Low-poly crowd split by angle so demos can bob sections for cheering.
+    std::vector<Mesh3D> fanSectors;
 };
 
 Layout defaultPlayLayout();
 Meshes build(const Layout& layout = defaultPlayLayout());
 
 float recommendedFarPlane(const Layout& layout = defaultPlayLayout());
+
+// Cheer bob offset for sector i at time t (seconds).
+float fanCheerOffsetY(int sectorIndex, float timeSec);
 
 } // namespace Stadium3D
