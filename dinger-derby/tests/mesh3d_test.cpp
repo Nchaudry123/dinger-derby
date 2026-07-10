@@ -82,6 +82,14 @@ void testBoxAndPlayerMeshes() {
     // Standing pitcher should reach higher than crouching catcher.
     assert(pitcherBounds.center.y + pitcherBounds.radius >
         catcherBounds.center.y + catcherBounds.radius * 0.5f);
+
+    PitcherPose delivery = BaseballPlayer3D::pitcherDeliveryPose(0.55f);
+    assert(delivery.throwShoulderPitch != 0.0f || delivery.stride != 0.0f);
+    Mesh3D midDelivery = BaseballPlayer3D::pitcher(0, delivery);
+    assert(midDelivery.triangles.size() > 20);
+
+    CatcherPose receive = BaseballPlayer3D::catcherReceivePose(0.0f, 0.3f, 1.5f, 0.0f, 0.0f);
+    assert(std::abs(receive.mittSide) > 0.0f || std::abs(receive.mittHeight) > 0.0f);
 }
 
 }

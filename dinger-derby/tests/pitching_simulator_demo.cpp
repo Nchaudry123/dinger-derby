@@ -928,9 +928,11 @@ int main() {
     Mesh3D baseballMesh = BaseballVisual3D::makeMesh(fullQuality ? 48 : 28, fullQuality ? 96 : 48);
     std::vector<SeamPoint3D> seamA = BaseballVisual3D::makeSeamLoop(false);
     std::vector<SeamPoint3D> seamB = BaseballVisual3D::makeSeamLoop(true);
-    // detail 1 = balanced poly count for software raster with two full figures.
-    Mesh3D pitcherMesh = BaseballPlayer3D::pitcher(fullQuality ? 1 : 0);
-    Mesh3D catcherMesh = BaseballPlayer3D::catcher(fullQuality ? 1 : 0);
+    const float catcherWorldX = 0.05f;
+    const float catcherWorldZ = plateZ + 0.95f;
+    auto playerDetail = [&]() { return fullQuality ? 1 : 0; };
+    Mesh3D pitcherMesh = BaseballPlayer3D::pitcher(playerDetail());
+    Mesh3D catcherMesh = BaseballPlayer3D::catcher(playerDetail());
     RasterMeshRenderCache renderCache;
     RasterMeshRenderCache pitcherCache;
     RasterMeshRenderCache catcherCache;
@@ -959,10 +961,23 @@ int main() {
     float spinY = 0.0f;
     float spinZ = 0.0f;
     float resultBannerTimer = 0.0f;
+    float poseClock = 0.0f;
+    float deliveryAge = -1.0f; // < 0 => idle; seconds into delivery clip
+    float playerRebuildTimer = 0.0f;
+    bool ballReleased = false;
+    constexpr float deliveryDuration = 0.92f;
+    constexpr float releaseNormalized = 0.55f;
     bool paused = false;
     bool draggingSpeedSlider = false;
     std::string latestResult = "Ready — press R to throw";
     sf::Color latestResultColor(225, 235, 205);
+
+    auto rebuildPlayers = [&](const PitcherPose& pitcherPose, const CatcherPose& catcherPose) {
+        pitcherMesh = BaseballPlayer3D::pitcher(playerDetail(), pitcherPose);
+        catcherMesh = BaseballPlayer3D::catcher(playerDetail(), catcherPose);
+        pitcherCache.reserveFor(pitcherMesh);
+        catcherCache.reserveFor(catcherMesh);
+    };
 
     auto prepareReadyState = [&]() {
         resetPitchOnMound(baseball, world, pitches[selectedPitch], trail);
@@ -973,23 +988,35 @@ int main() {
         spinX = 0.0f;
         spinY = 0.0f;
         spinZ = 0.0f;
+        deliveryAge = -1.0f;
+        ballReleased = false;
         phase = PitchPhase::Ready;
     };
 
-    auto relaunchCurrentPitch = [&]() {
+    auto startDelivery = [&]() {
         activePitch = selectedPitch;
         currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
         currentVariation = rollPitchVariation(pitches[selectedPitch], randomGenerator);
-        launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph, currentVariation);
+        resetPitchOnMound(baseball, world, pitches[selectedPitch], trail);
         accumulator = 0.0f;
         pitchAge = 0.0f;
         spinX = 0.0f;
         spinY = 0.0f;
         spinZ = 0.0f;
+        deliveryAge = 0.0f;
+        ballReleased = false;
+        phase = PitchPhase::Ready; // ball stays on rubber until release frame
+        latestResult = pitches[selectedPitch].name + " — windup";
+        latestResultColor = pitches[selectedPitch].color;
+        resultBannerTimer = 0.0f;
+    };
+
+    auto releasePitch = [&]() {
+        launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph, currentVariation);
+        ballReleased = true;
         phase = PitchPhase::Flying;
         latestResult = pitches[selectedPitch].name + " — in flight";
         latestResultColor = pitches[selectedPitch].color;
-        resultBannerTimer = 0.0f;
     };
 
     while (window.isOpen()) {
@@ -1010,11 +1037,8 @@ int main() {
                 if (key->code == sf::Keyboard::Key::Q) {
                     fullQuality = !fullQuality;
                     baseballMesh = BaseballVisual3D::makeMesh(fullQuality ? 48 : 28, fullQuality ? 96 : 48);
-                    pitcherMesh = BaseballPlayer3D::pitcher(fullQuality ? 1 : 0);
-                    catcherMesh = BaseballPlayer3D::catcher(fullQuality ? 1 : 0);
                     renderCache.reserveFor(baseballMesh);
-                    pitcherCache.reserveFor(pitcherMesh);
-                    catcherCache.reserveFor(catcherMesh);
+                    playerRebuildTimer = 1.0f; // force pose rebuild this frame
                     // Full quality always wants coverage AA; fast mode keeps current AA flag.
                     if (fullQuality) {
                         antiAliasingEnabled = true;
@@ -1030,7 +1054,10 @@ int main() {
                 }
 
                 if (key->code == sf::Keyboard::Key::R) {
-                    relaunchCurrentPitch();
+                    // Ignore re-trigger mid-delivery until ball is out or settled.
+                    if (deliveryAge < 0.0f || ballReleased || phase == PitchPhase::Settled) {
+                        startDelivery();
+                    }
                 }
 
                 if (key->code == sf::Keyboard::Key::LBracket) {
@@ -1132,6 +1159,67 @@ int main() {
             resultBannerTimer = std::max(0.0f, resultBannerTimer - dt);
         }
 
+        if (!paused) {
+            poseClock += dt;
+
+            if (deliveryAge >= 0.0f) {
+                deliveryAge += dt;
+                float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
+                if (!ballReleased && deliveryT >= releaseNormalized) {
+                    releasePitch();
+                }
+                // After follow-through and pitch result, return to idle set.
+                if (phase == PitchPhase::Settled && deliveryAge >= deliveryDuration + 0.55f) {
+                    deliveryAge = -1.0f;
+                }
+            }
+        }
+
+        // Pose sampling + mesh rebuild (~30 Hz) so animation stays cheap.
+        PitcherPose pitcherPose;
+        CatcherPose catcherPose;
+        if (deliveryAge >= 0.0f) {
+            float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
+            pitcherPose = BaseballPlayer3D::pitcherDeliveryPose(deliveryT);
+        } else {
+            pitcherPose = BaseballPlayer3D::pitcherIdlePose(poseClock);
+        }
+
+        if (phase == PitchPhase::Flying) {
+            catcherPose = BaseballPlayer3D::catcherReceivePose(
+                poseClock,
+                baseball.position.x,
+                baseball.position.y,
+                catcherWorldX,
+                0.0f
+            );
+            catcherPose.gloveOpen = 0.55f;
+        } else if (phase == PitchPhase::Settled) {
+            catcherPose = BaseballPlayer3D::catcherReceivePose(
+                poseClock,
+                baseball.position.x,
+                baseball.position.y,
+                catcherWorldX,
+                0.0f
+            );
+            catcherPose.gloveOpen = 0.85f;
+            catcherPose.mittReach += 0.04f;
+        } else {
+            catcherPose = BaseballPlayer3D::catcherReceivePose(
+                poseClock,
+                aimPoint.x,
+                aimPoint.y,
+                catcherWorldX,
+                0.0f
+            );
+        }
+
+        playerRebuildTimer += dt;
+        if (playerRebuildTimer >= (1.0f / 30.0f)) {
+            playerRebuildTimer = 0.0f;
+            rebuildPlayers(pitcherPose, catcherPose);
+        }
+
         if (!paused && phase == PitchPhase::Flying) {
             accumulator += dt;
             while (accumulator >= fixedStep) {
@@ -1199,7 +1287,7 @@ int main() {
 
         // Catcher crouch behind plate, model faces -Z toward mound so rotate 180°.
         Matrix4 catcherTransform =
-            Matrix4::translation(Vector3(0.05f, 0.0f, plateZ + 0.95f)) *
+            Matrix4::translation(Vector3(catcherWorldX, 0.0f, catcherWorldZ)) *
             Matrix4::rotationY(pi);
 
         frameBuffer.clear(sf::Color(5, 8, 14));
