@@ -4,45 +4,13 @@
 #include <cmath>
 
 Body2D::Body2D() {
-    position = Vector2(0.0f, 0.0f);
-    velocity = Vector2(0.0f, 0.0f);
-    acceleration = Vector2(0.0f, 0.0f);
-
-    radius = 1.0f;
-    mass = 1.0f;
-    restitution = 0.7f;
-
-    rotation = 0.0f;
-    angularVelocity = 0.0f;
-    angularAcceleration = 0.0f;
-    torque = 0.0f;
-
     updateMomentOfInertia();
-
-    isSleeping = false;
-    sleepTimer = 0.0f;
-    type = Body2DType::Dynamic;
 }
 
-Body2D::Body2D(Vector2 startPosition, float mass) {
+Body2D::Body2D(const Vector2& startPosition, float mass) {
     position = startPosition;
-    velocity = Vector2(0.0f, 0.0f);
-    acceleration = Vector2(0.0f, 0.0f);
-
-    radius = 1.0f;
     this->mass = std::max(mass, 0.001f);
-    restitution = 0.7f;
-
-    rotation = 0.0f;
-    angularVelocity = 0.0f;
-    angularAcceleration = 0.0f;
-    torque = 0.0f;
-
     updateMomentOfInertia();
-
-    isSleeping = false;
-    sleepTimer = 0.0f;
-    type = Body2DType::Dynamic;
 }
 
 bool Body2D::isStatic() const {
