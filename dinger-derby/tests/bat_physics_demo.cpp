@@ -290,8 +290,8 @@ struct BatConfig {
     float mass = 0.90f;
     float sweetFromKnob = 0.56f;
     float sweetWidth = 0.11f;
-    float minCor = 0.42f;
-    float maxCor = 0.68f; // easier to drive the ball hard
+    float minCor = 0.38f; // handle / mishit
+    float maxCor = 0.52f; // barrel sweet spot (closer to real baseball COR)
 };
 
 // Aim reticle — yellow outline on the plate. Never animates with the swing.
@@ -400,34 +400,32 @@ void closestOnBat(
     outS = t * cfg.length;
 }
 
-// Build a realistic RHB path: load (high/back) → contact (through PCI) → finish (wrap).
+// Build a level-ish RHB path: load → contact (square) → finish through the zone.
+// Flatter plane so exit launch isn't artificially sky-high.
 void bakeSwingKeys(BatPose& bat) {
     bat.contactHands = bat.hands;
     bat.contactAxis = bat.axis;
 
-    // Load: tip high and back toward 1B / catcher side, hands load.
-    bat.loadHands = bat.contactHands + Vector3(0.12f, 0.18f, 0.22f);
+    // Load: tip cocked up/back, hands load — not extreme uppercut.
+    bat.loadHands = bat.contactHands + Vector3(0.10f, 0.10f, 0.18f);
     bat.loadAxis = slerpDir(
         bat.contactAxis,
-        safeNorm(Vector3(0.65f, 0.70f, 0.20f)),
-        0.85f
+        safeNorm(Vector3(0.55f, 0.38f, 0.22f)),
+        0.72f
     );
 
-    // Finish: hands drive through toward field, tip wraps high 3B side.
-    bat.finishHands = bat.contactHands + Vector3(-0.28f, 0.10f, -0.45f);
+    // Finish: drive through toward the field, slight downward follow-through.
+    bat.finishHands = bat.contactHands + Vector3(-0.26f, -0.04f, -0.42f);
     bat.finishAxis = slerpDir(
         bat.contactAxis,
-        safeNorm(Vector3(-0.75f, 0.55f, -0.35f)),
-        0.90f
+        safeNorm(Vector3(-0.72f, 0.08f, -0.52f)),
+        0.82f
     );
 
-    // Swing plane normal ≈ direction of rotation load→finish
-    Vector3 mid = slerpDir(bat.loadAxis, bat.finishAxis, 0.5f);
     bat.swingAxis = safeNorm(bat.loadAxis.cross(bat.finishAxis), Vector3(0, 1, 0));
     if (bat.swingAxis.dot(Vector3(0, 1, 0)) < 0.0f) {
         bat.swingAxis = bat.swingAxis * -1.0f;
     }
-    (void)mid;
 }
 
 // Evaluate swing pose at t∈[0,1]: load (0) → contact (~0.42) → finish (1).
@@ -601,29 +599,27 @@ HitInfo tryHit(
     Vector3 closest;
     closestOnBat(bat, cfg, ball.position, s, closest);
 
-    // Practice: much fatter bat collision + soft magnet toward sweet spot when close.
-    float rScale = practiceMode ? 3.4f : 1.3f;
+    // Practice: slightly fatter bat + mild sweet-spot magnet (not free rockets).
+    float rScale = practiceMode ? 2.2f : 1.25f;
     float rBat = batRadius(cfg, s) * rScale;
     Vector3 delta = ball.position - closest;
     float dist = delta.magnitude();
     float minD = ball.radius + rBat;
 
-    // Practice assist: if barrel is near the ball at the plate during the
-    // contact window, pull the contact point onto the sweet spot and force a hit.
     if (practiceMode) {
         Vector3 sweetPt = batPoint(bat, cfg.sweetFromKnob);
         float dSweet = (ball.position - sweetPt).magnitude();
         float nearPlate = std::abs(ball.position.z - plateZ);
-        bool contactWindow = bat.swingT >= 0.22f && bat.swingT <= 0.72f;
-        if (contactWindow && nearPlate < 0.55f && dSweet < 0.32f) {
+        bool contactWindow = bat.swingT >= 0.28f && bat.swingT <= 0.58f;
+        if (contactWindow && nearPlate < 0.40f && dSweet < 0.22f) {
             closest = sweetPt;
             s = cfg.sweetFromKnob;
             delta = ball.position - closest;
             dist = std::max(delta.magnitude(), 1e-4f);
             minD = ball.radius + rBat;
-            // Snap ball onto bat surface for a clean contact.
             Vector3 nSnap = delta * (1.0f / dist);
-            ball.position = closest + nSnap * (ball.radius + batRadius(cfg, s) * 1.1f);
+            // Keep ball on bat surface without huge position jumps.
+            ball.position = closest + nSnap * (ball.radius + batRadius(cfg, s));
             delta = ball.position - closest;
             dist = delta.magnitude();
         }
@@ -632,66 +628,91 @@ HitInfo tryHit(
     if (dist > minD || dist < 1e-5f) {
         return h;
     }
+
+    // Contact normal: from bat into ball (points roughly outfield if squared up).
     Vector3 n = delta * (1.0f / dist);
+    // Bias normal slightly toward bat path plane so undercut pop-ups are rarer on
+    // center contact — still allow topspin/grounders if you hit on top of the ball.
+    {
+        Vector3 vBatHint = batPointVelocity(bat, s, dt);
+        if (vBatHint.magnitude() > 0.5f) {
+            Vector3 batDir = safeNorm(vBatHint);
+            // Prefer contact facing the swing direction (through the ball).
+            Vector3 preferred = safeNorm(batDir * 0.65f + Vector3(0, 0, -1) * 0.35f);
+            if (n.dot(preferred) < 0.0f) {
+                n = n * -1.0f;
+            }
+            n = safeNorm(n * 0.82f + preferred * 0.18f);
+        }
+    }
+
     Vector3 vBat = batPointVelocity(bat, s, dt);
     Vector3 vRel = ball.velocity - vBat;
     float approach = vRel.dot(n);
-    // Practice: allow near-zero approach (still count as a hit).
-    if (approach >= (practiceMode ? 2.5f : 0.0f)) {
+    // Must be closing on the bat face (practice: tiny grace).
+    if (approach >= (practiceMode ? 1.0f : 0.0f)) {
         return h;
     }
-    if (practiceMode && approach >= 0.0f) {
-        // Ball already separating slightly — invent a mild approach so COR works.
-        approach = -std::max(8.0f, vBat.magnitude() * 0.35f);
+    if (practiceMode && approach > -4.0f) {
+        approach = -std::max(6.0f, vBat.magnitude() * 0.28f);
         vRel = n * approach + (vRel - n * vRel.dot(n));
     }
 
-    float sweetScale = practiceMode ? prof.sweetScale * 1.8f : prof.sweetScale;
+    float sweetScale = practiceMode ? prof.sweetScale * 1.35f : prof.sweetScale;
     float sweet = sweetFactor(cfg, s, sweetScale);
-    if (practiceMode) {
-        sweet = clampf(sweet + 0.25f, 0.0f, 1.0f);
-    }
-    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus, sweet), 0.35f, 0.78f);
+    // Realistic COR band; power swing adds a little, mishits stay dead.
+    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus, sweet), 0.30f, 0.56f);
     float tip = clampf(s / cfg.length, 0.0f, 1.0f);
     float mEff =
-        cfg.mass * prof.massScale * lerp(1.3f, 0.55f, tip) * lerp(0.75f, 1.15f, sweet);
+        cfg.mass * prof.massScale * lerp(1.25f, 0.60f, tip) * lerp(0.70f, 1.10f, sweet);
     float mBall = std::max(ball.mass, 0.05f);
+
+    // Standard 1D collision impulse along n (no free loft boost).
     float j = -(1.0f + cor) * approach / (1.0f / mBall + 1.0f / mEff);
-    // Stronger impulse so contact sends the ball flying.
-    j *= lerp(1.15f, 1.55f, sweet) * lerp(1.05f, 1.35f, (prof.power - 0.7f) / 0.55f);
+    // Power / sweet add modest juice only — not 50%+ skyrockets.
+    j *= lerp(0.92f, 1.12f, sweet) * lerp(0.96f, 1.10f, (prof.power - 0.7f) / 0.55f);
     if (practiceMode) {
-        j *= 1.35f;
+        j *= 1.08f;
     }
     ball.velocity = ball.velocity + n * (j / mBall);
+
+    // Friction: kill some spin-tangent relative speed (slice/hook, not loft).
     Vector3 tan = safeNorm(n.cross(Vector3(0, 1, 0)), Vector3(1, 0, 0));
     float vt = vRel.dot(tan);
-    float jt = clampf(-vt * mBall * 0.3f, -std::abs(j) * 0.15f * sweet, std::abs(j) * 0.15f * sweet);
+    float jt = clampf(-vt * mBall * 0.22f, -std::abs(j) * 0.12f, std::abs(j) * 0.12f);
     ball.velocity = ball.velocity + tan * (jt / mBall);
 
-    // Blend in bat speed and a healthy outfield loft so even soft contact carries.
-    Vector3 outfield = safeNorm(Vector3(0.0f, 0.22f, -1.0f)); // toward mound / OF from plate
-    Vector3 launchDir = safeNorm(n * 0.55f + outfield * 0.45f + Vector3(0, 0.25f, 0) * sweet, outfield);
-    float batCarry = vBat.magnitude() * lerp(0.35f, 0.72f, sweet) * (practiceMode ? 1.25f : 1.0f);
-    ball.velocity = ball.velocity + launchDir * batCarry;
-
-    // Minimum exit velocity so hits "send flying" instead of dribbling.
-    float minExit = mphToWorldUnitsPerSecond(practiceMode ? 78.0f : 58.0f);
-    float exitSpeed = ball.velocity.magnitude();
-    if (exitSpeed < minExit) {
-        Vector3 dir = exitSpeed > 1e-3f ? ball.velocity * (1.0f / exitSpeed) : launchDir;
-        // Prefer some upward + outfield component.
-        dir = safeNorm(dir + Vector3(0, 0.35f, -0.25f), launchDir);
-        ball.velocity = dir * minExit;
-    } else {
-        // Mild overall juice.
-        ball.velocity = ball.velocity * (practiceMode ? 1.18f : 1.08f);
-    }
-    // Guarantee a readable launch angle (pop flies / liners, not rollers).
-    if (ball.velocity.y < 6.0f) {
-        ball.velocity.y = lerp(ball.velocity.y, 14.0f + sweet * 10.0f, practiceMode ? 0.85f : 0.55f);
+    // Carry from bat speed only along the bat's motion (level swings stay level).
+    if (vBat.magnitude() > 0.5f) {
+        Vector3 batDir = safeNorm(vBat);
+        // Cap how much of bat speed becomes exit — sweet + power matter.
+        float carryFrac = lerp(0.12f, 0.32f, sweet) * lerp(0.90f, 1.08f, (prof.power - 0.7f) / 0.55f);
+        if (practiceMode) {
+            carryFrac *= 1.10f;
+        }
+        // Only the component through the ball (along n), not free vertical add.
+        float alongN = std::max(0.0f, batDir.dot(n));
+        ball.velocity = ball.velocity + n * (vBat.magnitude() * alongN * carryFrac);
     }
 
-    ball.position = ball.position + n * (minD - dist + 0.006f);
+    // Soft launch-angle clamp: natural pop-ups allowed, absurd skyballs limited.
+    {
+        float horiz = std::sqrt(
+            ball.velocity.x * ball.velocity.x + ball.velocity.z * ball.velocity.z
+        );
+        float maxUp = horiz * std::tan(42.0f * pi / 180.0f); // ~42° max LA
+        float minUp = -horiz * std::tan(18.0f * pi / 180.0f); // allow choppers
+        if (horiz > 1.0f) {
+            ball.velocity.y = clampf(ball.velocity.y, minUp, maxUp);
+        }
+        // Weak mishits shouldn't get free fly-ball juice.
+        if (sweet < 0.35f && ball.velocity.y > horiz * 0.25f) {
+            ball.velocity.y *= 0.55f;
+        }
+    }
+
+    // Separate ball from bat so we don't multi-hit.
+    ball.position = ball.position + n * (minD - dist + 0.004f);
 
     hasHit = true;
     h.hit = true;
