@@ -7,29 +7,34 @@
 
 namespace {
 
-// Soft, cohesive kit palette — fewer harsh material jumps.
-const sf::Color skin(212, 166, 130);
-const sf::Color skinDeep(188, 140, 108);
-const sf::Color jersey(234, 236, 240);
-const sf::Color jerseyShade(210, 214, 222);
-const sf::Color pants(52, 58, 72);
-const sf::Color pantsShade(42, 48, 60);
-const sf::Color belt(32, 34, 40);
-const sf::Color cleats(28, 28, 32);
-const sf::Color capNavy(28, 42, 78);
-const sf::Color logoRed(188, 48, 54);
-const sf::Color gear(36, 48, 68);
-const sf::Color gearShade(28, 38, 54);
-const sf::Color mitt(150, 102, 62);
-const sf::Color mittShade(122, 80, 48);
-const sf::Color sock(240, 240, 244);
+// KH2-inspired sports kit: clean values, soft contrast, readable from a distance.
+const sf::Color skin(220, 176, 142);
+const sf::Color skinShade(198, 152, 120);
+const sf::Color jersey(242, 244, 248);
+const sf::Color jerseyShade(220, 224, 232);
+const sf::Color pants(56, 64, 80);
+const sf::Color pantsShade(46, 52, 66);
+const sf::Color belt(38, 40, 48);
+const sf::Color cleats(34, 34, 40);
+const sf::Color cap(34, 52, 96);
+const sf::Color capShade(26, 40, 78);
+const sf::Color accent(210, 56, 64);
+const sf::Color gear(44, 58, 82);
+const sf::Color gearShade(34, 46, 66);
+const sf::Color gearLight(58, 76, 104);
+const sf::Color mitt(164, 112, 70);
+const sf::Color mittShade(136, 90, 54);
+const sf::Color sock(246, 246, 250);
+
+constexpr float pi = 3.1415926535f;
 
 int ringsFor(int detail) {
-    return detail >= 2 ? 9 : (detail >= 1 ? 7 : 6);
+    // Enough rings for smooth Gouraud like mid-poly PS2 characters.
+    return detail >= 2 ? 10 : (detail >= 1 ? 8 : 7);
 }
 
 int segsFor(int detail) {
-    return detail >= 2 ? 14 : (detail >= 1 ? 11 : 9);
+    return detail >= 2 ? 16 : (detail >= 1 ? 12 : 10);
 }
 
 float smoothstep(float edge0, float edge1, float x) {
@@ -67,8 +72,8 @@ void appendTransformed(
     }
 }
 
-// Ellipsoid blob — primary building block for a fused body.
-void addBlob(
+// Smooth ellipsoid. Primary volume primitive for KH-style shape language.
+void addEllipsoid(
     Mesh3D& dest,
     const Vector3& center,
     float rx,
@@ -90,71 +95,106 @@ void addBlob(
     appendTransformed(dest, sphere, transform, color);
 }
 
-// Limb as overlapping spheres along a segment (reads as one smooth piece).
-void addLimbChain(
+// Align local +Y to direction `dir`, place capsule between two points.
+// Joint balls at the ends keep limbs continuous with the torso (classic game-char construction).
+void addCapsule(
     Mesh3D& dest,
     const Vector3& from,
     const Vector3& to,
-    float radius,
+    float radiusFrom,
+    float radiusTo,
     sf::Color color,
-    int detail,
-    int beads = 4
+    int detail
 ) {
-    beads = std::max(beads, 2);
-    for (int i = 0; i < beads; i++) {
-        float t = static_cast<float>(i) / static_cast<float>(beads - 1);
-        // Slight taper toward ends.
-        float flare = 1.0f - 0.12f * std::abs(t - 0.5f) * 2.0f;
-        Vector3 p = from + (to - from) * t;
-        addBlob(dest, p, radius * flare, radius * flare, radius * flare, color, detail);
+    Vector3 delta = to - from;
+    float length = delta.magnitude();
+    if (length < 0.001f) {
+        addEllipsoid(dest, from, radiusFrom, radiusFrom, radiusFrom, color, detail);
+        return;
     }
-    // Joint caps for fusion with torso/feet
-    addBlob(dest, from, radius * 1.08f, radius * 1.08f, radius * 1.08f, color, detail);
-    addBlob(dest, to, radius * 1.05f, radius * 1.05f, radius * 1.05f, color, detail);
+
+    Vector3 dir = delta * (1.0f / length);
+    float yaw = std::atan2(dir.x, dir.z);
+    float pitch = std::acos(std::clamp(dir.y, -1.0f, 1.0f));
+    float midRadius = (radiusFrom + radiusTo) * 0.5f;
+    Vector3 mid = (from + to) * 0.5f;
+
+    // Shaft: elongated sphere along Y after orientation.
+    float halfLen = length * 0.5f;
+    Mesh3D sphere = Mesh3D::sphere(1.0f, ringsFor(detail), segsFor(detail));
+    Matrix4 shaft =
+        Matrix4::translation(mid) *
+        Matrix4::rotationY(yaw) *
+        Matrix4::rotationX(pitch) *
+        Matrix4::scale(Vector3(midRadius, halfLen * 0.92f + midRadius * 0.15f, midRadius));
+    appendTransformed(dest, sphere, shaft, color);
+
+    // End balls slightly larger for seamless joints.
+    addEllipsoid(dest, from, radiusFrom * 1.05f, radiusFrom * 1.05f, radiusFrom * 1.05f, color, detail);
+    addEllipsoid(dest, to, radiusTo * 1.05f, radiusTo * 1.05f, radiusTo * 1.05f, color, detail);
 }
 
-void addSoftMitt(
+void addFoot(
     Mesh3D& dest,
-    const Vector3& center,
-    float open,
-    int detail,
-    float yaw = 0.0f,
-    float pitch = 0.0f
+    const Vector3& ankle,
+    float yaw,
+    int detail
 ) {
-    float o = 1.0f + open * 0.15f;
-    addBlob(dest, center, 0.09f * o, 0.10f * o, 0.06f * o, mitt, detail, yaw, pitch);
-    addBlob(
+    addEllipsoid(dest, ankle + Vector3(0.0f, -0.015f, 0.035f), 0.055f, 0.03f, 0.10f, cleats, detail, yaw);
+    addEllipsoid(dest, ankle + Vector3(0.0f, 0.01f, -0.02f), 0.05f, 0.035f, 0.055f, cleats, detail, yaw);
+    addEllipsoid(dest, ankle + Vector3(0.0f, 0.04f, 0.0f), 0.045f, 0.05f, 0.045f, sock, detail);
+}
+
+// Soft baseball glove: one palm mass + thumb lobe + finger ridge (not separate slabs).
+void addGlove(
+    Mesh3D& dest,
+    const Vector3& wrist,
+    const Vector3& forward,
+    float open,
+    int detail
+) {
+    Vector3 f = forward.magnitude() > 0.001f ? forward.normalized() : Vector3(0.0f, 0.0f, 1.0f);
+    Vector3 palm = wrist + f * (0.05f + open * 0.02f) + Vector3(0.0f, 0.01f, 0.0f);
+    float s = 1.0f + open * 0.12f;
+
+    addEllipsoid(dest, palm, 0.075f * s, 0.085f * s, 0.05f * s, mitt, detail);
+    addEllipsoid(dest, palm + f * 0.04f + Vector3(0.0f, 0.05f, 0.0f), 0.06f * s, 0.05f * s, 0.04f * s, mitt, detail);
+    addEllipsoid(dest, palm + Vector3(-0.05f, 0.02f, 0.0f) + f * 0.02f, 0.04f, 0.055f, 0.035f, mittShade, detail);
+    addEllipsoid(dest, palm + Vector3(0.0f, 0.0f, 0.0f) - f * 0.02f, 0.05f, 0.04f, 0.03f, mittShade, detail);
+}
+
+// Simple cap that wraps the skull instead of floating plates.
+void addCap(Mesh3D& dest, const Vector3& headCenter, float headR, float yaw, int detail) {
+    addEllipsoid(
         dest,
-        center + Vector3(-0.03f, 0.04f, 0.03f),
-        0.055f * o,
-        0.06f * o,
-        0.04f * o,
-        mittShade,
+        headCenter + Vector3(0.0f, headR * 0.28f, -headR * 0.05f),
+        headR * 1.05f,
+        headR * 0.55f,
+        headR * 1.05f,
+        cap,
         detail,
-        yaw,
-        pitch
+        yaw
     );
-    addBlob(
+    addEllipsoid(
         dest,
-        center + Vector3(0.04f, 0.05f, 0.02f),
-        0.05f * o,
-        0.07f * o,
-        0.035f * o,
-        mitt,
+        headCenter + Vector3(0.0f, headR * 0.05f, headR * 0.55f),
+        headR * 0.72f,
+        headR * 0.12f,
+        headR * 0.42f,
+        capShade,
         detail,
-        yaw + 0.15f,
-        pitch
+        yaw
     );
-    addBlob(
+    // Tiny logo bump
+    addEllipsoid(
         dest,
-        center + Vector3(-0.06f, 0.0f, 0.02f),
-        0.04f,
-        0.05f,
-        0.035f,
-        mittShade,
+        headCenter + Vector3(0.0f, headR * 0.35f, headR * 0.55f),
+        headR * 0.14f,
+        headR * 0.1f,
+        headR * 0.08f,
+        accent,
         detail,
-        yaw - 0.4f,
-        pitch
+        yaw
     );
 }
 
@@ -162,11 +202,11 @@ void addSoftMitt(
 
 PitcherPose BaseballPlayer3D::pitcherIdlePose(float timeSeconds) {
     PitcherPose pose;
-    pose.torsoTwist = std::sin(timeSeconds * 1.3f) * 0.04f;
-    pose.torsoLean = std::sin(timeSeconds * 0.9f) * 0.02f;
-    pose.throwShoulderPitch = std::sin(timeSeconds * 1.1f) * 0.05f;
-    pose.gloveShoulderPitch = std::sin(timeSeconds * 1.1f + 0.4f) * 0.04f;
-    pose.frontLegLift = std::max(0.0f, std::sin(timeSeconds * 0.7f)) * 0.03f;
+    pose.torsoTwist = std::sin(timeSeconds * 1.25f) * 0.035f;
+    pose.torsoLean = std::sin(timeSeconds * 0.85f) * 0.018f;
+    pose.throwShoulderPitch = std::sin(timeSeconds * 1.05f) * 0.04f;
+    pose.gloveShoulderPitch = std::sin(timeSeconds * 1.05f + 0.5f) * 0.035f;
+    pose.frontLegLift = std::max(0.0f, std::sin(timeSeconds * 0.65f)) * 0.025f;
     return pose;
 }
 
@@ -205,10 +245,10 @@ PitcherPose BaseballPlayer3D::pitcherDeliveryPose(float t) {
 
 CatcherPose BaseballPlayer3D::catcherIdlePose(float timeSeconds) {
     CatcherPose pose;
-    pose.torsoSway = std::sin(timeSeconds * 1.05f) * 0.035f;
-    pose.crouchBob = std::sin(timeSeconds * 1.7f) * 0.012f;
-    pose.mittSide = std::sin(timeSeconds * 0.8f) * 0.02f;
-    pose.mittHeight = std::sin(timeSeconds * 1.2f) * 0.015f;
+    pose.torsoSway = std::sin(timeSeconds * 1.0f) * 0.03f;
+    pose.crouchBob = std::sin(timeSeconds * 1.6f) * 0.01f;
+    pose.mittSide = std::sin(timeSeconds * 0.75f) * 0.018f;
+    pose.mittHeight = std::sin(timeSeconds * 1.15f) * 0.012f;
     return pose;
 }
 
@@ -235,93 +275,85 @@ Mesh3D BaseballPlayer3D::pitcher(int detail, const PitcherPose& pose) {
     detail = std::clamp(detail, 0, 2);
     Mesh3D mesh;
 
-    const float footY = 0.04f;
-    const float shinLen = 0.38f;
-    const float thighLen = 0.36f;
-    const float torsoH = 0.48f;
-    const float headR = 0.11f;
-
-    const float hipY = footY + shinLen + thighLen * 0.88f;
-    const float shoulderY = hipY + torsoH * 0.92f;
-    const float headY = shoulderY + 0.14f + headR;
+    // Stylized athlete proportions (~KH-era readability): clear torso, tapered legs, slightly large head.
+    const float hipY = 0.92f;
+    const float shoulderY = 1.42f;
+    const float headY = 1.68f;
+    const float headR = 0.115f;
     const float stride = pose.stride;
     const float legLift = pose.frontLegLift;
 
-    // Feet / lower legs — plant (right) and lead (left)
-    Vector3 plantAnkle(0.10f, footY + 0.04f, 0.02f + stride * 0.1f);
-    Vector3 plantKnee(0.10f, footY + shinLen, 0.0f + stride * 0.08f);
-    Vector3 plantHip(0.09f, hipY - 0.02f, stride * 0.12f);
+    // --- Legs ---
+    Vector3 plantHip(0.095f, hipY - 0.02f, stride * 0.1f);
+    Vector3 plantKnee(0.10f, 0.48f, stride * 0.06f);
+    Vector3 plantAnkle(0.10f, 0.08f, 0.02f + stride * 0.08f);
 
-    Vector3 leadAnkle(-0.10f, footY + 0.04f + legLift * 0.32f, 0.06f + stride * 0.85f);
-    Vector3 leadKnee(-0.10f, footY + shinLen + legLift * 0.2f, 0.04f + stride * 0.45f);
-    Vector3 leadHip(-0.09f, hipY - 0.02f, 0.02f + stride * 0.25f);
+    Vector3 leadHip(-0.095f, hipY - 0.02f, 0.02f + stride * 0.22f);
+    Vector3 leadKnee(-0.10f, 0.50f + legLift * 0.22f, 0.05f + stride * 0.42f);
+    Vector3 leadAnkle(-0.10f, 0.08f + legLift * 0.3f, 0.08f + stride * 0.88f);
 
-    addLimbChain(mesh, plantAnkle, plantKnee, 0.055f, pantsShade, detail, 5);
-    addLimbChain(mesh, plantKnee, plantHip, 0.065f, pants, detail, 5);
-    addLimbChain(mesh, leadAnkle, leadKnee, 0.055f, pantsShade, detail, 5);
-    addLimbChain(mesh, leadKnee, leadHip, 0.065f, pants, detail, 5);
+    addCapsule(mesh, plantHip, plantKnee, 0.075f, 0.062f, pants, detail);
+    addCapsule(mesh, plantKnee, plantAnkle, 0.06f, 0.05f, pantsShade, detail);
+    addCapsule(mesh, leadHip, leadKnee, 0.075f, 0.062f, pants, detail);
+    addCapsule(mesh, leadKnee, leadAnkle, 0.06f, 0.05f, pantsShade, detail);
+    addFoot(mesh, plantAnkle, 0.05f, detail);
+    addFoot(mesh, leadAnkle, -0.08f, detail);
 
-    // Cleats as soft ovals fused to ankles
-    addBlob(mesh, plantAnkle + Vector3(0.0f, -0.02f, 0.03f), 0.07f, 0.035f, 0.11f, cleats, detail);
-    addBlob(mesh, leadAnkle + Vector3(0.0f, -0.02f, 0.03f), 0.07f, 0.035f, 0.11f, cleats, detail);
-    addBlob(mesh, plantAnkle + Vector3(0.0f, 0.04f, 0.0f), 0.05f, 0.06f, 0.05f, sock, detail);
-    addBlob(mesh, leadAnkle + Vector3(0.0f, 0.04f, 0.0f), 0.05f, 0.06f, 0.05f, sock, detail);
+    // Pelvis / belt as continuous hip volume
+    addEllipsoid(mesh, Vector3(0.0f, hipY, stride * 0.12f), 0.155f, 0.10f, 0.11f, pants, detail);
+    addEllipsoid(mesh, Vector3(0.0f, hipY + 0.045f, stride * 0.12f), 0.145f, 0.035f, 0.10f, belt, detail);
 
-    // Hips as one fused mass
-    addBlob(mesh, Vector3(0.0f, hipY, stride * 0.15f), 0.17f, 0.11f, 0.12f, pants, detail);
-    addBlob(mesh, Vector3(0.0f, hipY + 0.05f, stride * 0.15f), 0.16f, 0.04f, 0.11f, belt, detail);
-
+    // Upper body with twist/lean
     Matrix4 upper =
-        Matrix4::translation(Vector3(0.0f, hipY, stride * 0.2f)) *
+        Matrix4::translation(Vector3(0.0f, hipY, stride * 0.16f)) *
         Matrix4::rotationY(pose.torsoTwist) *
         Matrix4::rotationX(pose.torsoLean) *
         Matrix4::translation(Vector3(0.0f, -hipY, 0.0f));
     auto up = [&](const Vector3& p) { return upper.transformPoint(p); };
 
-    // Torso: overlapping ellipsoids so chest/abdomen read as one body
-    addBlob(mesh, up(Vector3(0.0f, hipY + torsoH * 0.32f, 0.0f)), 0.15f, 0.16f, 0.11f, jerseyShade, detail);
-    addBlob(mesh, up(Vector3(0.0f, hipY + torsoH * 0.58f, 0.01f)), 0.17f, 0.18f, 0.12f, jersey, detail);
-    addBlob(mesh, up(Vector3(0.0f, hipY + torsoH * 0.78f, 0.0f)), 0.16f, 0.12f, 0.12f, jersey, detail);
-    // Soft stripe (not a floating plate)
-    addBlob(mesh, up(Vector3(0.0f, hipY + torsoH * 0.55f, 0.10f)), 0.04f, 0.14f, 0.02f, logoRed, detail);
+    // Torso: abdomen + chest + upper chest (overlapping = one form)
+    addEllipsoid(mesh, up(Vector3(0.0f, hipY + 0.16f, 0.0f)), 0.13f, 0.14f, 0.10f, jerseyShade, detail);
+    addEllipsoid(mesh, up(Vector3(0.0f, hipY + 0.32f, 0.01f)), 0.15f, 0.15f, 0.115f, jersey, detail);
+    addEllipsoid(mesh, up(Vector3(0.0f, shoulderY - 0.08f, 0.0f)), 0.145f, 0.11f, 0.11f, jersey, detail);
+    // Soft accent (number area)
+    addEllipsoid(mesh, up(Vector3(0.0f, hipY + 0.30f, 0.095f)), 0.035f, 0.09f, 0.02f, accent, detail);
 
-    // Shoulders fused into torso
-    Vector3 shL = up(Vector3(-0.18f, shoulderY - 0.02f, 0.0f));
-    Vector3 shR = up(Vector3(0.18f, shoulderY - 0.02f, 0.0f));
-    addBlob(mesh, shL, 0.09f, 0.08f, 0.09f, jersey, detail);
-    addBlob(mesh, shR, 0.09f, 0.08f, 0.09f, jersey, detail);
-    addBlob(mesh, up(Vector3(0.0f, shoulderY - 0.06f, 0.0f)), 0.14f, 0.08f, 0.10f, jerseyShade, detail);
+    // Collar / neck bridge
+    addEllipsoid(mesh, up(Vector3(0.0f, shoulderY + 0.02f, 0.01f)), 0.07f, 0.05f, 0.06f, jerseyShade, detail);
+    addEllipsoid(mesh, up(Vector3(0.0f, shoulderY + 0.08f, 0.015f)), 0.045f, 0.055f, 0.045f, skin, detail);
 
-    // Neck + head
-    addBlob(mesh, up(Vector3(0.0f, shoulderY + 0.06f, 0.01f)), 0.05f, 0.06f, 0.05f, skin, detail);
-    addBlob(mesh, up(Vector3(0.0f, headY, 0.02f)), headR, headR * 1.05f, headR * 0.95f, skin, detail);
-    // Cap as soft dome + small brim blob
-    addBlob(mesh, up(Vector3(0.0f, headY + 0.04f, -0.01f)), headR * 1.02f, headR * 0.55f, headR * 1.0f, capNavy, detail);
-    addBlob(mesh, up(Vector3(0.0f, headY - 0.01f, 0.11f)), 0.08f, 0.02f, 0.06f, capNavy, detail);
+    // Head
+    Vector3 head = up(Vector3(0.0f, headY, 0.02f));
+    addEllipsoid(mesh, head, headR, headR * 1.06f, headR * 0.96f, skin, detail);
+    addCap(mesh, head, headR, pose.torsoTwist, detail);
 
-    // Glove arm chain
-    Vector3 gShoulder = up(Vector3(-0.22f, shoulderY - 0.04f, 0.04f));
-    Vector3 gElbow = up(Vector3(-0.28f, shoulderY - 0.22f, 0.12f));
-    Vector3 gWrist = up(Vector3(-0.18f, shoulderY - 0.40f, 0.24f));
-    addLimbChain(mesh, gShoulder, gElbow, 0.048f, jerseyShade, detail, 4);
-    addLimbChain(mesh, gElbow, gWrist, 0.042f, skin, detail, 4);
-    addSoftMitt(mesh, gWrist + Vector3(0.02f, -0.02f, 0.04f), 0.2f + pose.gloveShoulderRoll * 0.1f, detail, 0.2f, 0.3f);
+    // Shoulders
+    Vector3 shL = up(Vector3(-0.175f, shoulderY - 0.01f, 0.0f));
+    Vector3 shR = up(Vector3(0.175f, shoulderY - 0.01f, 0.0f));
+    addEllipsoid(mesh, shL, 0.08f, 0.07f, 0.08f, jersey, detail);
+    addEllipsoid(mesh, shR, 0.08f, 0.07f, 0.08f, jersey, detail);
 
-    // Throwing arm chain
-    Vector3 tShoulder = up(Vector3(0.22f, shoulderY - 0.04f, 0.02f));
+    // Glove arm
+    Vector3 gElbow = up(Vector3(-0.26f, shoulderY - 0.20f, 0.10f));
+    Vector3 gWrist = up(Vector3(-0.16f, shoulderY - 0.38f, 0.22f));
+    addCapsule(mesh, shL, gElbow, 0.055f, 0.048f, jerseyShade, detail);
+    addCapsule(mesh, gElbow, gWrist, 0.046f, 0.04f, skin, detail);
+    addGlove(mesh, gWrist, Vector3(0.15f, -0.2f, 0.8f), 0.2f + pose.gloveShoulderRoll * 0.15f, detail);
+
+    // Throwing arm
     Vector3 tElbow = up(Vector3(
-        0.30f + pose.throwShoulderYaw * 0.06f,
-        shoulderY - 0.24f + pose.throwShoulderPitch * 0.04f,
+        0.28f + pose.throwShoulderYaw * 0.07f,
+        shoulderY - 0.22f + pose.throwShoulderPitch * 0.05f,
         0.04f + pose.throwShoulderPitch * 0.1f
     ));
     Vector3 tWrist = up(Vector3(
-        0.32f + pose.throwShoulderYaw * 0.1f,
-        shoulderY - 0.48f + pose.throwElbow * 0.05f,
+        0.30f + pose.throwShoulderYaw * 0.1f,
+        shoulderY - 0.46f + pose.throwElbow * 0.05f,
         0.06f + pose.throwShoulderPitch * 0.16f
     ));
-    addLimbChain(mesh, tShoulder, tElbow, 0.048f, jerseyShade, detail, 4);
-    addLimbChain(mesh, tElbow, tWrist, 0.042f, skin, detail, 4);
-    addBlob(mesh, tWrist, 0.04f, 0.04f, 0.05f, skinDeep, detail);
+    addCapsule(mesh, shR, tElbow, 0.055f, 0.048f, jerseyShade, detail);
+    addCapsule(mesh, tElbow, tWrist, 0.046f, 0.04f, skin, detail);
+    addEllipsoid(mesh, tWrist, 0.038f, 0.04f, 0.045f, skinShade, detail);
 
     mesh.rebuildNormals();
     return mesh;
@@ -333,71 +365,74 @@ Mesh3D BaseballPlayer3D::catcher(int detail, const CatcherPose& pose) {
 
     const float bob = pose.crouchBob;
     const float sway = pose.torsoSway;
-    const float footY = 0.05f + bob * 0.35f;
-    const float hipY = 0.52f + bob;
-    const float shoulderY = 1.20f + bob;
-    const float headY = 1.48f + bob;
+    const float hipY = 0.50f + bob;
+    const float shoulderY = 1.15f + bob;
+    const float headY = 1.42f + bob;
+    const float headR = 0.112f;
 
-    // Legs / shinguard mass as smooth volumes (not separate plates)
+    // Crouched legs — continuous capsules, shin guard as soft shell on the front.
     for (int side = -1; side <= 1; side += 2) {
         float s = static_cast<float>(side);
-        Vector3 ankle(0.16f * s, footY + 0.03f, 0.10f);
-        Vector3 knee(0.17f * s, 0.32f + bob, 0.06f);
-        Vector3 hip(0.14f * s, hipY - 0.04f, 0.0f);
-        addLimbChain(mesh, ankle, knee, 0.07f, gearShade, detail, 5);
-        addLimbChain(mesh, knee, hip, 0.075f, pants, detail, 4);
-        // Guard bulge fused on shin
-        addBlob(mesh, (ankle + knee) * 0.5f + Vector3(0.0f, 0.0f, 0.04f), 0.08f, 0.12f, 0.06f, gear, detail);
-        addBlob(mesh, ankle + Vector3(0.0f, -0.02f, 0.03f), 0.07f, 0.03f, 0.10f, cleats, detail);
+        Vector3 hip(0.13f * s, hipY - 0.03f, 0.0f);
+        Vector3 knee(0.16f * s, 0.34f + bob, 0.05f);
+        Vector3 ankle(0.15f * s, 0.07f + bob * 0.3f, 0.10f);
+
+        addCapsule(mesh, hip, knee, 0.08f, 0.068f, pants, detail);
+        addCapsule(mesh, knee, ankle, 0.065f, 0.052f, pantsShade, detail);
+        // Guard bulge fused to shin (not floating armor plate)
+        Vector3 shinMid = (knee + ankle) * 0.5f + Vector3(0.0f, 0.0f, 0.035f);
+        addEllipsoid(mesh, shinMid, 0.07f, 0.11f, 0.055f, gear, detail);
+        addFoot(mesh, ankle, -0.12f * s, detail);
     }
 
-    // Hips / seat — one mass
-    addBlob(mesh, Vector3(sway * 0.04f, hipY, -0.02f), 0.20f, 0.12f, 0.14f, pants, detail);
-    addBlob(mesh, Vector3(sway * 0.04f, hipY + 0.05f, -0.02f), 0.18f, 0.04f, 0.12f, belt, detail);
+    // Hips
+    addEllipsoid(mesh, Vector3(sway * 0.03f, hipY, -0.02f), 0.175f, 0.105f, 0.13f, pants, detail);
+    addEllipsoid(mesh, Vector3(sway * 0.03f, hipY + 0.04f, -0.02f), 0.16f, 0.03f, 0.115f, belt, detail);
 
-    // Chest protector as rounded shell fused to torso
+    // Torso + chest protector as layered soft shells
     float chestY = (hipY + shoulderY) * 0.52f;
-    addBlob(mesh, Vector3(sway * 0.06f, chestY, 0.02f), 0.18f, 0.24f, 0.14f, jerseyShade, detail);
-    addBlob(mesh, Vector3(sway * 0.06f, chestY + 0.02f, 0.08f), 0.17f, 0.22f, 0.08f, gear, detail);
-    addBlob(mesh, Vector3(sway * 0.06f, chestY + 0.08f, 0.10f), 0.15f, 0.14f, 0.06f, gearShade, detail);
+    addEllipsoid(mesh, Vector3(sway * 0.05f, chestY - 0.02f, 0.01f), 0.15f, 0.20f, 0.12f, jerseyShade, detail);
+    addEllipsoid(mesh, Vector3(sway * 0.05f, chestY + 0.04f, 0.06f), 0.155f, 0.19f, 0.09f, gear, detail);
+    addEllipsoid(mesh, Vector3(sway * 0.05f, chestY + 0.1f, 0.08f), 0.13f, 0.12f, 0.06f, gearShade, detail);
 
-    // Shoulders
-    Vector3 shL(-0.20f + sway * 0.04f, shoulderY, 0.02f);
-    Vector3 shR(0.20f + sway * 0.04f, shoulderY, 0.02f);
-    addBlob(mesh, shL, 0.09f, 0.08f, 0.09f, gear, detail);
-    addBlob(mesh, shR, 0.09f, 0.08f, 0.09f, gear, detail);
-    addBlob(mesh, Vector3(sway * 0.04f, shoulderY - 0.04f, 0.0f), 0.16f, 0.08f, 0.10f, gearShade, detail);
+    Vector3 shL(-0.175f + sway * 0.04f, shoulderY, 0.02f);
+    Vector3 shR(0.175f + sway * 0.04f, shoulderY, 0.02f);
+    addEllipsoid(mesh, shL, 0.085f, 0.075f, 0.085f, gearLight, detail);
+    addEllipsoid(mesh, shR, 0.085f, 0.075f, 0.085f, gearLight, detail);
+    addEllipsoid(mesh, Vector3(sway * 0.03f, shoulderY - 0.05f, 0.0f), 0.13f, 0.07f, 0.09f, gearShade, detail);
 
-    // Free arm resting
-    Vector3 freeElbow(0.30f, shoulderY - 0.18f, 0.06f);
-    Vector3 freeWrist(0.34f, shoulderY - 0.38f, 0.08f);
-    addLimbChain(mesh, shR, freeElbow, 0.05f, gearShade, detail, 4);
-    addLimbChain(mesh, freeElbow, freeWrist, 0.042f, skin, detail, 4);
-    addBlob(mesh, freeWrist, 0.04f, 0.04f, 0.04f, skinDeep, detail);
+    // Neck / head / helmet
+    addEllipsoid(mesh, Vector3(sway * 0.03f, shoulderY + 0.08f, 0.02f), 0.045f, 0.055f, 0.045f, skin, detail);
+    Vector3 head(sway * 0.04f, headY, 0.02f);
+    addEllipsoid(mesh, head, headR, headR * 1.05f, headR * 0.96f, skin, detail);
+    // Helmet shell wraps head
+    addEllipsoid(mesh, head + Vector3(0.0f, 0.03f, -0.01f), headR * 1.12f, headR * 0.7f, headR * 1.12f, gear, detail);
+    // Mask as soft face volume (not bar cage)
+    addEllipsoid(mesh, head + Vector3(0.0f, -0.01f, 0.08f), headR * 0.85f, headR * 0.75f, headR * 0.45f, gearShade, detail);
+    addEllipsoid(mesh, head + Vector3(0.0f, -0.07f, 0.05f), headR * 0.55f, headR * 0.28f, headR * 0.4f, gearShade, detail);
+
+    // Free arm
+    Vector3 freeElbow(0.28f, shoulderY - 0.16f, 0.05f);
+    Vector3 freeWrist(0.32f, shoulderY - 0.36f, 0.07f);
+    addCapsule(mesh, shR, freeElbow, 0.052f, 0.046f, gearShade, detail);
+    addCapsule(mesh, freeElbow, freeWrist, 0.044f, 0.038f, skin, detail);
+    addEllipsoid(mesh, freeWrist, 0.036f, 0.036f, 0.04f, skinShade, detail);
 
     // Glove arm + mitt
     Vector3 mittPos(
-        -0.46f + pose.mittSide,
-        shoulderY - 0.26f + pose.mittHeight,
-        0.34f + pose.mittReach
+        -0.44f + pose.mittSide,
+        shoulderY - 0.24f + pose.mittHeight,
+        0.32f + pose.mittReach
     );
     Vector3 gElbow(
-        -0.36f + pose.mittSide * 0.65f,
-        shoulderY - 0.18f + pose.mittHeight * 0.55f,
-        0.18f + pose.mittReach * 0.45f
+        -0.34f + pose.mittSide * 0.6f,
+        shoulderY - 0.16f + pose.mittHeight * 0.5f,
+        0.16f + pose.mittReach * 0.4f
     );
-    Vector3 gShoulder = shL + Vector3(pose.mittSide * 0.15f, pose.mittHeight * 0.1f, pose.mittReach * 0.1f);
-    addLimbChain(mesh, gShoulder, gElbow, 0.052f, gearShade, detail, 4);
-    addLimbChain(mesh, gElbow, mittPos, 0.044f, skin, detail, 4);
-    addSoftMitt(mesh, mittPos, pose.gloveOpen, detail, 0.25f + pose.mittSide, 0.2f);
-
-    // Head + helmet as fused forms (no cage grid)
-    Vector3 head(sway * 0.04f, headY, 0.02f);
-    addBlob(mesh, head, 0.115f, 0.12f, 0.11f, skin, detail);
-    addBlob(mesh, head + Vector3(0.0f, 0.04f, -0.01f), 0.125f, 0.08f, 0.125f, gear, detail);
-    addBlob(mesh, head + Vector3(0.0f, 0.0f, 0.08f), 0.10f, 0.09f, 0.06f, gearShade, detail); // mask bulk
-    addBlob(mesh, head + Vector3(0.0f, -0.06f, 0.06f), 0.07f, 0.04f, 0.06f, gearShade, detail); // chin
-    addBlob(mesh, Vector3(sway * 0.03f, shoulderY + 0.08f, 0.02f), 0.05f, 0.06f, 0.05f, skin, detail);
+    Vector3 gShoulder = shL + Vector3(pose.mittSide * 0.12f, pose.mittHeight * 0.08f, pose.mittReach * 0.08f);
+    addCapsule(mesh, gShoulder, gElbow, 0.054f, 0.048f, gearShade, detail);
+    addCapsule(mesh, gElbow, mittPos, 0.046f, 0.04f, skin, detail);
+    addGlove(mesh, mittPos, Vector3(-0.2f + pose.mittSide, pose.mittHeight * 0.3f, 0.9f), pose.gloveOpen, detail);
 
     mesh.rebuildNormals();
     return mesh;
