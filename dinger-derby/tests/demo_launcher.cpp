@@ -28,7 +28,8 @@ std::vector<DemoEntry> makeDemoEntries() {
         {"Raster Depth 3D", "raster_depth_3d_demo", "Depth-buffered raster cubes"},
         {"Soft Cube 3D", "soft_cube_3d_demo", "Springy deformable mesh"},
         {"Culling Stress 3D", "culling_stress_3d_demo", "Grid, culling, and triangle counters"},
-        {"Physics 3D", "physics3d_demo", "Rigid 3D sphere collisions and bounds"}
+        {"Physics 3D", "physics3d_demo", "Rigid 3D sphere collisions and bounds"},
+        {"Rotation 3D", "rotation_3d_demo", "Yaw, pitch, roll, and orbit camera"}
     };
 }
 
@@ -159,7 +160,7 @@ void launchDemo(
 
 int main(int argc, char** argv) {
     sf::RenderWindow window(
-        sf::VideoMode(sf::Vector2u(1000, 780)),
+        sf::VideoMode(sf::Vector2u(1000, 840)),
         "Dinger Derby Demo Launcher"
     );
     window.setFramerateLimit(60);
@@ -285,7 +286,7 @@ int main(int argc, char** argv) {
                 font,
                 "Selected: " + demos[selected].executable,
                 15,
-                sf::Vector2f(42.0f, 748.0f),
+                sf::Vector2f(42.0f, 808.0f),
                 sf::Color(125, 155, 165)
             );
         }

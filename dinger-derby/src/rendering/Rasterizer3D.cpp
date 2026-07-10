@@ -10,12 +10,14 @@ struct SampleOffset {
     float y;
 };
 
-const SampleOffset coverageSamples[4] = {
-    {0.25f, 0.25f},
-    {0.75f, 0.25f},
-    {0.25f, 0.75f},
-    {0.75f, 0.75f}
+const SampleOffset coverageSamples[16] = {
+    {0.125f, 0.125f}, {0.375f, 0.125f}, {0.625f, 0.125f}, {0.875f, 0.125f},
+    {0.125f, 0.375f}, {0.375f, 0.375f}, {0.625f, 0.375f}, {0.875f, 0.375f},
+    {0.125f, 0.625f}, {0.375f, 0.625f}, {0.625f, 0.625f}, {0.875f, 0.625f},
+    {0.125f, 0.875f}, {0.375f, 0.875f}, {0.625f, 0.875f}, {0.875f, 0.875f}
 };
+
+constexpr float sampleCoverage = 1.0f / 16.0f;
 
 bool antiAliasingEnabled = true;
 
@@ -131,7 +133,7 @@ void Rasterizer3D::drawTriangle(
                 continue;
             }
 
-            float coverage = coveredSamples * 0.25f;
+            float coverage = coveredSamples * sampleCoverage;
             float depth = depthSum / coveredSamples;
 
             frameBuffer.blendPixelFast(x, y, color, depth, coverage);
