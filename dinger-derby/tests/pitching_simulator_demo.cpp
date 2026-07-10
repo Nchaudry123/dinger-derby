@@ -26,7 +26,7 @@ namespace {
 constexpr float pi = 3.1415926535f;
 constexpr float fixedStep = 1.0f / 180.0f;
 constexpr float baseballRadius = 0.2f;
-constexpr float feetPerWorldUnit = 5.0f;
+constexpr float feetPerWorldUnit = 3.0f;
 constexpr float pitchingDistanceFeet = 60.5f;
 constexpr float plateZ = pitchingDistanceFeet / feetPerWorldUnit;
 constexpr float moundZ = 0.0f;
@@ -34,6 +34,7 @@ const Vector3 releasePoint(-0.22f, 1.72f, moundZ);
 const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
 const Vector3 boundsMinimum(-3.2f, -0.35f, -2.0f);
 const Vector3 boundsMaximum(3.2f, 3.6f, plateZ + 3.0f);
+const sf::FloatRect speedSliderTrack(sf::Vector2f(34.0f, 82.0f), sf::Vector2f(280.0f, 8.0f));
 
 struct SeamPoint {
     Vector3 position;
@@ -47,6 +48,7 @@ struct PitchProfile {
     float speedVarianceMph;
     float liftCompensation;
     Vector3 breakAcceleration;
+    float breakStartZ;
     float dragCoefficient;
     float airScale;
     sf::Color color;
@@ -81,6 +83,16 @@ void drawText(
     text.setPosition(position);
     text.setFillColor(color);
     window.draw(text);
+}
+
+float speedScaleFromSliderX(float x) {
+    float t = (x - speedSliderTrack.position.x) / speedSliderTrack.size.x;
+    return 0.75f + std::clamp(t, 0.0f, 1.0f) * 0.5f;
+}
+
+float sliderXFromSpeedScale(float speedScale) {
+    float t = (std::clamp(speedScale, 0.75f, 1.25f) - 0.75f) / 0.5f;
+    return speedSliderTrack.position.x + speedSliderTrack.size.x * t;
 }
 
 void lookAt(Camera3D& camera, const Vector3& position, const Vector3& target) {
@@ -353,12 +365,13 @@ void drawFieldGuide(sf::RenderWindow& window, const Camera3D& camera) {
     );
 }
 
-std::array<PitchProfile, 4> makePitchProfiles() {
+std::array<PitchProfile, 5> makePitchProfiles() {
     return {{
-        PitchProfile{'F', "Fastball", 93.0f, 3.5f, 0.08f, Vector3(0.02f, 0.9f, 0.0f), 0.33f, 1.0f, sf::Color(245, 235, 180)},
-        PitchProfile{'C', "Curve", 79.0f, 3.0f, -0.08f, Vector3(-0.1f, -4.2f, 0.0f), 0.42f, 1.25f, sf::Color(245, 145, 90)},
-        PitchProfile{'S', "Slider", 85.0f, 3.2f, 0.0f, Vector3(3.6f, -0.8f, 0.0f), 0.39f, 1.12f, sf::Color(145, 220, 245)},
-        PitchProfile{'K', "Knuckle", 67.0f, 6.0f, 0.04f, Vector3(0.0f, 0.0f, 0.0f), 0.55f, 1.45f, sf::Color(190, 245, 160)}
+        PitchProfile{'F', "Four-Seam", 96.0f, 2.3f, 0.16f, Vector3(0.02f, 1.05f, 0.0f), 0.33f, 0.18f, 1.0f, sf::Color(245, 235, 180)},
+        PitchProfile{'P', "Splitter", 91.5f, 2.0f, 0.08f, Vector3(0.12f, -5.9f, 0.0f), 0.42f, 0.56f, 1.18f, sf::Color(190, 245, 160)},
+        PitchProfile{'C', "Curve", 77.0f, 2.5f, 0.22f, Vector3(-0.35f, -4.8f, 0.0f), 0.46f, 0.26f, 1.28f, sf::Color(245, 145, 90)},
+        PitchProfile{'T', "Cutter", 91.0f, 2.2f, 0.08f, Vector3(2.0f, 0.15f, 0.0f), 0.36f, 0.42f, 1.05f, sf::Color(145, 220, 245)},
+        PitchProfile{'S', "Slider", 87.0f, 2.0f, 0.05f, Vector3(3.8f, -1.0f, 0.0f), 0.39f, 0.36f, 1.12f, sf::Color(190, 160, 245)}
     }};
 }
 
@@ -413,16 +426,34 @@ void launchPitch(
     trail.push_back(baseball.position);
 }
 
+void stopAtPlate(Body3D& baseball, std::vector<Vector3>& trail) {
+    if (baseball.position.z < plateZ || baseball.velocity.z <= 0.0f) {
+        return;
+    }
+
+    baseball.position.z = plateZ;
+    baseball.velocity = Vector3();
+    baseball.acceleration = Vector3();
+
+    if (trail.empty() || (baseball.position - trail.back()).magnitude() > 0.01f) {
+        trail.push_back(baseball.position);
+    }
+}
+
 sf::Keyboard::Key pitchKeyForProfile(const PitchProfile& pitch) {
     switch (pitch.hotkey) {
         case 'F':
             return sf::Keyboard::Key::F;
         case 'C':
             return sf::Keyboard::Key::C;
+        case 'P':
+            return sf::Keyboard::Key::P;
+        case 'T':
+            return sf::Keyboard::Key::T;
         case 'S':
             return sf::Keyboard::Key::S;
         default:
-            return sf::Keyboard::Key::K;
+            return sf::Keyboard::Key::F;
     }
 }
 
@@ -431,13 +462,13 @@ sf::Keyboard::Key pitchKeyForProfile(const PitchProfile& pitch) {
 int main() {
     sf::RenderWindow window(
         sf::VideoMode(sf::Vector2u(1280, 720)),
-        "Pitching Simulator | F/C/S/K throw | arrows aim | R reset"
+        "Pitching Simulator | F/P/C/T/S pitch | arrows aim | R reset"
     );
     window.setFramerateLimit(60);
 
     bool antiAliasingEnabled = true;
     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
-    DemoFpsCounter fpsCounter("Pitching Simulator | F/C/S/K pitch | [ ] speed | AA on");
+    DemoFpsCounter fpsCounter("Pitching Simulator | F/P/C/T/S pitch | drag speed | AA on");
 
     sf::Font font;
     bool fontLoaded = loadUiFont(font);
@@ -453,7 +484,7 @@ int main() {
     std::vector<SeamPoint> seamB = makeSeamLoop(true);
     RasterMeshRenderCache renderCache;
 
-    std::array<PitchProfile, 4> pitches = makePitchProfiles();
+    std::array<PitchProfile, 5> pitches = makePitchProfiles();
     int selectedPitch = 0;
     Vector3 aimPoint = strikeZoneCenter;
     PhysicsWorld3D world;
@@ -471,6 +502,17 @@ int main() {
     float spinY = 0.0f;
     float spinZ = 0.0f;
     bool paused = false;
+    bool draggingSpeedSlider = false;
+
+    auto relaunchCurrentPitch = [&]() {
+        currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
+        launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph);
+        accumulator = 0.0f;
+        pitchAge = 0.0f;
+        spinX = 0.0f;
+        spinY = 0.0f;
+        spinZ = 0.0f;
+    };
 
     while (window.isOpen()) {
         while (const std::optional event = window.pollEvent()) {
@@ -484,8 +526,8 @@ int main() {
                     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
                     fpsCounter.setTitle(
                         antiAliasingEnabled
-                            ? "Pitching Simulator | F/C/S/K pitch | [ ] speed | AA on"
-                            : "Pitching Simulator | F/C/S/K pitch | [ ] speed | AA off"
+                            ? "Pitching Simulator | F/P/C/T/S pitch | drag speed | AA on"
+                            : "Pitching Simulator | F/P/C/T/S pitch | drag speed | AA off"
                     );
                 }
 
@@ -494,35 +536,17 @@ int main() {
                 }
 
                 if (key->code == sf::Keyboard::Key::R) {
-                    currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
-                    launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph);
-                    accumulator = 0.0f;
-                    pitchAge = 0.0f;
-                    spinX = 0.0f;
-                    spinY = 0.0f;
-                    spinZ = 0.0f;
+                    relaunchCurrentPitch();
                 }
 
                 if (key->code == sf::Keyboard::Key::LBracket) {
-                    globalSpeedScale = std::clamp(globalSpeedScale - 0.05f, 0.55f, 1.65f);
-                    currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
-                    launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph);
-                    accumulator = 0.0f;
-                    pitchAge = 0.0f;
-                    spinX = 0.0f;
-                    spinY = 0.0f;
-                    spinZ = 0.0f;
+                    globalSpeedScale = std::clamp(globalSpeedScale - 0.05f, 0.75f, 1.25f);
+                    relaunchCurrentPitch();
                 }
 
                 if (key->code == sf::Keyboard::Key::RBracket) {
-                    globalSpeedScale = std::clamp(globalSpeedScale + 0.05f, 0.55f, 1.65f);
-                    currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
-                    launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph);
-                    accumulator = 0.0f;
-                    pitchAge = 0.0f;
-                    spinX = 0.0f;
-                    spinY = 0.0f;
-                    spinZ = 0.0f;
+                    globalSpeedScale = std::clamp(globalSpeedScale + 0.05f, 0.75f, 1.25f);
+                    relaunchCurrentPitch();
                 }
 
                 if (key->code == sf::Keyboard::Key::Left) {
@@ -544,14 +568,35 @@ int main() {
                 for (int i = 0; i < pitches.size(); i++) {
                     if (key->code == pitchKeyForProfile(pitches[i])) {
                         selectedPitch = i;
-                        currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
-                        launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph);
-                        accumulator = 0.0f;
-                        pitchAge = 0.0f;
-                        spinX = 0.0f;
-                        spinY = 0.0f;
-                        spinZ = 0.0f;
+                        relaunchCurrentPitch();
                     }
+                }
+            }
+
+            if (const auto* mouse = event->getIf<sf::Event::MouseButtonPressed>()) {
+                if (mouse->button == sf::Mouse::Button::Left) {
+                    sf::Vector2f mousePosition(
+                        static_cast<float>(mouse->position.x),
+                        static_cast<float>(mouse->position.y)
+                    );
+                    if (speedSliderTrack.contains(mousePosition)) {
+                        draggingSpeedSlider = true;
+                        globalSpeedScale = speedScaleFromSliderX(mousePosition.x);
+                        relaunchCurrentPitch();
+                    }
+                }
+            }
+
+            if (const auto* mouse = event->getIf<sf::Event::MouseButtonReleased>()) {
+                if (mouse->button == sf::Mouse::Button::Left) {
+                    draggingSpeedSlider = false;
+                }
+            }
+
+            if (const auto* move = event->getIf<sf::Event::MouseMoved>()) {
+                if (draggingSpeedSlider) {
+                    globalSpeedScale = speedScaleFromSliderX(static_cast<float>(move->position.x));
+                    relaunchCurrentPitch();
                 }
             }
 
@@ -570,18 +615,20 @@ int main() {
             accumulator += dt;
             while (accumulator >= fixedStep) {
                 const PitchProfile& pitch = pitches[selectedPitch];
-                Vector3 breakAcceleration = pitch.breakAcceleration;
-
-                if (pitch.hotkey == 'K') {
-                    breakAcceleration = Vector3(
-                        std::sin(pitchAge * 19.0f) * 2.4f,
-                        std::sin(pitchAge * 14.5f + 1.1f) * 1.2f,
-                        0.0f
-                    );
-                }
+                float progress = std::clamp(
+                    (baseball.position.z - releasePoint.z) / (plateZ - releasePoint.z),
+                    0.0f,
+                    1.0f
+                );
+                float breakRamp = progress <= pitch.breakStartZ
+                    ? 0.0f
+                    : (progress - pitch.breakStartZ) / (1.0f - pitch.breakStartZ);
+                breakRamp = breakRamp * breakRamp * (3.0f - 2.0f * breakRamp);
+                Vector3 breakAcceleration = pitch.breakAcceleration * breakRamp;
 
                 baseball.applyForce(breakAcceleration * baseball.mass);
                 world.step(fixedStep);
+                stopAtPlate(baseball, trail);
                 pitchAge += fixedStep;
                 accumulator -= fixedStep;
 
@@ -597,7 +644,7 @@ int main() {
                     }
                 }
 
-                if (baseball.position.z > plateZ + 2.4f || baseball.position.y < -0.25f) {
+                if (baseball.position.y < -0.25f) {
                     baseball.velocity = Vector3();
                 }
             }
@@ -636,12 +683,29 @@ int main() {
         drawBaseballSeams(window, overlayCamera, baseballTransform, seamA, seamB);
 
         if (fontLoaded) {
-            sf::RectangleShape panel(sf::Vector2f(330.0f, 76.0f));
+            sf::RectangleShape panel(sf::Vector2f(360.0f, 108.0f));
             panel.setPosition(sf::Vector2f(18.0f, 18.0f));
             panel.setFillColor(sf::Color(5, 8, 14, 180));
             panel.setOutlineThickness(1.0f);
             panel.setOutlineColor(sf::Color(85, 185, 190, 115));
             window.draw(panel);
+
+            sf::RectangleShape sliderTrack(speedSliderTrack.size);
+            sliderTrack.setPosition(speedSliderTrack.position);
+            sliderTrack.setFillColor(sf::Color(45, 80, 88, 210));
+            window.draw(sliderTrack);
+
+            float sliderX = sliderXFromSpeedScale(globalSpeedScale);
+            sf::RectangleShape sliderFill(sf::Vector2f(sliderX - speedSliderTrack.position.x, speedSliderTrack.size.y));
+            sliderFill.setPosition(speedSliderTrack.position);
+            sliderFill.setFillColor(sf::Color(120, 225, 220, 210));
+            window.draw(sliderFill);
+
+            sf::CircleShape sliderKnob(7.0f);
+            sliderKnob.setOrigin(sf::Vector2f(7.0f, 7.0f));
+            sliderKnob.setPosition(sf::Vector2f(sliderX, speedSliderTrack.position.y + speedSliderTrack.size.y * 0.5f));
+            sliderKnob.setFillColor(sf::Color(235, 245, 220));
+            window.draw(sliderKnob);
 
             std::ostringstream aimLabel;
             aimLabel << "Aim " << aimPoint.x << ", " << aimPoint.y;
@@ -650,9 +714,10 @@ int main() {
                 << currentPitchSpeedMph << " mph  x" << globalSpeedScale;
 
             drawText(window, font, pitches[selectedPitch].name, 17, sf::Vector2f(34.0f, 28.0f), pitches[selectedPitch].color);
-            drawText(window, font, "F C S K | R throw | [ ] speed", 13, sf::Vector2f(34.0f, 54.0f), sf::Color(180, 215, 220));
+            drawText(window, font, "F 4S  P SPL  C CB  T CUT  S SL", 12, sf::Vector2f(34.0f, 54.0f), sf::Color(180, 215, 220));
+            drawText(window, font, "drag slider | R throw", 12, sf::Vector2f(34.0f, 96.0f), sf::Color(155, 195, 200));
             drawText(window, font, aimLabel.str(), 12, sf::Vector2f(214.0f, 29.0f), sf::Color(135, 195, 200));
-            drawText(window, font, speedLabel.str(), 12, sf::Vector2f(214.0f, 54.0f), sf::Color(175, 215, 180));
+            drawText(window, font, speedLabel.str(), 12, sf::Vector2f(214.0f, 96.0f), sf::Color(175, 215, 180));
         }
 
         fpsCounter.frame(window);
