@@ -334,11 +334,6 @@ float batRadius(const BatConfig& c, float s) {
     return lerp(c.barrelR * 0.75f, c.barrelR, (t - 0.42f) / 0.58f);
 }
 
-// Fatter silhouette for overlay readability (not used for collision).
-float batSilhouetteRadius(const BatConfig& c, float s) {
-    return batRadius(c, s) * 1.85f + 0.012f;
-}
-
 float sweetFactor(const BatConfig& c, float s, float widthScale) {
     float w = c.sweetWidth * widthScale;
     float d = std::abs(s - c.sweetFromKnob);
@@ -1131,6 +1126,7 @@ int main() {
     bool swungThisPitch = false;
     bool pitchResolved = false;
     bool landingLogged = false;
+    float hrBannerTimer = 0.0f;
     Vector3 plateCrossPos = strikeZoneCenter;
     float prevBallZ = moundZ;
 
@@ -1168,6 +1164,10 @@ int main() {
                 count.hits += 1;
                 resetAtBat();
                 statusCol = sf::Color(120, 255, 160);
+                if (std::string(lastHit.quality) == "Home Run") {
+                    hrBannerTimer = 2.8f;
+                    statusCol = sf::Color(255, 220, 80);
+                }
                 scheduleNextPitch(practiceMode ? 5.5f : 4.0f);
             } else {
                 // Foul ball: strike if under 2, otherwise stays 2.
@@ -1226,6 +1226,7 @@ int main() {
         swungThisPitch = false;
         pitchResolved = false;
         landingLogged = false;
+        hrBannerTimer = 0.0f;
         prevBallZ = moundZ;
         plateCrossPos = strikeZoneCenter;
         followBallCam = false;
@@ -1249,8 +1250,23 @@ int main() {
 
     auto releaseBall = [&]() {
         Vector3 hand = pitcherAnim.throwHandWorld(pitcherWorldTransform());
-        // Practice always aims dead heart; normal uses zone center too (fair).
+        // Practice: meatball heart. Normal: small command scatter like pitching sim.
         Vector3 aim = strikeZoneCenter;
+        if (!practiceMode) {
+            static std::uint32_t rng = 0xC0FFEEu;
+            rng = rng * 1664525u + 1013904223u;
+            float ux = (static_cast<float>(rng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
+            rng = rng * 1664525u + 1013904223u;
+            float uy = (static_cast<float>(rng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
+            aim.x += ux * 0.18f;
+            aim.y += uy * 0.16f;
+            aim.x = clampf(aim.x, -strikeZoneHalfWidth * 1.15f, strikeZoneHalfWidth * 1.15f);
+            aim.y = clampf(
+                aim.y,
+                strikeZoneCenter.y - strikeZoneHalfHeight * 1.15f,
+                strikeZoneCenter.y + strikeZoneHalfHeight * 1.15f
+            );
+        }
         baseball.position = hand;
         baseball.velocity = launchVelocityTowardPlate(hand, aim, pitchMph);
         prevBallZ = hand.z;
@@ -1364,6 +1380,9 @@ int main() {
         }
 
         poseClock += dt;
+        if (hrBannerTimer > 0.0f) {
+            hrBannerTimer = std::max(0.0f, hrBannerTimer - dt);
+        }
 
         // Pitcher animation + ball glue / release
         if (deliveryAge >= 0.0f) {
@@ -1412,12 +1431,26 @@ int main() {
                 if (hit.hit) {
                     lastHit = hit;
                     followBallCam = true;
+                    // Light air after contact so flight arcs more like pitching sim.
+                    world.airResistanceEnabled = true;
+                    world.setAtmosphere(0.06f);
+                    baseball.dragCoefficient = 0.32f;
+                    baseball.airResistanceScale = 0.9f;
                     resolvePitch("HIT");
+                    // Timing feel: ball vs plate depth at contact.
+                    float zErr = baseball.position.z - plateZ;
+                    const char* timing = "On time";
+                    if (zErr < -0.28f) {
+                        timing = "Early";
+                    } else if (zErr > 0.22f) {
+                        timing = "Late";
+                    }
                     std::ostringstream oss;
                     oss << std::fixed << std::setprecision(0)
                         << lastHit.quality << "  " << lastHit.exitMph << " mph  LA "
                         << lastHit.launchDeg << "°  ~" << lastHit.distanceFeet << " ft  "
                         << (lastHit.fair ? "FAIR" : "FOUL")
+                        << "  " << timing
                         << "  spray " << lastHit.sprayDeg << "°  ·  " << countString();
                     status = oss.str();
                     if (!lastHit.fair) {
@@ -1579,6 +1612,19 @@ int main() {
                 flash.setFillColor(sf::Color(255, 255, 120, 170));
                 window.draw(flash);
             }
+        }
+
+        // Big HOME RUN banner when you go yard.
+        if (hrBannerTimer > 0.0f && fontOk) {
+            float w = static_cast<float>(window.getSize().x);
+            float h = static_cast<float>(window.getSize().y);
+            float pulse = 0.55f + 0.45f * std::sin(poseClock * 10.0f);
+            sf::Color banner(255, 220, 60, static_cast<std::uint8_t>(200 + pulse * 55));
+            drawText(window, font, "HOME RUN", 48, {w * 0.5f - 140.0f, h * 0.18f}, banner);
+            std::ostringstream d;
+            d << std::fixed << std::setprecision(0) << lastHit.distanceFeet << " ft   "
+              << lastHit.exitMph << " mph";
+            drawText(window, font, d.str(), 22, {w * 0.5f - 90.0f, h * 0.18f + 56.0f}, sf::Color(255, 240, 180));
         }
 
         if (fontOk) {
