@@ -39,6 +39,9 @@ add_library(dinger_engine STATIC
 target_include_directories(dinger_engine PUBLIC src)
 target_link_libraries(dinger_engine PUBLIC SFML::Graphics)
 
+add_executable(dinger_derby src/main.cpp)
+target_link_libraries(dinger_derby PRIVATE dinger_engine)
+
 function(add_dinger_demo target source)
     add_executable(${target} ${source})
     target_link_libraries(${target}

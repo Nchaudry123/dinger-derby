@@ -1,7 +1,8 @@
 #include <iostream>
 
 int main() {
-    std::cout << "Dinger Derby 2D Physics Engine\n";
-    std::cout << "Run tests/user_ball_test or tests/random_spawn_test.\n";
+    std::cout << "Dinger Derby physics engine\n";
+    std::cout << "Build the demos (e.g. demo_launcher, baseball_3d_demo,\n";
+    std::cout << "pitching_simulator_demo) or run ctest from the build tree.\n";
     return 0;
 }
