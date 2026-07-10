@@ -593,8 +593,8 @@ Mesh3D buildField(const Layout& L) {
         addInfieldMowPattern(m, home, b1, b2, b3, 0.72f, 0.0205f, 10, mowC, mowB);
     }
 
-    // Base paths — realistic width with wear variation along the path
-    const float pathHw = 1.45f;
+    // Base paths — ~6 ft dirt width (1 unit ≈ 2 ft → half-width ≈ 1.5).
+    const float pathHw = 1.50f;
     const float pathY = 0.028f;
     auto wearPath = [&](const Vector3& a, const Vector3& b, float hw) {
         addDirtPath(m, a, b, hw, pathY, dirtPath);
@@ -624,16 +624,26 @@ Mesh3D buildField(const Layout& L) {
     // Pitcher → 2B cut (narrower) + landing wear
     wearPath(L.mound(), b2, pathHw * 0.55f);
 
-    // Mound circle (textured) + raised mound
-    addTexturedDirtDisk(m, L.mound(), 6.8f, 0.026f, 7, 40, dirt);
-    // Heavy wear ring around the rubber / landing zone (front of mound)
-    addDiskRing(m, L.mound() + Vector3(0, 0, 1.2f), 1.2f, 2.8f, 0.029f, 24, shadeColor(dirtDark, 0.92f));
-    addDirtWearBlotch(m, L.mound() + Vector3(0.3f, 0, 1.8f), 1.1f, 0.030f, dirtDark, 3);
-    addDirtWearBlotch(m, L.mound() + Vector3(-0.4f, 0, 1.5f), 0.85f, 0.030f, dirtDark, 5);
+    // Mound circle: MLB 18 ft diameter → radius 9 ft → 4.5 world units.
+    const float moundCircleR = 4.5f;
+    addTexturedDirtDisk(m, L.mound(), moundCircleR, 0.026f, 7, 40, dirt);
+    // Heavy wear ring around the rubber / landing zone (front of mound toward plate)
+    addDiskRing(
+        m,
+        L.mound() + Vector3(0, 0, 0.9f),
+        0.9f,
+        2.1f,
+        0.029f,
+        24,
+        shadeColor(dirtDark, 0.92f)
+    );
+    addDirtWearBlotch(m, L.mound() + Vector3(0.25f, 0, 1.3f), 0.85f, 0.030f, dirtDark, 3);
+    addDirtWearBlotch(m, L.mound() + Vector3(-0.3f, 0, 1.1f), 0.7f, 0.030f, dirtDark, 5);
     {
         Vector3 c(0.0f, 0.10f, L.moundZ());
         const int n = 28;
-        float mr = 4.0f;
+        // Raised mound table ~18 ft circle already drawn; table top ~5 ft radius feel.
+        float mr = 2.6f;
         for (int ring = 0; ring < 3; ring++) {
             float r0 = mr * (static_cast<float>(ring) / 3.0f);
             float r1 = mr * (static_cast<float>(ring + 1) / 3.0f);
@@ -664,12 +674,14 @@ Mesh3D buildField(const Layout& L) {
         addBox(m, Vector3(0.0f, 0.20f, L.moundZ()), 1.05f, 0.05f, 0.28f, sf::Color(235, 230, 215));
     }
 
-    // Home plate dirt circle + wear toward mound / boxes
-    addTexturedDirtDisk(m, home, 7.2f, 0.026f, 6, 40, dirt);
+    // Home plate circle: MLB 26 ft diameter → radius 13 ft → 6.5 world units.
+    const float homeCircleR = 6.5f;
+    addTexturedDirtDisk(m, home, homeCircleR, 0.026f, 6, 40, dirt);
+    // Dirt arc from plate toward mound (extends slightly past the circle)
     addDiskSector(
         m,
         home,
-        9.5f,
+        homeCircleR * 1.15f,
         0.027f,
         -pi * 0.5f - 0.85f,
         -pi * 0.5f + 0.85f,
@@ -677,18 +689,19 @@ Mesh3D buildField(const Layout& L) {
         shadeColor(dirt, 0.97f)
     );
     // Batter box wear (darker packed dirt)
-    addDirtWearBlotch(m, home + Vector3(-1.4f, 0, -0.2f), 1.0f, 0.031f, dirtDark, 11);
-    addDirtWearBlotch(m, home + Vector3(1.4f, 0, -0.2f), 1.0f, 0.031f, dirtDark, 12);
-    addDirtWearBlotch(m, home + Vector3(0.0f, 0, 0.9f), 0.9f, 0.031f, dirtDark, 13); // catcher
-    addDirtWearBlotch(m, home + Vector3(0.2f, 0, -2.2f), 1.2f, 0.030f, dirtDark, 14); // toward mound
+    addDirtWearBlotch(m, home + Vector3(-1.4f, 0, -0.2f), 0.9f, 0.031f, dirtDark, 11);
+    addDirtWearBlotch(m, home + Vector3(1.4f, 0, -0.2f), 0.9f, 0.031f, dirtDark, 12);
+    addDirtWearBlotch(m, home + Vector3(0.0f, 0, 0.85f), 0.75f, 0.031f, dirtDark, 13); // catcher
+    addDirtWearBlotch(m, home + Vector3(0.15f, 0, -1.9f), 1.0f, 0.030f, dirtDark, 14); // toward mound
 
-    // Base cutouts + pivot wear
-    addTexturedDirtDisk(m, b1, 3.4f, 0.029f, 5, 28, dirt);
-    addTexturedDirtDisk(m, b2, 3.4f, 0.029f, 5, 28, dirt);
-    addTexturedDirtDisk(m, b3, 3.4f, 0.029f, 5, 28, dirt);
-    addDirtWearBlotch(m, b1 + Vector3(-0.4f, 0, 0.3f), 0.7f, 0.032f, dirtDark, 21);
-    addDirtWearBlotch(m, b2 + Vector3(0.0f, 0, 0.5f), 0.75f, 0.032f, dirtDark, 22);
-    addDirtWearBlotch(m, b3 + Vector3(0.4f, 0, 0.3f), 0.7f, 0.032f, dirtDark, 23);
+    // Base cutouts — ~8–10 ft dirt diameter around bags (radius ~2.2–2.5 units).
+    const float baseCutR = 2.4f;
+    addTexturedDirtDisk(m, b1, baseCutR, 0.029f, 5, 28, dirt);
+    addTexturedDirtDisk(m, b2, baseCutR, 0.029f, 5, 28, dirt);
+    addTexturedDirtDisk(m, b3, baseCutR, 0.029f, 5, 28, dirt);
+    addDirtWearBlotch(m, b1 + Vector3(-0.3f, 0, 0.25f), 0.55f, 0.032f, dirtDark, 21);
+    addDirtWearBlotch(m, b2 + Vector3(0.0f, 0, 0.4f), 0.6f, 0.032f, dirtDark, 22);
+    addDirtWearBlotch(m, b3 + Vector3(0.3f, 0, 0.25f), 0.55f, 0.032f, dirtDark, 23);
 
     // Home plate (regulation-ish silhouette, tip to catcher +Z)
     {
@@ -728,21 +741,22 @@ Mesh3D buildField(const Layout& L) {
     // Batter's boxes (left + right) — flat dirt rectangles, chalk rim via lines mesh
     {
         sf::Color box = shadeColor(dirtDark, 1.05f);
-        // RHB box (−X), LHB box (+X)
-        addBox(m, Vector3(-1.55f, 0.035f, plateZ - 0.15f), 1.35f, 0.03f, 2.35f, box);
-        addBox(m, Vector3(1.55f, 0.035f, plateZ - 0.15f), 1.35f, 0.03f, 2.35f, box);
-        // Catcher's box hint
-        addBox(m, Vector3(0.0f, 0.032f, plateZ + 1.15f), 1.6f, 0.02f, 1.1f, shadeColor(dirt, 0.93f));
+        // Batter's boxes ~4×6 ft → 2×3 world units, centered beside plate.
+        addBox(m, Vector3(-1.65f, 0.035f, plateZ - 0.35f), 2.0f, 0.03f, 3.0f, box);
+        addBox(m, Vector3(1.65f, 0.035f, plateZ - 0.35f), 2.0f, 0.03f, 3.0f, box);
+        // Catcher's box hint (~43 in wide area → ~1.8 units)
+        addBox(m, Vector3(0.0f, 0.032f, plateZ + 1.05f), 1.8f, 0.02f, 1.0f, shadeColor(dirt, 0.93f));
     }
 
-    // On-deck circles (foul territory near dugouts)
+    // On-deck circles — 5 ft diameter → radius 2.5 ft → 1.25 world units.
     {
-        Vector3 od1 = home + Vector3(8.5f, 0.0f, 2.5f);
-        Vector3 od3 = home + Vector3(-8.5f, 0.0f, 2.5f);
-        addDiskRing(m, od1, 1.5f, 1.75f, 0.03f, 20, sf::Color(240, 235, 220));
-        addDiskRing(m, od3, 1.5f, 1.75f, 0.03f, 20, sf::Color(240, 235, 220));
-        addDisk(m, od1, 1.45f, 0.025f, 16, shadeColor(grass, 0.95f));
-        addDisk(m, od3, 1.45f, 0.025f, 16, shadeColor(grass, 0.95f));
+        Vector3 od1 = home + Vector3(7.5f, 0.0f, 2.2f);
+        Vector3 od3 = home + Vector3(-7.5f, 0.0f, 2.2f);
+        const float odR = 1.25f;
+        addDiskRing(m, od1, odR * 0.88f, odR, 0.03f, 20, sf::Color(240, 235, 220));
+        addDiskRing(m, od3, odR * 0.88f, odR, 0.03f, 20, sf::Color(240, 235, 220));
+        addDisk(m, od1, odR * 0.85f, 0.025f, 16, shadeColor(grass, 0.95f));
+        addDisk(m, od3, odR * 0.85f, 0.025f, 16, shadeColor(grass, 0.95f));
     }
 
     // Dugouts on foul side of baselines
@@ -1315,20 +1329,23 @@ Mesh3D buildLines(const Layout& L) {
     thickLine(L.firstBase(), L.secondBase(), 0.10f, 0.078f);
     thickLine(L.secondBase(), L.thirdBase(), 0.10f, 0.078f);
     thickLine(L.thirdBase(), L.home(), 0.10f, 0.078f);
-    // Batter's box chalk outlines
+    // Batter's box chalk outlines (match ~4×6 ft dirt boxes)
     {
         auto boxOutline = [&](float cx) {
-            Vector3 a(cx - 0.67f, 0, L.plateZ() + 0.95f);
-            Vector3 b(cx + 0.67f, 0, L.plateZ() + 0.95f);
-            Vector3 c(cx + 0.67f, 0, L.plateZ() - 1.25f);
-            Vector3 d(cx - 0.67f, 0, L.plateZ() - 1.25f);
+            const float hw = 1.0f;
+            const float hz = 1.5f;
+            const float zc = L.plateZ() - 0.35f;
+            Vector3 a(cx - hw, 0, zc + hz);
+            Vector3 b(cx + hw, 0, zc + hz);
+            Vector3 c(cx + hw, 0, zc - hz);
+            Vector3 d(cx - hw, 0, zc - hz);
             thickLine(a, b, 0.06f, 0.076f);
             thickLine(b, c, 0.06f, 0.076f);
             thickLine(c, d, 0.06f, 0.076f);
             thickLine(d, a, 0.06f, 0.076f);
         };
-        boxOutline(-1.55f);
-        boxOutline(1.55f);
+        boxOutline(-1.65f);
+        boxOutline(1.65f);
     }
     m.rebuildNormals();
     return m;

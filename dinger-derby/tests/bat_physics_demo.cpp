@@ -132,13 +132,14 @@ void lookAt(Camera3D& cam, const Vector3& pos, const Vector3& target) {
 }
 
 void applyCatcherCamera(Camera3D& cam) {
-    // Higher / further back so soft toss and the ball path stay in frame.
+    // Plate-scale camera: lower + slightly closer so the diamond (90 ft paths,
+    // 26 ft plate circle, 18 ft mound circle) reads correctly from catcher view.
     lookAt(
         cam,
-        Vector3(0.0f, 2.35f, plateZ + 2.6f),
-        Vector3(0.0f, 1.55f, plateZ - 14.0f)
+        Vector3(0.0f, 1.72f, plateZ + 1.85f),
+        Vector3(0.0f, 1.05f, plateZ - 22.0f) // through plate toward mound / 2B
     );
-    cam.fieldOfView = 760.0f;
+    cam.fieldOfView = 680.0f;
     cam.nearPlane = 0.08f;
     cam.farPlane = Stadium3D::recommendedFarPlane();
 }
