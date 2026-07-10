@@ -1138,6 +1138,10 @@ int main() {
         return pitcherAnim.throwHandWorld(pitcherWorldTransform());
     };
 
+    // Last glued hand positions for a tiny release-velocity assist (hand whip).
+    Vector3 prevHandPos = throwHandWorldSkinned();
+    Vector3 handVelocity;
+
     auto prepareReadyState = [&]() {
         resetPitchOnMound(baseball, world, pitches[selectedPitch], trail);
         currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
@@ -1150,6 +1154,9 @@ int main() {
         deliveryAge = -1.0f;
         ballReleased = false;
         phase = PitchPhase::Ready;
+        prevHandPos = throwHandWorldSkinned();
+        handVelocity = Vector3();
+        baseball.position = prevHandPos;
     };
 
     auto startDelivery = [&]() {
@@ -1164,7 +1171,12 @@ int main() {
         spinZ = 0.0f;
         deliveryAge = 0.0f;
         ballReleased = false;
-        phase = PitchPhase::Ready; // ball stays on rubber until release frame
+        phase = PitchPhase::Ready; // ball glued to hand until release frame
+        // Pose delivery frame 0 so the ball starts in the glove box.
+        pitcherAnim.applyClipNormalized(deliveryClip, 0.0f);
+        prevHandPos = throwHandWorldSkinned();
+        handVelocity = Vector3();
+        baseball.position = prevHandPos;
         latestResult = pitches[selectedPitch].name + " — windup";
         latestResultColor = pitches[selectedPitch].color;
         resultBannerTimer = 0.0f;
@@ -1172,6 +1184,8 @@ int main() {
 
     auto releasePitch = [&]() {
         Vector3 hand = throwHandWorldSkinned();
+        // Prefer the animated hand location so flight starts exactly where the
+        // fingers let go (Ball joint / Palm_R), not a fixed mound offset.
         launchPitch(
             baseball,
             world,
@@ -1182,6 +1196,12 @@ int main() {
             currentVariation,
             hand
         );
+        // Nudge with recent hand motion so the first frame doesn't look stuck.
+        float whip = handVelocity.magnitude();
+        if (whip > 0.5f && whip < 40.0f) {
+            Vector3 whipDir = handVelocity * (1.0f / whip);
+            baseball.velocity = baseball.velocity + whipDir * std::min(whip * 0.08f, 2.5f);
+        }
         ballReleased = true;
         phase = PitchPhase::Flying;
         latestResult = pitches[selectedPitch].name + " — in flight";
@@ -1343,9 +1363,14 @@ int main() {
                 float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
                 pitcherAnim.applyClipNormalized(deliveryClip, deliveryT);
 
-                // Keep the live ball glued to the skinned throw hand until release.
+                // Glue physics ball to Ball/Palm until release (one ball, no mesh prop).
                 if (!ballReleased) {
-                    baseball.position = throwHandWorldSkinned();
+                    Vector3 hand = throwHandWorldSkinned();
+                    if (dt > 1e-5f) {
+                        handVelocity = (hand - prevHandPos) * (1.0f / dt);
+                    }
+                    prevHandPos = hand;
+                    baseball.position = hand;
                     baseball.velocity = Vector3();
                     baseball.acceleration = Vector3();
                 }
@@ -1357,10 +1382,17 @@ int main() {
                 if (phase == PitchPhase::Settled && deliveryAge >= deliveryDuration + 0.55f) {
                     deliveryAge = -1.0f;
                 }
-            } else if (phase == PitchPhase::Ready) {
-                baseball.position = throwHandWorldSkinned();
-                baseball.velocity = Vector3();
-                baseball.acceleration = Vector3();
+            } else if (phase == PitchPhase::Ready || phase == PitchPhase::Settled) {
+                // Between pitches: ball rests in the glove (hand attach).
+                // After a plate result, leave the settled ball until the next R.
+                if (phase == PitchPhase::Ready) {
+                    Vector3 hand = throwHandWorldSkinned();
+                    prevHandPos = hand;
+                    handVelocity = Vector3();
+                    baseball.position = hand;
+                    baseball.velocity = Vector3();
+                    baseball.acceleration = Vector3();
+                }
             }
         }
 

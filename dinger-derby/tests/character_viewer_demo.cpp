@@ -32,10 +32,12 @@
 
 #include "math/Matrix4.h"
 #include "math/Vector3.h"
+#include "rendering/BaseballVisual3D.h"
 #include "rendering/Camera3D.h"
 #include "rendering/CharacterModel3D.h"
 #include "rendering/FrameBuffer.h"
 #include "rendering/GlRenderer.h"
+#include "rendering/Mesh3D.h"
 #include "rendering/SkeletonAnimator.h"
 #include "rendering/SkinnedModel3D.h"
 #include "DemoFpsCounter.h"
@@ -216,11 +218,15 @@ int main(int argc, char** argv) {
     anim.resetToRest();
 
     Mesh3D posed = model.skinToMesh(anim.skinMatrices());
+    constexpr float kBallR = 0.037f;
+    Mesh3D ballMesh = BaseballVisual3D::makeMesh(20, 32);
     GlRenderer gl;
     bool useOpenGL = gl.initialize(window);
     GlMesh glMesh;
+    GlMesh glBall;
     if (useOpenGL) {
         glMesh.upload(posed);
+        glBall.upload(ballMesh);
         std::cerr << "Viewer: OpenGL path\n";
     } else {
         std::cerr << "Viewer: software raster path\n";
@@ -432,6 +438,12 @@ int main(int argc, char** argv) {
             Matrix4::rotationY(modelYaw) *
             Matrix4::rotationX(modelPitch);
 
+        // Prop baseball on Ball joint (or throw palm) so set→break→release reads clearly.
+        Vector3 ballWorld = anim.throwHandWorld(modelXform);
+        Matrix4 ballXform =
+            Matrix4::translation(ballWorld) *
+            Matrix4::scale(Vector3(kBallR, kBallR, kBallR));
+
         // ── render ──────────────────────────────────────────────────────
         if (useOpenGL) {
             gl.beginFrame(window, camera, sf::Color(12, 16, 24));
@@ -439,6 +451,9 @@ int main(int argc, char** argv) {
                 gl.drawGround(3.5f, -2.0f, 4.0f, sf::Color(28, 36, 32));
             }
             gl.drawMesh(glMesh, modelXform);
+            if (role == CharacterModel3D::Role::Pitcher) {
+                gl.drawMesh(glBall, ballXform);
+            }
             gl.endFrame(window);
         } else {
             frameBuffer.clear(sf::Color(12, 16, 24));
@@ -449,6 +464,14 @@ int main(int argc, char** argv) {
                 frameBuffer, camera, posed, modelXform,
                 sf::Color(230, 230, 235), cache
             );
+            if (role == CharacterModel3D::Role::Pitcher) {
+                RasterMeshRenderCache ballCache;
+                ballCache.reserveFor(ballMesh);
+                rasterizeMeshTriangles(
+                    frameBuffer, camera, ballMesh, ballXform,
+                    sf::Color(242, 242, 248), ballCache
+                );
+            }
             window.clear();
             frameBuffer.present(window);
         }

@@ -26,7 +26,7 @@ For ball attach and delivery retargeting:
 | `Shoulder_L/R`, `UpperArm_L/R`, `HumTwist_L/R` | Upper arm |
 | `Elbow_L/R`, `Forearm_L/R`, `ProTwist_L/R` | Forearm |
 | `Wrist_L/R`, `Palm_L/R` | Hands |
-| `Ball` | Pitch glue (child of Palm_R; preferred over palm) |
+| `Ball` | Pitch glue only (child of Palm_R; no mesh — sim/viewer draw one ball) |
 | `Hip_L/R`, `Knee_L/R`, `Ankle_L/R`, `Toe_L/R` | Legs (L = lead for RHP) |
 
 Workshop demo: `character_viewer_demo --clip throw_preview`

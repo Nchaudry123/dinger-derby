@@ -44,8 +44,7 @@ const sf::Color kBelt(30, 32, 38);
 const sf::Color kHair(36, 26, 22);
 const sf::Color kEye(24, 20, 18);
 const sf::Color kUndershirt(218, 222, 230);
-const sf::Color kBall(242, 242, 248);
-const sf::Color kBallSeam(196, 42, 48);
+
 
 constexpr float kPi = 3.14159265f;
 constexpr float kHU = 1.78f / 8.0f;
@@ -1139,14 +1138,9 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     makeArm(clavL, shL, uaL, htL, elL, faL, ptL, wrL, palmL, !athlete, false);
     makeArm(clavR, shR, uaR, htR, elR, faR, ptR, wrR, palmR, false, true);
 
-    // Baseball on throw palm (set nestles it in the mitt; break pulls it free).
-    if (pitcher && ballJ >= 0) {
-        Vector3 pBall = W(ballJ);
-        ball(m, pBall, 0.037f, 0.037f, 0.037f, kBall, hr - 1, hs - 1, ballJ, 1.0f);
-        // Simple seam bands for read at distance.
-        ball(m, pBall + Vector3(0.0f, 0.0f, 0.001f), 0.038f, 0.010f, 0.012f, kBallSeam, 4, 8, ballJ, 1.0f);
-        ball(m, pBall + Vector3(0.0f, 0.001f, 0.0f), 0.010f, 0.038f, 0.012f, kBallSeam, 4, 8, ballJ, 1.0f);
-    }
+    // Ball joint is attach-only (no mesh) so the sim / viewer can draw one
+    // physics or prop baseball without a double-ball silhouette.
+    (void)ballJ;
 
     // ── NECK + HEAD (continuous, no floating head) ──────────────────────
     boneChain(
