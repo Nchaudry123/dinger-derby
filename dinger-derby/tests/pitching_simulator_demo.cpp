@@ -176,14 +176,14 @@ void applyCameraMode(Camera3D& camera, PitchCameraMode mode) {
             camera.fieldOfView = 1450.0f;
             break;
         case PitchCameraMode::Catcher:
-            // Umpire/catcher POV: just behind home plate, looking down the lane at the pitcher.
-            // Catcher mesh is hidden in this mode so only the pitcher shows in the distance.
+            // POV from the catcher's crouch spot (same place as the model), looking at the pitcher.
+            // Catcher mesh is not drawn in this mode so the body never blocks the plate.
             lookAt(
                 camera,
-                Vector3(0.0f, 1.32f, plateZ + 0.28f),
-                Vector3(0.0f, 1.55f, moundZ + 1.5f)
+                Vector3(0.0f, 1.28f, plateZ + 0.95f),
+                Vector3(0.0f, 1.55f, moundZ + 1.2f)
             );
-            camera.fieldOfView = 720.0f;
+            camera.fieldOfView = 700.0f;
             break;
         case PitchCameraMode::Pitcher:
             // Raised over shoulder and pulled back so the pitcher is a figure in frame,
