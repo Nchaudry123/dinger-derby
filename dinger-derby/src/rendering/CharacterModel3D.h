@@ -33,6 +33,7 @@ struct BuildInfo {
 
 // Clips attached after build:
 //   rest, idle, tpose, arms_out, wave, throw_preview, crouch, walk
+// Catcher also: catcher_idle, receive
 SkinnedModel3D build(Role role = Role::Pitcher, Detail detail = Detail::High);
 
 BuildInfo inspect(const SkinnedModel3D& model);

@@ -1046,12 +1046,19 @@ int main() {
     }
 
     AnimationClip catcherIdleClip;
-    if (const AnimationClip* c = catcherModel.findClip("crouch")) {
+    if (const AnimationClip* c = catcherModel.findClip("catcher_idle")) {
+        catcherIdleClip = *c;
+    } else if (const AnimationClip* c = catcherModel.findClip("crouch")) {
         catcherIdleClip = *c;
     } else if (const AnimationClip* c = catcherModel.findClip("idle")) {
         catcherIdleClip = *c;
     } else {
         catcherIdleClip = BaseballAnims::catcherIdle(catcherModel);
+    }
+
+    AnimationClip catcherReceiveClip = catcherIdleClip;
+    if (const AnimationClip* c = catcherModel.findClip("receive")) {
+        catcherReceiveClip = *c;
     }
 
     SkeletonAnimator pitcherAnim;
@@ -1353,7 +1360,15 @@ int main() {
             // Loop idle when not delivering (breathing / weight shift).
             pitcherAnim.applyClip(pitcherIdleClip, poseClock, true);
         }
-        catcherAnim.applyClip(catcherIdleClip, poseClock, true);
+        // Catcher: idle crouch between pitches; receive while the ball is live.
+        if (phase == PitchPhase::Flying || (deliveryAge >= 0.0f && ballReleased)) {
+            float recvT = catcherReceiveClip.duration > 1e-4f
+                ? std::fmod(std::max(pitchAge, 0.0f), catcherReceiveClip.duration)
+                : 0.0f;
+            catcherAnim.applyClip(catcherReceiveClip, recvT, false);
+        } else {
+            catcherAnim.applyClip(catcherIdleClip, poseClock, true);
+        }
 
         if (!paused) {
             poseClock += dt;

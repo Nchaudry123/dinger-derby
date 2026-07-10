@@ -794,27 +794,139 @@ void attachClips(SkinnedModel3D& m, Role role) {
         m.clips.push_back(std::move(clip));
     }
 
-    // ── CROUCH — full lower body + arms ─────────────────────────────────
+    // ── CROUCH / CATCHER READY — athletic squat + mitt target ───────────
     {
         AnimationClip clip;
         clip.name = "crouch";
         clip.duration = 1.0f;
         std::vector<float> t = {0.0f, 1.0f};
-        float cy = role == Role::Catcher ? 0.50f : 0.60f;
-        pushPos(clip, J("Hips"), t, holdP(Vector3(0, cy, 0.04f), 2));
-        pushRot(clip, J("Spine"), t, holdQ(eul(0.28f, 0, 0), 2));
-        pushRot(clip, J("Chest"), t, holdQ(eul(0.10f, 0, 0), 2));
-        pushRot(clip, J("Head"), t, holdQ(eul(-0.08f, 0, 0), 2));
-        pushRot(clip, J("Hip_L"), t, holdQ(eul(0.85f, 0.06f, 0.12f), 2));
-        pushRot(clip, J("Hip_R"), t, holdQ(eul(0.85f, -0.06f, -0.12f), 2));
-        pushRot(clip, J("Knee_L"), t, holdQ(eul(1.45f, 0, 0), 2));
-        pushRot(clip, J("Knee_R"), t, holdQ(eul(1.45f, 0, 0), 2));
-        pushRot(clip, J("Ankle_L"), t, holdQ(eul(-0.25f, 0, 0), 2));
-        pushRot(clip, J("Ankle_R"), t, holdQ(eul(-0.25f, 0, 0), 2));
-        pushRot(clip, J("Shoulder_L"), t, holdQ(eul(-0.55f, -0.20f, -0.45f), 2));
-        pushRot(clip, J("Elbow_L"), t, holdQ(eul(1.05f, 0, 0), 2));
-        pushRot(clip, J("Shoulder_R"), t, holdQ(eul(-0.40f, 0.15f, 0.30f), 2));
-        pushRot(clip, J("Elbow_R"), t, holdQ(eul(0.75f, 0, 0), 2));
+        const bool isCatcher = role == Role::Catcher;
+        float cy = isCatcher ? m.joints[J("Hips")].restTranslation.y : 0.60f;
+        pushPos(clip, J("Hips"), t, holdP(Vector3(0, cy, isCatcher ? 0.03f : 0.04f), 2));
+        pushRot(clip, J("Spine"), t, holdQ(eul(isCatcher ? 0.22f : 0.28f, 0, 0), 2));
+        pushRot(clip, J("Chest"), t, holdQ(eul(isCatcher ? 0.08f : 0.10f, 0, 0), 2));
+        pushRot(clip, J("Head"), t, holdQ(eul(isCatcher ? -0.04f : -0.08f, 0, 0), 2));
+        if (!isCatcher) {
+            pushRot(clip, J("Hip_L"), t, holdQ(eul(0.85f, 0.06f, 0.12f), 2));
+            pushRot(clip, J("Hip_R"), t, holdQ(eul(0.85f, -0.06f, -0.12f), 2));
+            pushRot(clip, J("Knee_L"), t, holdQ(eul(1.45f, 0, 0), 2));
+            pushRot(clip, J("Knee_R"), t, holdQ(eul(1.45f, 0, 0), 2));
+            pushRot(clip, J("Ankle_L"), t, holdQ(eul(-0.25f, 0, 0), 2));
+            pushRot(clip, J("Ankle_R"), t, holdQ(eul(-0.25f, 0, 0), 2));
+        } else {
+            // Catcher bind is already crouched — small settle only.
+            pushRot(clip, J("Hip_L"), t, holdQ(eul(0.12f, 0.04f, 0.08f), 2));
+            pushRot(clip, J("Hip_R"), t, holdQ(eul(0.12f, -0.04f, -0.08f), 2));
+            pushRot(clip, J("Knee_L"), t, holdQ(eul(0.18f, 0, 0), 2));
+            pushRot(clip, J("Knee_R"), t, holdQ(eul(0.18f, 0, 0), 2));
+            pushRot(clip, J("Ankle_L"), t, holdQ(eul(-0.08f, 0, 0), 2));
+            pushRot(clip, J("Ankle_R"), t, holdQ(eul(-0.08f, 0, 0), 2));
+        }
+        // Mitt up as target (L), bare hand near thigh/knee (R).
+        pushRot(clip, J("Shoulder_L"), t, holdQ(eul(-0.85f, -0.15f, -0.55f), 2));
+        pushRot(clip, J("Elbow_L"), t, holdQ(eul(1.15f, 0, 0), 2));
+        pushRot(clip, J("Wrist_L"), t, holdQ(eul(0.10f, 0, 0.08f), 2));
+        pushRot(clip, J("Shoulder_R"), t, holdQ(eul(-0.35f, 0.10f, 0.25f), 2));
+        pushRot(clip, J("Elbow_R"), t, holdQ(eul(0.85f, 0, 0), 2));
+        pushRot(clip, J("Wrist_R"), t, holdQ(eul(0.08f, 0, 0), 2));
+        m.clips.push_back(std::move(clip));
+    }
+
+    // ── CATCHER IDLE — crouch breathe + glove micro-frame ───────────────
+    if (role == Role::Catcher) {
+        AnimationClip clip;
+        clip.name = "catcher_idle";
+        clip.duration = 2.4f;
+        std::vector<float> t = {0.0f, 0.6f, 1.2f, 1.8f, 2.4f};
+        const int n = 5;
+        const float cy = m.joints[J("Hips")].restTranslation.y;
+        pushPos(clip, J("Hips"), t, {
+            Vector3(0, cy, 0.03f),
+            Vector3(0, cy + 0.008f, 0.03f),
+            Vector3(0, cy + 0.012f, 0.03f),
+            Vector3(0, cy + 0.006f, 0.03f),
+            Vector3(0, cy, 0.03f)
+        });
+        pushRot(clip, J("Spine"), t, {
+            eul(0.20f, 0, 0), eul(0.22f, 0.02f, 0), eul(0.23f, 0, 0),
+            eul(0.22f, -0.02f, 0), eul(0.20f, 0, 0)
+        });
+        pushRot(clip, J("Chest"), t, {
+            eul(0.08f, 0, 0), eul(0.09f, 0.015f, 0), eul(0.10f, 0, 0),
+            eul(0.09f, -0.015f, 0), eul(0.08f, 0, 0)
+        });
+        pushRot(clip, J("Head"), t, {
+            eul(-0.04f, 0, 0), eul(-0.03f, 0.04f, 0), eul(-0.05f, 0, 0),
+            eul(-0.03f, -0.04f, 0), eul(-0.04f, 0, 0)
+        });
+        // Glove target holds the zone, slight frame.
+        pushRot(clip, J("Shoulder_L"), t, {
+            eul(-0.85f, -0.15f, -0.55f), eul(-0.88f, -0.12f, -0.52f),
+            eul(-0.86f, -0.16f, -0.56f), eul(-0.88f, -0.18f, -0.54f),
+            eul(-0.85f, -0.15f, -0.55f)
+        });
+        pushRot(clip, J("Elbow_L"), t, {
+            eul(1.15f, 0, 0), eul(1.18f, 0, 0), eul(1.14f, 0, 0),
+            eul(1.17f, 0, 0), eul(1.15f, 0, 0)
+        });
+        pushRot(clip, J("Wrist_L"), t, {
+            eul(0.10f, 0, 0.08f), eul(0.12f, 0.02f, 0.10f), eul(0.08f, -0.02f, 0.06f),
+            eul(0.12f, 0.02f, 0.10f), eul(0.10f, 0, 0.08f)
+        });
+        pushRot(clip, J("Shoulder_R"), t, holdQ(eul(-0.35f, 0.10f, 0.25f), n));
+        pushRot(clip, J("Elbow_R"), t, holdQ(eul(0.85f, 0, 0), n));
+        pushRot(clip, J("Hip_L"), t, holdQ(eul(0.12f, 0.04f, 0.08f), n));
+        pushRot(clip, J("Hip_R"), t, holdQ(eul(0.12f, -0.04f, -0.08f), n));
+        pushRot(clip, J("Knee_L"), t, holdQ(eul(0.18f, 0, 0), n));
+        pushRot(clip, J("Knee_R"), t, holdQ(eul(0.18f, 0, 0), n));
+        m.clips.push_back(std::move(clip));
+    }
+
+    // ── RECEIVE — mitt tracks a pitch through the zone (subtle) ────────
+    if (role == Role::Catcher) {
+        AnimationClip clip;
+        clip.name = "receive";
+        clip.duration = 1.2f;
+        std::vector<float> t = {0.0f, 0.25f, 0.55f, 0.85f, 1.2f};
+        const float cy = m.joints[J("Hips")].restTranslation.y;
+        pushPos(clip, J("Hips"), t, holdP(Vector3(0, cy, 0.03f), 5));
+        pushRot(clip, J("Spine"), t, {
+            eul(0.20f, 0, 0), eul(0.18f, 0.04f, 0), eul(0.16f, 0.02f, 0),
+            eul(0.18f, -0.02f, 0), eul(0.20f, 0, 0)
+        });
+        pushRot(clip, J("Chest"), t, {
+            eul(0.08f, 0, 0), eul(0.06f, 0.05f, 0), eul(0.05f, 0.03f, 0),
+            eul(0.06f, -0.02f, 0), eul(0.08f, 0, 0)
+        });
+        pushRot(clip, J("Head"), t, {
+            eul(-0.02f, 0, 0), eul(0.02f, 0.06f, 0), eul(0.04f, 0.02f, 0),
+            eul(0.00f, -0.02f, 0), eul(-0.02f, 0, 0)
+        });
+        // Glove rises into the zone then softens the catch.
+        pushRot(clip, J("Shoulder_L"), t, {
+            eul(-0.85f, -0.15f, -0.55f),
+            eul(-1.05f, -0.10f, -0.48f),  // present target
+            eul(-0.95f, -0.08f, -0.42f),  // receive
+            eul(-0.80f, -0.12f, -0.50f),  // soft hands in
+            eul(-0.85f, -0.15f, -0.55f)
+        });
+        pushRot(clip, J("Elbow_L"), t, {
+            eul(1.15f, 0, 0), eul(1.05f, 0, 0), eul(0.95f, 0, 0),
+            eul(1.10f, 0, 0), eul(1.15f, 0, 0)
+        });
+        pushRot(clip, J("Wrist_L"), t, {
+            eul(0.10f, 0, 0.08f), eul(0.05f, 0, 0.12f), eul(-0.08f, 0, 0.06f),
+            eul(0.12f, 0, 0.04f), eul(0.10f, 0, 0.08f)
+        });
+        pushRot(clip, J("Shoulder_R"), t, {
+            eul(-0.35f, 0.10f, 0.25f), eul(-0.45f, 0.12f, 0.30f),
+            eul(-0.50f, 0.10f, 0.28f), eul(-0.40f, 0.10f, 0.26f),
+            eul(-0.35f, 0.10f, 0.25f)
+        });
+        pushRot(clip, J("Elbow_R"), t, {
+            eul(0.85f, 0, 0), eul(0.95f, 0, 0), eul(1.00f, 0, 0),
+            eul(0.90f, 0, 0), eul(0.85f, 0, 0)
+        });
         m.clips.push_back(std::move(clip));
     }
 
@@ -968,18 +1080,38 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     int toeL = addJoint(m, "Toe_L", anL, Vector3(0.0f, -0.015f, 0.09f));
 
     if (catcher) {
-        m.joints[hips].restTranslation = Vector3(0, 0.50f, 0.02f);
+        // Athletic catcher crouch bind: low hips, knees wide, spine slightly up.
+        m.joints[hips].restTranslation = Vector3(0, 0.48f, 0.04f);
         m.joints[hips].bakeLocalRest();
-        m.joints[knL].restTranslation = Vector3(0.03f, -0.22f, 0.08f);
-        m.joints[knR].restTranslation = Vector3(-0.03f, -0.22f, 0.08f);
+        m.joints[hipL].restRotation = eul(0.55f, 0.08f, 0.18f);
+        m.joints[hipR].restRotation = eul(0.55f, -0.08f, -0.18f);
+        m.joints[hipL].bakeLocalRest();
+        m.joints[hipR].bakeLocalRest();
+        m.joints[knL].restTranslation = Vector3(0.04f, -0.20f, 0.10f);
+        m.joints[knR].restTranslation = Vector3(-0.04f, -0.20f, 0.10f);
+        m.joints[knL].restRotation = eul(1.15f, 0, 0);
+        m.joints[knR].restRotation = eul(1.15f, 0, 0);
         m.joints[knL].bakeLocalRest();
         m.joints[knR].bakeLocalRest();
-        m.joints[anL].restTranslation = Vector3(0, -0.22f, 0.10f);
-        m.joints[anR].restTranslation = Vector3(0, -0.22f, 0.10f);
+        m.joints[anL].restTranslation = Vector3(0, -0.20f, 0.12f);
+        m.joints[anR].restTranslation = Vector3(0, -0.20f, 0.12f);
+        m.joints[anL].restRotation = eul(-0.20f, 0, 0);
+        m.joints[anR].restRotation = eul(-0.20f, 0, 0);
         m.joints[anL].bakeLocalRest();
         m.joints[anR].bakeLocalRest();
-        m.joints[spine].restRotation = eul(0.16f, 0, 0);
+        m.joints[spine].restRotation = eul(0.18f, 0, 0);
+        m.joints[chest].restRotation = eul(0.06f, 0, 0);
         m.joints[spine].bakeLocalRest();
+        m.joints[chest].bakeLocalRest();
+        // Ready arms baked into rest so catcher_idle is a soft settle.
+        m.joints[shL].restRotation = eul(-0.75f, -0.12f, -0.50f);
+        m.joints[elL].restRotation = eul(1.10f, 0, 0);
+        m.joints[shR].restRotation = eul(-0.30f, 0.08f, 0.22f);
+        m.joints[elR].restRotation = eul(0.80f, 0, 0);
+        m.joints[shL].bakeLocalRest();
+        m.joints[elL].bakeLocalRest();
+        m.joints[shR].bakeLocalRest();
+        m.joints[elR].bakeLocalRest();
     }
 
     m.rebuildInverseBindsFromRest();
@@ -1013,6 +1145,19 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     makeLeg(hipR, knR, anR, toeR);
     makeLeg(hipL, knL, anL, toeL);
 
+    // Catcher shin guards (two plates per leg).
+    if (catcher) {
+        auto shinGuard = [&](int jKn, int jAn) {
+            Vector3 pK = W(jKn), pA = W(jAn);
+            Vector3 mid = lerpV(pK, pA, 0.45f) + Vector3(0, 0, 0.028f);
+            ball(m, pK + Vector3(0, -0.02f, 0.03f), 0.055f, 0.048f, 0.040f, kGear, hr - 1, hs - 2, jKn, 0.85f, jAn, 0.15f);
+            ball(m, mid, 0.048f, 0.090f, 0.036f, kGearDeep, hr - 1, hs - 2, jKn, 0.45f, jAn, 0.55f);
+            ball(m, pA + Vector3(0, 0.04f, 0.025f), 0.042f, 0.040f, 0.032f, kGear, 6, 10, jAn, 0.9f, jKn, 0.1f);
+        };
+        shinGuard(knL, anL);
+        shinGuard(knR, anR);
+    }
+
     // ── PELVIS + TORSO (continuous volumes) ─────────────────────────────
     ball(m, W(hips), 0.125f, 0.095f, 0.108f, kPants, hr, hs, hips, 1.0f);
     ball(m, W(hips) + Vector3(0, 0.048f, 0), 0.115f, 0.020f, 0.095f, kBelt, 5, 10, hips, 0.9f, spine, 0.1f);
@@ -1044,7 +1189,13 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         ball(m, G[chest].transformPoint(Vector3(0, -0.02f, 0.100f)), 0.012f, 0.042f, 0.008f, kAccent, 4, 6, chest, 1.0f);
     }
     if (catcher) {
-        ball(m, W(chest) + Vector3(0, 0, 0.06f), 0.135f, 0.108f, 0.062f, kGear, hr, hs, chest, 1.0f);
+        // Chest protector: main plate + upper + lower pads.
+        ball(m, W(chest) + Vector3(0, 0.02f, 0.07f), 0.140f, 0.100f, 0.055f, kGear, hr, hs, chest, 1.0f);
+        ball(m, W(chest) + Vector3(0, 0.08f, 0.06f), 0.110f, 0.055f, 0.042f, kGearDeep, hr - 1, hs - 2, chest, 0.9f, spine, 0.1f);
+        ball(m, W(chest) + Vector3(0, -0.06f, 0.06f), 0.120f, 0.055f, 0.040f, kGearDeep, hr - 1, hs - 2, chest, 0.85f, spine, 0.15f);
+        // Shoulder caps of the protector.
+        ball(m, W(shL) + Vector3(0.02f, 0.02f, 0.02f), 0.050f, 0.038f, 0.048f, kGear, hr - 2, hs - 2, shL, 0.7f, clavL, 0.3f);
+        ball(m, W(shR) + Vector3(-0.02f, 0.02f, 0.02f), 0.050f, 0.038f, 0.048f, kGear, hr - 2, hs - 2, shR, 0.7f, clavR, 0.3f);
     }
 
     // ── ARMS (multi-bone game-rig skinning) ─────────────────────────────
@@ -1169,8 +1320,19 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     ball(m, G[head].transformPoint(Vector3(0, 0.055f, -0.015f)), 0.082f, 0.038f, 0.078f, kHair, 7, 11, head, 1.0f);
 
     if (catcher) {
-        ball(m, G[head].transformPoint(Vector3(0, 0.03f, -0.02f)), 0.110f, 0.072f, 0.108f, kGear, hr, hs, head, 1.0f);
-        ball(m, G[head].transformPoint(Vector3(0, 0, 0.112f)), 0.062f, 0.058f, 0.015f, kGearDeep, 6, 10, head, 1.0f);
+        // Helmet shell + face mask cage (bars as thin capsules).
+        ball(m, G[head].transformPoint(Vector3(0, 0.04f, -0.02f)), 0.112f, 0.078f, 0.110f, kGear, hr, hs, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0, 0.02f, 0.100f)), 0.070f, 0.065f, 0.018f, kGearDeep, 6, 10, head, 1.0f);
+        // Horizontal mask bars.
+        for (float y : {-0.01f, 0.02f, 0.05f}) {
+            ball(m, G[head].transformPoint(Vector3(0, y, 0.118f)), 0.055f, 0.008f, 0.010f, kGearDeep, 4, 8, head, 1.0f);
+        }
+        // Vertical mask bars.
+        for (float x : {-0.028f, 0.0f, 0.028f}) {
+            ball(m, G[head].transformPoint(Vector3(x, 0.02f, 0.120f)), 0.008f, 0.048f, 0.010f, kGearDeep, 4, 6, head, 1.0f);
+        }
+        // Throat guard.
+        ball(m, G[head].transformPoint(Vector3(0, -0.08f, 0.06f)), 0.040f, 0.035f, 0.030f, kGearDeep, 5, 8, head, 0.7f, neck, 0.3f);
     } else if (pitcher) {
         ball(m, G[head].transformPoint(Vector3(0, 0.075f, -0.014f)), 0.090f, 0.028f, 0.090f, kCap, hr, hs, head, 1.0f);
         ball(m, G[head].transformPoint(Vector3(0, 0.052f, -0.006f)), 0.093f, 0.012f, 0.093f, kCapDeep, 5, 10, head, 1.0f);
