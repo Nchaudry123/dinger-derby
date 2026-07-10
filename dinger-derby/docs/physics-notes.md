@@ -24,3 +24,17 @@ Spin parameter **S = r |ω| / |v|**, lift coefficient
 **Cl = 1.4 · S / (0.4 + S)** (Nathan-style saturation).
 
 Pitch identity in the simulator is **speed + RPM + spin axis**, not baked break accelerations. Visual seam spin tracks the same `angularVelocity`.
+
+# Bat–ball contact (`bat_physics_demo`)
+
+Side-view swing lab (separate from the pitching simulator):
+
+1. **Kinematic bat** — angle profile about the hands (pivot); point velocity **v_bat = f(ω, s)** along the barrel.
+2. **Segment vs circle** contact; radius tapers handle → barrel.
+3. **Sweet spot** scales COR and effective bat mass (mishits lose energy).
+4. **Impulse** with finite effective bat mass:  
+   `j = −(1+e) v_rel·n / (1/m_ball + 1/m_eff)`  
+   Exit speed / launch angle read from post-impulse ball velocity.
+5. Light **tangential friction** for spin feel.
+
+Demo: `./build/bat_physics_demo` — Space swing, R reset, `[ ]` pitch speed, `- =` power, `1/2/3` height, `A/D` timing.
