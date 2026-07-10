@@ -109,12 +109,6 @@ void resolveCircleCollision(Body2D& a, Body2D& b) {
     resolveCircleCollision(a, b, findCircleCircleCollision(a, b));
 }
 
-float clamp(float value, float minValue, float maxValue) {
-    if (value < minValue) return minValue;
-    if (value > maxValue) return maxValue;
-    return value;
-}
-
 bool circleRectangleCollision(
     const Body2D& circle,
     const Vector2& rectPosition,
@@ -126,8 +120,8 @@ bool circleRectangleCollision(
     float top = rectPosition.y - rectHeight / 2.0f;
     float bottom = rectPosition.y + rectHeight / 2.0f;
 
-    float closestX = clamp(circle.position.x, left, right);
-    float closestY = clamp(circle.position.y, top, bottom);
+    float closestX = std::clamp(circle.position.x, left, right);
+    float closestY = std::clamp(circle.position.y, top, bottom);
 
     Vector2 closestPoint(closestX, closestY);
     Vector2 difference = circle.position - closestPoint;
@@ -146,8 +140,8 @@ void resolveCircleRectangleCollision(
     float top = rectPosition.y - rectHeight / 2.0f;
     float bottom = rectPosition.y + rectHeight / 2.0f;
 
-    float closestX = clamp(circle.position.x, left, right);
-    float closestY = clamp(circle.position.y, top, bottom);
+    float closestX = std::clamp(circle.position.x, left, right);
+    float closestY = std::clamp(circle.position.y, top, bottom);
 
     Vector2 closestPoint(closestX, closestY);
     Vector2 difference = circle.position - closestPoint;
@@ -160,26 +154,18 @@ void resolveCircleRectangleCollision(
 
     Vector2 normal;
 
-    if (distance == 0) {
-        normal = Vector2(0, -1);
+    if (distance == 0.0f) {
+        normal = Vector2(0.0f, -1.0f);
     } else {
         normal = difference.normalized();
     }
 
     float overlap = circle.radius - distance;
-
     circle.position += normal * overlap;
 
-    float velocityAlongNormal =
-        circle.velocity.x * normal.x +
-        circle.velocity.y * normal.y;
-
-    if (velocityAlongNormal < 0) {
-        circle.velocity =
-            circle.velocity -
-            normal * (2.0f * velocityAlongNormal);
-
-        circle.velocity =
-            circle.velocity * circle.restitution;
+    // Reflect only the normal component with restitution, matching wall/sphere response.
+    float velocityAlongNormal = circle.velocity.dot(normal);
+    if (velocityAlongNormal < 0.0f) {
+        circle.velocity -= normal * ((1.0f + circle.restitution) * velocityAlongNormal);
     }
 }
