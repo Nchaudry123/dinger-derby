@@ -1,5 +1,7 @@
 #include "PhysicsWorld3D.h"
 
+#include <algorithm>
+
 namespace {
 
 void resolveAxisMinimum(float& position, float& velocity, float radius, float minimum, float restitution) {
@@ -30,11 +32,17 @@ PhysicsWorld3D::PhysicsWorld3D() {
     gravity = Vector3(0.0f, -9.8f, 0.0f);
     minimumBounds = Vector3(-8.0f, -4.0f, -2.0f);
     maximumBounds = Vector3(8.0f, 5.0f, 14.0f);
+    airVelocity = Vector3();
 }
 
 void PhysicsWorld3D::setBounds(const Vector3& minimum, const Vector3& maximum) {
     minimumBounds = minimum;
     maximumBounds = maximum;
+}
+
+void PhysicsWorld3D::setAtmosphere(float density, const Vector3& windVelocity) {
+    airDensity = std::max(density, 0.0f);
+    airVelocity = windVelocity;
 }
 
 void PhysicsWorld3D::addBody(Body3D* body) {
@@ -44,6 +52,11 @@ void PhysicsWorld3D::addBody(Body3D* body) {
 void PhysicsWorld3D::step(float dt) {
     for (Body3D* body : bodies) {
         body->applyForce(gravity * body->mass);
+
+        if (airResistanceEnabled) {
+            body->applyForce(AirResistance3D::calculateDragForce(*body, airVelocity, airDensity));
+        }
+
         body->update(dt);
         resolveBounds(*body);
     }

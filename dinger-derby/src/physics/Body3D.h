@@ -16,6 +16,8 @@ public:
     float mass = 1.0f;
     float radius = 1.0f;
     float restitution = 0.65f;
+    float dragCoefficient = 0.47f;
+    float airResistanceScale = 1.0f;
     Body3DType type = Body3DType::Dynamic;
 
     Body3D();

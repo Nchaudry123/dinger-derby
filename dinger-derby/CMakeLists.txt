@@ -24,6 +24,7 @@ set(ENGINE_SOURCES
     src/rendering/SpatialGrid3D.cpp
     src/physics/Body2D.cpp
     src/physics/Body3D.cpp
+    src/physics/AirResistance3D.cpp
     src/physics/PhysicsWorld2D.cpp
     src/physics/PhysicsWorld3D.cpp
     src/physics/SoftBodyMesh3D.cpp

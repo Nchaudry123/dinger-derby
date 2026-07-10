@@ -54,10 +54,6 @@ void Body3D::update(float dt) {
     }
 
     velocity += acceleration * dt;
-
-    const float dragCoefficient = 0.12f;
-    velocity -= velocity * dragCoefficient * dt;
-
     position += velocity * dt;
     acceleration = Vector3();
 }

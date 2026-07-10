@@ -2,6 +2,7 @@
 #include <cmath>
 
 #include "../src/collision/Collision3D.h"
+#include "../src/physics/AirResistance3D.h"
 #include "../src/physics/PhysicsWorld3D.h"
 
 namespace {
@@ -57,6 +58,76 @@ void testPhysicsWorld3DGravityAndBounds() {
     assert(body.velocity.y >= 0.0f);
 }
 
+void testAirResistanceCalculatesQuadraticDragAgainstMotion() {
+    Body3D body(Vector3(0.0f, 0.0f, 0.0f), 1.0f);
+    body.setRadius(0.5f);
+    body.dragCoefficient = 1.0f;
+    body.velocity = Vector3(10.0f, 0.0f, 0.0f);
+
+    Vector3 dragForce = AirResistance3D::calculateDragForce(
+        body,
+        Vector3(),
+        1.0f
+    );
+
+    assert(dragForce.x < 0.0f);
+    assert(nearlyEqual(dragForce.y, 0.0f));
+    assert(nearlyEqual(dragForce.z, 0.0f));
+    assert(nearlyEqual(std::abs(dragForce.x), 39.2699f, 0.01f));
+}
+
+void testPhysicsWorld3DAirResistanceSlowsBody() {
+    PhysicsWorld3D world;
+    world.gravity = Vector3();
+    world.setAtmosphere(0.35f);
+    world.setBounds(Vector3(-100.0f, -100.0f, -100.0f), Vector3(100.0f, 100.0f, 100.0f));
+
+    Body3D body(Vector3(0.0f, 0.0f, 0.0f), 1.0f);
+    body.setRadius(0.5f);
+    body.dragCoefficient = 1.0f;
+    body.velocity = Vector3(10.0f, 0.0f, 0.0f);
+    world.addBody(&body);
+
+    world.step(0.1f);
+
+    assert(body.velocity.x > 0.0f);
+    assert(body.velocity.x < 10.0f);
+}
+
+void testPhysicsWorld3DWindUsesRelativeVelocity() {
+    PhysicsWorld3D world;
+    world.gravity = Vector3();
+    world.setAtmosphere(0.35f, Vector3(10.0f, 0.0f, 0.0f));
+    world.setBounds(Vector3(-100.0f, -100.0f, -100.0f), Vector3(100.0f, 100.0f, 100.0f));
+
+    Body3D body(Vector3(0.0f, 0.0f, 0.0f), 1.0f);
+    body.setRadius(0.5f);
+    body.dragCoefficient = 1.0f;
+    body.velocity = Vector3();
+    world.addBody(&body);
+
+    world.step(0.1f);
+
+    assert(body.velocity.x > 0.0f);
+}
+
+void testPhysicsWorld3DAirResistanceCanBeDisabled() {
+    PhysicsWorld3D world;
+    world.gravity = Vector3();
+    world.airResistanceEnabled = false;
+    world.setAtmosphere(1.0f);
+    world.setBounds(Vector3(-100.0f, -100.0f, -100.0f), Vector3(100.0f, 100.0f, 100.0f));
+
+    Body3D body(Vector3(0.0f, 0.0f, 0.0f), 1.0f);
+    body.setRadius(0.5f);
+    body.velocity = Vector3(10.0f, 0.0f, 0.0f);
+    world.addBody(&body);
+
+    world.step(0.1f);
+
+    assert(nearlyEqual(body.velocity.x, 10.0f));
+}
+
 }
 
 int main() {
@@ -64,6 +135,10 @@ int main() {
     testSphereSphereCollisionFindsNormalAndPenetration();
     testSphereResolutionSeparatesBodies();
     testPhysicsWorld3DGravityAndBounds();
+    testAirResistanceCalculatesQuadraticDragAgainstMotion();
+    testPhysicsWorld3DAirResistanceSlowsBody();
+    testPhysicsWorld3DWindUsesRelativeVelocity();
+    testPhysicsWorld3DAirResistanceCanBeDisabled();
 
     return 0;
 }

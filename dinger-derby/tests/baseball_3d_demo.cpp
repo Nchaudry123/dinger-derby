@@ -34,10 +34,13 @@ void resetBaseball(Body3D& baseball, PhysicsWorld3D& world) {
     world = PhysicsWorld3D();
     world.setBounds(boxMinimum, boxMaximum);
     world.gravity = Vector3(0.0f, -9.8f, 0.0f);
+    world.setAtmosphere(0.18f, Vector3(0.45f, 0.0f, -0.18f));
 
     baseball = Body3D(Vector3(-1.05f, 1.25f, 0.65f), 0.145f);
     baseball.setRadius(baseballRadius);
     baseball.restitution = 0.86f;
+    baseball.dragCoefficient = 0.35f;
+    baseball.airResistanceScale = 1.15f;
     baseball.velocity = Vector3(3.2f, 1.1f, 2.35f);
     world.addBody(&baseball);
 }
