@@ -138,11 +138,21 @@ void drawSkeletonOverlay(
         dot.setOrigin(sf::Vector2f(3.0f, 3.0f));
         sf::Vector2f sp = project(a);
         dot.setPosition(sp);
-        bool isArm = model.joints[i].name.find("Shoulder") != std::string::npos ||
-                     model.joints[i].name.find("Elbow") != std::string::npos ||
-                     model.joints[i].name.find("Wrist") != std::string::npos ||
-                     model.joints[i].name.find("Clavicle") != std::string::npos ||
-                     model.joints[i].name.find("Palm") != std::string::npos;
+        const std::string& jn = model.joints[i].name;
+        bool isArm = jn.find("Shoulder") != std::string::npos ||
+                     jn.find("UpperArm") != std::string::npos ||
+                     jn.find("HumTwist") != std::string::npos ||
+                     jn.find("Elbow") != std::string::npos ||
+                     jn.find("Forearm") != std::string::npos ||
+                     jn.find("ProTwist") != std::string::npos ||
+                     jn.find("Wrist") != std::string::npos ||
+                     jn.find("Clavicle") != std::string::npos ||
+                     jn.find("Palm") != std::string::npos ||
+                     jn.find("Index") != std::string::npos ||
+                     jn.find("Middle") != std::string::npos ||
+                     jn.find("Ring") != std::string::npos ||
+                     jn.find("Pinky") != std::string::npos ||
+                     jn.find("Thumb") != std::string::npos;
         dot.setFillColor(isArm ? sf::Color(255, 180, 60) : sf::Color(120, 255, 180));
         window.draw(dot);
     }
@@ -150,7 +160,15 @@ void drawSkeletonOverlay(
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    std::string startClip;
+    for (int i = 1; i < argc; i++) {
+        std::string a = argv[i];
+        if ((a == "--clip" || a == "-c") && i + 1 < argc) {
+            startClip = argv[++i];
+        }
+    }
+
     sf::ContextSettings glSettings;
     glSettings.depthBits = 24;
     glSettings.stencilBits = 8;
@@ -177,11 +195,19 @@ int main() {
     CharacterModel3D::BuildInfo info = CharacterModel3D::inspect(model);
     std::vector<std::string> clips = CharacterModel3D::clipNames(model);
     int clipIndex = 0;
-    for (int i = 0; i < static_cast<int>(clips.size()); i++) {
+    auto pickClip = [&](const std::string& name) {
+        for (int i = 0; i < static_cast<int>(clips.size()); i++) {
+            if (clips[static_cast<size_t>(i)] == name) {
+                clipIndex = i;
+                return true;
+            }
+        }
+        return false;
+    };
+    if (startClip.empty() || !pickClip(startClip)) {
         // Prefer natural standing rest (straight arms) for first look.
-        if (clips[static_cast<size_t>(i)] == "rest") {
-            clipIndex = i;
-            break;
+        if (!pickClip("rest")) {
+            clipIndex = 0;
         }
     }
 

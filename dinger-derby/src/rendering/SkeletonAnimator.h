@@ -25,7 +25,7 @@ public:
     Vector3 jointWorldPosition(int jointIndex) const;
     Vector3 jointWorldPosition(const std::string& name) const;
 
-    // Palm slightly beyond throw wrist for ball glue.
+    // Ball joint if present, else Palm_R, else wrist+offset — for pitch glue.
     Vector3 throwHandWorld(const Matrix4& modelWorld) const;
 
 private:

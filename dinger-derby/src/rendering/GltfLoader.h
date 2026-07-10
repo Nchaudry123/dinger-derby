@@ -17,9 +17,8 @@ struct GltfLoadResult {
 GltfLoadResult loadGltfFile(const std::string& path);
 
 // Resolve character asset with fallbacks:
-// 1) explicit path if non-empty and loadable
-// 2) assets/characters/<name>.gltf from CWD and parents
-// 3) procedural factory
+// 1) assets/characters/<name>.gltf from CWD and parents
+// 2) CharacterModel3D procedural athlete (Pitcher / Catcher)
 SkinnedModel3D loadCharacterOrProcedural(
     const std::string& name,
     bool catcher,

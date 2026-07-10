@@ -7,7 +7,8 @@
 
 // Realistic procedural baseball athlete rebuilt from human proportions.
 // ~1.78 m male, 8-head canon, natural standing rest (arms hang straight).
-// Full joint hierarchy for fluid posing in character_viewer_demo.
+// Multi-bone arms (Shoulder→UpperArm→HumTwist→Elbow→Forearm→ProTwist→Wrist→Palm)
+// for fluid throw skinning. throw_preview = RHP sideways set → windup → plate.
 namespace CharacterModel3D {
 
 enum class Role {

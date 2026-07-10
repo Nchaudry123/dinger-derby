@@ -83,16 +83,16 @@ Quaternion earlyCockShoulder() { return eul(-1.55f, 0.25f, 0.35f); }
 Quaternion earlyCockElbow() { return eul(1.58f, 0.12f, 0.06f); }
 
 // Full scapular load / max external rotation — elbow up, hand deep behind.
-Quaternion laybackThrowShoulder() { return eul(-2.75f, -0.55f, 0.85f); }
-Quaternion laybackThrowElbow() { return eul(1.62f, 0.22f, 0.05f); }
+Quaternion laybackThrowShoulder() { return eul(-2.70f, -1.15f, 0.70f); }
+Quaternion laybackThrowElbow() { return eul(1.55f, 0.16f, 0.05f); }
 
 // Acceleration frame: elbow leads the hand (kinetic chain).
-Quaternion accelThrowShoulder() { return eul(-2.35f, -0.40f, 0.45f); }
-Quaternion accelThrowElbow() { return eul(1.05f, 0.10f, 0.02f); }
+Quaternion accelThrowShoulder() { return eul(-2.10f, -0.40f, 0.40f); }
+Quaternion accelThrowElbow() { return eul(0.60f, 0.06f, 0.02f); }
 
-// High 3/4 release — long lever, slight downhill, hand above shoulder line.
-Quaternion releaseThrowShoulder() { return eul(-1.95f, -0.22f, 0.18f); }
-Quaternion releaseThrowElbow() { return eul(0.02f, 0.02f, -0.04f); }
+// High 3/4 release — long lever, hand above shoulder line toward plate.
+Quaternion releaseThrowShoulder() { return eul(-1.75f, -0.05f, 0.18f); }
+Quaternion releaseThrowElbow() { return eul(0.05f, 0.01f, -0.02f); }
 
 // Pronated finish across the body.
 Quaternion followThrowShoulder() { return eul(-1.05f, 0.65f, 0.55f); }

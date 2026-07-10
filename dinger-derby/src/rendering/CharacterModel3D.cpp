@@ -8,11 +8,13 @@
 // CharacterModel3D — aligned skinned humanoid
 // ----------------------------------------------------------------------------
 // Design rules for non-janky deformation:
-//  1. Every limb is ONE continuous tube through the joint (no floating pads).
-//  2. Weights come from distance along the bone chain (smoothstep falloffs).
+//  1. Every limb is a multi-bone chain (shoulder/upper/twist/elbow/fore/twist/wrist).
+//  2. Weights come from distance along the bone chain (hard mid-shaft falloffs).
 //  3. Bind pose = natural standing, arms hang straight (−Y), tiny elbow flex.
 //  4. Animations key FULL body chains, not isolated limbs.
 //  5. Joint locals: child translation is along the bone axis (−Y for limbs).
+//  6. Twist bones (HumTwist / ProTwist) isolate humeral ER and forearm pronation
+//     so skin does not melt when the throw lays back and snaps.
 // ============================================================================
 
 namespace CharacterModel3D {
@@ -42,6 +44,8 @@ const sf::Color kBelt(30, 32, 38);
 const sf::Color kHair(36, 26, 22);
 const sf::Color kEye(24, 20, 18);
 const sf::Color kUndershirt(218, 222, 230);
+const sf::Color kBall(242, 242, 248);
+const sf::Color kBallSeam(196, 42, 48);
 
 constexpr float kPi = 3.14159265f;
 constexpr float kHU = 1.78f / 8.0f;
@@ -162,8 +166,11 @@ void ball(
     }
 }
 
-// Continuous tube through 2–3 joints. Path is polyline of joint world positions
-// (and optional mid points). Weights blend smoothly so bends never tear.
+// Continuous tube along a joint chain.
+// blendHalf: half-width of the soft weight band at each joint, as a fraction
+// of the full path (0.05–0.08 = hard game-rig skinning; 0.20+ = melted mush).
+// Real-time character guides: keep mid-shaft 100% one bone; only the elbow/
+// shoulder rings share weights (3ds Max / Blender arm-skinning practice).
 void boneChain(
     SkinnedModel3D& m,
     const std::vector<Vector3>& pts,   // world bind positions along chain
@@ -173,7 +180,8 @@ void boneChain(
     sf::Color colB,
     float colorBreak,
     int rings,
-    int segs
+    int segs,
+    float blendHalf = 0.07f
 ) {
     const int n = static_cast<int>(pts.size());
     if (n < 2 || static_cast<int>(joints.size()) != n || static_cast<int>(radii.size()) != n) {
@@ -188,6 +196,7 @@ void boneChain(
     if (total < 1e-5f) {
         return;
     }
+    blendHalf = clampf(blendHalf, 0.02f, 0.25f);
 
     auto sample = [&](float t, Vector3& pos, Vector3& tan, float& radius, int& jA, int& jB, float& wB) {
         t = clampf(t, 0.0f, 1.0f);
@@ -195,20 +204,32 @@ void boneChain(
         int seg = 0;
         while (seg < n - 2 && cum[seg + 1] < target) seg++;
         float u = (target - cum[seg]) / std::max(cum[seg + 1] - cum[seg], 1e-6f);
-        u = smooth01(u);
-        pos = lerpV(pts[seg], pts[seg + 1], u);
+        // Keep path smooth, but do NOT use path-u as skin weight directly.
+        float uPath = smooth01(u);
+        pos = lerpV(pts[seg], pts[seg + 1], uPath);
         tan = safeNorm(pts[seg + 1] - pts[seg]);
         if (seg + 2 < n) {
-            tan = safeNorm(tan * (1.0f - u) + safeNorm(pts[seg + 2] - pts[seg + 1]) * u);
+            tan = safeNorm(tan * (1.0f - uPath) + safeNorm(pts[seg + 2] - pts[seg + 1]) * uPath);
         }
-        radius = lerp(radii[seg], radii[seg + 1], u);
+        radius = lerp(radii[seg], radii[seg + 1], uPath);
         jA = joints[seg];
         jB = joints[seg + 1];
-        // Wide soft blend — critical for non-janky elbows/knees
-        wB = smooth01(u);
-        // Extra soften near segment ends so adjacent segments fuse
-        if (u < 0.15f) wB *= smooth01(u / 0.15f);
-        if (u > 0.85f) wB = lerp(wB, 1.0f, smooth01((u - 0.85f) / 0.15f));
+
+        // Hard mid-shaft weights: only a narrow band around the joint blends.
+        // This is what prevents the "melted blob" when the elbow flexes hard.
+        float half = blendHalf;
+        if (u < 0.5f - half) {
+            wB = 0.0f;
+        } else if (u > 0.5f + half) {
+            wB = 1.0f;
+        } else {
+            float s = (u - (0.5f - half)) / (2.0f * half);
+            wB = smooth01(s);
+        }
+        // If both control points share the same joint, force rigid.
+        if (jA == jB) {
+            wB = 0.0f;
+        }
     };
 
     Vector3 p0, t0; float r0; int ja0, jb0; float wb0;
@@ -233,9 +254,9 @@ void boneChain(
             fwd = safeNorm(side.cross(tan));
         }
 
-        // Soft end cap (melts into next chain / body volume)
-        if (t < 0.03f) radius *= 0.70f + 0.30f * (t / 0.03f);
-        if (t > 0.97f) radius *= 0.70f + 0.30f * ((1.0f - t) / 0.03f);
+        // Mild end soften so segments meet without a hard disk; keep most radius.
+        if (t < 0.02f) radius *= 0.85f + 0.15f * (t / 0.02f);
+        if (t > 0.98f) radius *= 0.85f + 0.15f * ((1.0f - t) / 0.02f);
 
         float mix = smooth01((t - (colorBreak - 0.08f)) / 0.16f);
         mix = clampf(mix, 0.0f, 1.0f);
@@ -473,166 +494,302 @@ void attachClips(SkinnedModel3D& m, Role role) {
         m.clips.push_back(std::move(clip));
     }
 
-    // ── THROW PREVIEW — full body windup (keyed every major joint) ──────
+    // ── THROW PREVIEW — ball in glove → windup → throw to plate ────────
+    // Story: (0-4) ball locked in mitt · (5) hand break pulls ball free ·
+    // (6-7) stiff cock · (8-9) fire to plate · (10+) follow.
+    // Stiff-arm rule: PRIMARY motion on Shoulder + Elbow + Wrist only.
+    // UpperArm / HumTwist / Forearm / ProTwist stay SMALL so limbs don't
+    // look like noodles. Hang-bind: −rx raise, +rz open R, ry = twist.
     {
         AnimationClip clip;
         clip.name = "throw_preview";
-        clip.duration = 1.60f;
-        // 0 set · 1 rocker · 2 peak kick · 3 break · 4 plant · 5 release · 6 follow · 7 settle
-        std::vector<float> t = {0.00f, 0.22f, 0.48f, 0.68f, 0.88f, 1.02f, 1.28f, 1.60f};
-        const int n = 8;
+        clip.duration = 2.20f;
+        // 0 set · 1 rocker · 2 lift · 3 peak kick · 4 balance · 5 BREAK ·
+        // 6 stride cock · 7 plant · 8 accel · 9 RELEASE · 10 follow ·
+        // 11 decel · 12 finish · 13 settle
+        std::vector<float> t = {
+            0.00f, 0.18f, 0.36f, 0.52f, 0.64f, 0.78f,
+            0.92f, 1.04f, 1.14f, 1.22f, 1.42f, 1.64f, 1.88f, 2.20f
+        };
+        const int n = static_cast<int>(t.size());
 
+        // COM: rock back, tall on kick, drive toward plate (+Z).
         pushPos(clip, J("Hips"), t, {
-            hipRestT,
-            hipRestT + Vector3(0, -0.01f, -0.02f),
-            hipRestT + Vector3(0, 0.02f, 0.00f),
-            hipRestT + Vector3(0, -0.02f, 0.08f),
-            hipRestT + Vector3(0, -0.05f, 0.18f),
-            hipRestT + Vector3(0, -0.06f, 0.22f),
-            hipRestT + Vector3(0, -0.03f, 0.16f),
-            hipRestT + Vector3(0, 0, 0.04f)
+            hipRestT + Vector3(0.00f, -0.01f,  0.00f),
+            hipRestT + Vector3(0.00f, -0.03f, -0.04f),
+            hipRestT + Vector3(0.00f,  0.02f, -0.01f),
+            hipRestT + Vector3(0.00f,  0.04f,  0.00f),
+            hipRestT + Vector3(0.00f,  0.04f,  0.00f),
+            hipRestT + Vector3(0.00f,  0.00f,  0.05f),
+            hipRestT + Vector3(0.00f, -0.04f,  0.14f),
+            hipRestT + Vector3(0.00f, -0.07f,  0.22f),
+            hipRestT + Vector3(0.00f, -0.08f,  0.27f),
+            hipRestT + Vector3(0.00f, -0.08f,  0.30f),
+            hipRestT + Vector3(0.00f, -0.05f,  0.24f),
+            hipRestT + Vector3(0.00f, -0.02f,  0.14f),
+            hipRestT + Vector3(0.00f,  0.00f,  0.05f),
+            hipRestT
         });
+
+        // Sideways set → open toward plate. Stay closed through plant.
         pushRot(clip, J("Hips"), t, {
-            eul(0.02f, -0.12f, 0),
-            eul(0.04f, -0.30f, -0.02f),
-            eul(0.02f, -0.38f, -0.02f),
-            eul(0.06f, -0.10f, 0.02f),
-            eul(0.12f, 0.20f, 0.04f),
-            eul(0.14f, 0.48f, 0.06f),
-            eul(0.12f, 0.55f, 0.05f),
-            eul(0.04f, 0.12f, 0)
+            eul(0.05f, -1.20f, 0.00f),
+            eul(0.07f, -1.30f, -0.03f),
+            eul(0.04f, -1.36f, -0.03f),
+            eul(0.02f, -1.38f, -0.02f),
+            eul(0.02f, -1.38f, -0.02f),
+            eul(0.05f, -1.22f,  0.00f),  // break still side-on
+            eul(0.10f, -0.90f,  0.03f),
+            eul(0.14f, -0.50f,  0.04f),  // plant closed
+            eul(0.16f,  0.00f,  0.05f),  // hips fire
+            eul(0.16f,  0.38f,  0.05f),  // RELEASE
+            eul(0.14f,  0.72f,  0.04f),
+            eul(0.10f,  0.40f,  0.02f),
+            eul(0.05f,  0.14f,  0.01f),
+            eul(0.02f,  0.03f,  0.00f)
         });
+
         pushRot(clip, J("Spine"), t, {
-            eul(0.03f, -0.06f, 0), eul(0.04f, -0.16f, -0.02f), eul(0.02f, -0.22f, -0.02f),
-            eul(0.06f, -0.12f, 0), eul(0.10f, 0.05f, 0.03f), eul(0.14f, 0.30f, 0.05f),
-            eul(0.12f, 0.38f, 0.04f), eul(0.04f, 0.08f, 0)
+            eul(0.05f, -0.06f, 0), eul(0.06f, -0.12f, -0.02f), eul(0.04f, -0.16f, -0.02f),
+            eul(0.03f, -0.18f, -0.02f), eul(0.03f, -0.18f, -0.02f), eul(0.05f, -0.20f, -0.01f),
+            eul(0.10f, -0.26f, 0.01f), eul(0.13f, -0.28f, 0.02f), eul(0.15f, -0.04f, 0.04f),
+            eul(0.16f,  0.26f, 0.04f), eul(0.13f,  0.42f, 0.03f), eul(0.09f,  0.20f, 0.02f),
+            eul(0.05f,  0.07f, 0.01f), eul(0.02f,  0.02f, 0)
         });
         pushRot(clip, J("Chest"), t, {
-            eul(0.02f, -0.04f, 0), eul(0.03f, -0.14f, -0.02f), eul(0.02f, -0.20f, -0.02f),
-            eul(0.04f, -0.16f, 0), eul(0.08f, 0.02f, 0.02f), eul(0.12f, 0.34f, 0.05f),
-            eul(0.10f, 0.40f, 0.04f), eul(0.03f, 0.08f, 0)
+            eul(0.04f, -0.05f, 0), eul(0.05f, -0.10f, -0.02f), eul(0.04f, -0.14f, -0.02f),
+            eul(0.03f, -0.16f, -0.02f), eul(0.03f, -0.16f, -0.02f), eul(0.04f, -0.22f, -0.01f),
+            eul(0.07f, -0.30f, 0), eul(0.11f, -0.32f, 0.02f), eul(0.14f, -0.06f, 0.04f),
+            eul(0.15f,  0.30f, 0.05f), eul(0.11f,  0.46f, 0.04f), eul(0.07f,  0.22f, 0.02f),
+            eul(0.04f,  0.07f, 0.01f), eul(0.02f,  0.02f, 0)
         });
         pushRot(clip, J("Head"), t, {
-            eul(0, 0.05f, 0), eul(0, 0.08f, 0), eul(-0.03f, 0.10f, 0),
-            eul(-0.02f, 0.06f, 0), eul(0.02f, 0.02f, 0), eul(0.06f, 0, 0),
-            eul(0.04f, -0.08f, 0), eul(0, 0, 0)
+            eul(-0.04f, 0.82f, 0), eul(-0.05f, 0.88f, 0), eul(-0.06f, 0.90f, 0),
+            eul(-0.06f, 0.90f, 0), eul(-0.06f, 0.88f, 0), eul(-0.04f, 0.68f, 0),
+            eul(-0.02f, 0.42f, 0), eul(0.00f, 0.22f, 0), eul(0.04f, 0.06f, 0),
+            eul(0.07f, 0.00f, 0), eul(0.05f, -0.10f, 0), eul(0.02f, -0.04f, 0),
+            eul(0, 0, 0), eul(0, 0, 0)
         });
 
-        // Clavicles
+        // Mild clavicle only — big shrugs read as rubber shoulders.
         pushRot(clip, J("Clavicle_R"), t, {
-            eul(0, 0, 0.02f), eul(0.02f, 0, 0.04f), eul(0.03f, 0, 0.05f),
-            eul(-0.04f, -0.06f, 0.10f), eul(-0.08f, -0.10f, 0.12f),
-            eul(0.10f, 0.06f, 0.06f), eul(0.04f, 0.04f, 0.03f), eul(0, 0, 0.02f)
+            eul(0.02f, 0, 0.04f), eul(0.03f, 0, 0.05f), eul(0.03f, 0, 0.05f),
+            eul(0.03f, 0, 0.05f), eul(0.03f, 0, 0.05f), eul(0.00f, -0.04f, 0.08f),
+            eul(-0.04f, -0.08f, 0.10f), eul(-0.06f, -0.10f, 0.12f), eul(-0.02f, -0.04f, 0.08f),
+            eul(0.08f, 0.06f, 0.06f), eul(0.04f, 0.03f, 0.03f), eul(0.02f, 0.01f, 0.02f),
+            eul(0.02f, 0, 0.02f), eul(0.02f, 0, 0.02f)
         });
         pushRot(clip, J("Clavicle_L"), t, {
-            eul(0, 0, -0.02f), eul(0.02f, 0, -0.03f), eul(0.03f, 0, -0.04f),
-            eul(0.05f, 0.04f, -0.06f), eul(0.08f, 0.06f, -0.08f),
-            eul(0.05f, 0.03f, -0.04f), eul(0.03f, 0.02f, -0.03f), eul(0, 0, -0.02f)
+            eul(0.02f, 0, -0.04f), eul(0.03f, 0, -0.05f), eul(0.03f, 0, -0.05f),
+            eul(0.03f, 0, -0.05f), eul(0.03f, 0, -0.05f), eul(0.05f, 0.03f, -0.07f),
+            eul(0.06f, 0.04f, -0.08f), eul(0.07f, 0.05f, -0.08f), eul(0.05f, 0.03f, -0.05f),
+            eul(0.03f, 0.02f, -0.03f), eul(0.03f, 0.01f, -0.03f), eul(0.02f, 0, -0.02f),
+            eul(0.02f, 0, -0.02f), eul(0.02f, 0, -0.02f)
         });
 
-        // Throw arm (R) — hang bind → set (hand near chest) → layback → release
-        // rx < 0 raises forward/up; rz > 0 opens to side; ry = twist.
+        // ── THROW ARM — stiff primary chain ─────────────────────────────
+        // Keys 0-4: R hand DEEP in glove (ball hidden in mitt pocket).
+        // Key 5: BREAK — peel ball free, start cock path as one rigid limb.
+        // Shoulder carries elevation/abduction; elbow is a clean hinge.
         pushRot(clip, J("Shoulder_R"), t, {
-            eul(-1.05f, 0.35f, 0.55f),   // set: hand gathers near chest/glove
-            eul(-1.10f, 0.40f, 0.50f),   // rocker
-            eul(-1.15f, 0.42f, 0.48f),   // kick hold
-            eul(-1.60f, -0.05f, 0.85f),  // break / early cock (elbow up)
-            eul(-2.20f, -0.55f, 1.10f),  // max layback (hand deep behind)
-            eul(-1.55f, -0.15f, 0.35f),  // release high 3/4 forward
-            eul(-0.70f, 0.40f, 0.90f),   // follow across body
-            eul(0.02f, 0, 0.04f)         // settle hang
+            eul(-0.62f,  0.28f,  0.28f),  // 0 set — hand deep in mitt
+            eul(-0.64f,  0.28f,  0.28f),  // 1
+            eul(-0.66f,  0.30f,  0.30f),  // 2 lift (still in glove)
+            eul(-0.68f,  0.30f,  0.30f),  // 3 kick
+            eul(-0.68f,  0.30f,  0.30f),  // 4 balance HOLD glove box
+            eul(-1.20f, -0.02f,  0.65f),  // 5 BREAK — pull ball out/up
+            eul(-1.80f, -0.12f,  0.70f),  // 6 stride cock (unit lift)
+            eul(-2.15f, -0.22f,  0.66f),  // 7 plant high elbow
+            eul(-1.70f, -0.06f,  0.30f),  // 8 accel — drive forward
+            eul(-1.35f,  0.02f,  0.14f),  // 9 RELEASE high ¾
+            eul(-0.68f,  0.12f,  0.78f),  // 10 follow across
+            eul(-0.32f,  0.08f,  0.42f),
+            eul(-0.10f,  0.03f,  0.14f),
+            eul( 0.02f,  0.00f,  0.04f)
         });
+        // Intermediate bones: nearly rigid (tiny assist only).
+        pushRot(clip, J("UpperArm_R"), t, {
+            eul(-0.04f, 0.04f, 0), eul(-0.04f, 0.04f, 0), eul(-0.04f, 0.05f, 0),
+            eul(-0.04f, 0.05f, 0), eul(-0.04f, 0.05f, 0), eul(-0.06f, -0.08f, 0),
+            eul(-0.08f, -0.18f, 0), eul(-0.10f, -0.22f, 0), eul(-0.05f, -0.08f, 0),
+            eul(-0.02f, 0.04f, 0), eul(-0.02f, 0.08f, 0), eul(-0.01f, 0.04f, 0),
+            eul(0, 0, 0), eul(0, 0, 0)
+        });
+        pushRot(clip, J("HumTwist_R"), t, {
+            eul(0, 0.08f, 0), eul(0, 0.08f, 0), eul(0, 0.10f, 0), eul(0, 0.10f, 0),
+            eul(0, 0.10f, 0), eul(0, -0.15f, 0), eul(0, -0.35f, 0), eul(0, -0.48f, 0),
+            eul(0, -0.12f, 0), eul(0, 0.12f, 0), eul(0, 0.22f, 0), eul(0, 0.10f, 0),
+            eul(0, 0.02f, 0), eul(0, 0, 0)
+        });
+        // Elbow: clean hinge. Set flexed in glove; cock stays bent; release extends.
         pushRot(clip, J("Elbow_R"), t, {
-            eul(1.40f, 0.05f, 0),
-            eul(1.45f, 0.05f, 0),
-            eul(1.48f, 0.05f, 0),
-            eul(1.52f, 0.10f, 0),
-            eul(1.55f, 0.15f, 0),
-            eul(0.12f, 0.02f, 0),
-            eul(-0.05f, 0, 0.04f),
+            eul(1.15f, 0, 0),  // set deep in glove
+            eul(1.15f, 0, 0),
+            eul(1.18f, 0, 0),
+            eul(1.20f, 0, 0),
+            eul(1.20f, 0, 0),
+            eul(1.28f, 0, 0),  // break still bent
+            eul(1.35f, 0, 0),  // cock
+            eul(1.38f, 0, 0),  // plant — athletic flex, not collapsed
+            eul(0.55f, 0, 0),  // accel extend
+            eul(0.08f, 0, 0),  // RELEASE nearly straight
+            eul(0.05f, 0, 0),
+            eul(0.15f, 0, 0),
+            eul(0.18f, 0, 0),
             eul(0.12f, 0, 0)
         });
+        pushRot(clip, J("Forearm_R"), t, holdQ(eul(0.02f, 0.02f, 0), n));
+        // Pronation: mild lag → release snap (not a hose twist).
+        pushRot(clip, J("ProTwist_R"), t, {
+            eul(0, 0.05f, 0), eul(0, 0.05f, 0), eul(0, 0.05f, 0), eul(0, 0.05f, 0),
+            eul(0, 0.05f, 0), eul(0, 0.12f, 0), eul(0, 0.18f, 0), eul(0, 0.22f, 0),
+            eul(0, 0.02f, 0), eul(0, -0.40f, 0), eul(0, -0.22f, 0), eul(0, -0.08f, 0),
+            eul(0, -0.02f, 0), eul(0, 0, 0)
+        });
         pushRot(clip, J("Wrist_R"), t, {
-            eul(0.10f, 0.05f, 0.05f),
-            eul(0.12f, 0.06f, 0.08f),
-            eul(0.14f, 0.06f, 0.08f),
-            eul(0.28f, 0.12f, 0.15f),
-            eul(0.35f, 0.15f, 0.18f),
-            eul(-0.42f, -0.18f, -0.14f),
-            eul(-0.22f, -0.08f, -0.08f),
-            eul(0, 0, 0)
+            eul(0.10f, 0.02f, 0.04f), eul(0.10f, 0.02f, 0.04f), eul(0.12f, 0.02f, 0.05f),
+            eul(0.12f, 0.02f, 0.05f), eul(0.12f, 0.02f, 0.05f), eul(0.22f, 0.04f, 0.08f),
+            eul(0.28f, 0.05f, 0.10f), eul(0.32f, 0.06f, 0.12f), eul(0.10f, 0.02f, 0.04f),
+            eul(-0.35f, -0.06f, -0.08f), eul(-0.18f, -0.03f, -0.04f), eul(-0.06f, 0, 0),
+            eul(0, 0, 0), eul(0, 0, 0)
         });
         pushRot(clip, J("Palm_R"), t, {
-            eul(0.05f, 0, 0), eul(0.06f, 0, 0), eul(0.06f, 0, 0),
-            eul(0.12f, 0.04f, 0), eul(0.18f, 0.06f, 0),
-            eul(-0.15f, -0.04f, 0), eul(-0.08f, 0, 0), eul(0, 0, 0)
+            eul(0.05f, 0, 0), eul(0.05f, 0, 0), eul(0.06f, 0, 0), eul(0.06f, 0, 0),
+            eul(0.06f, 0, 0), eul(0.10f, 0.02f, 0), eul(0.12f, 0.03f, 0), eul(0.14f, 0.04f, 0),
+            eul(0.05f, 0.01f, 0), eul(-0.10f, -0.02f, 0), eul(-0.05f, 0, 0),
+            eul(-0.02f, 0, 0), eul(0, 0, 0), eul(0, 0, 0)
+        });
+        // Ball nestled deep in glove pocket through balance, then rides palm out.
+        const Vector3 ballInGlove(0.00f, 0.006f, 0.018f);
+        const Vector3 ballInHand(0.00f, -0.014f, 0.032f);
+        const Vector3 ballRelease(0.00f, -0.020f, 0.040f);
+        pushPos(clip, J("Ball"), t, {
+            ballInGlove, ballInGlove, ballInGlove, ballInGlove, ballInGlove,
+            ballInHand, ballInHand, ballInHand, ballInHand,
+            ballRelease,  // release — ball still on palm at release frame
+            ballRelease + Vector3(0, -0.02f, 0.08f), // start leaving hand
+            ballRelease + Vector3(0, -0.05f, 0.22f),
+            ballRelease + Vector3(0, -0.08f, 0.40f),
+            ballRelease + Vector3(0, -0.10f, 0.55f)
+        });
+        // Fingers: wrap ball in glove → firm grip on cock → open at release.
+        auto fingerGrip = [&](const char* name, float inGlove, float grip) {
+            pushRot(clip, J(name), t, {
+                eul(inGlove, 0, 0), eul(inGlove, 0, 0), eul(inGlove, 0, 0), eul(inGlove, 0, 0),
+                eul(inGlove, 0, 0), eul(grip, 0, 0), eul(grip + 0.05f, 0, 0), eul(grip + 0.08f, 0, 0),
+                eul(grip * 0.4f, 0, 0), eul(0.04f, 0, 0), eul(0.08f, 0, 0), eul(0.10f, 0, 0),
+                eul(0.06f, 0, 0), eul(0.04f, 0, 0)
+            });
+        };
+        fingerGrip("Index_R", 0.55f, 0.50f);
+        fingerGrip("Middle_R", 0.58f, 0.55f);
+        fingerGrip("Ring_R", 0.55f, 0.52f);
+        fingerGrip("Pinky_R", 0.48f, 0.45f);
+        pushRot(clip, J("Thumb_R"), t, {
+            eul(0.25f, 0.18f, 0.30f), eul(0.25f, 0.18f, 0.30f), eul(0.25f, 0.18f, 0.30f),
+            eul(0.25f, 0.18f, 0.30f), eul(0.25f, 0.18f, 0.30f), eul(0.28f, 0.20f, 0.32f),
+            eul(0.30f, 0.22f, 0.34f), eul(0.32f, 0.24f, 0.36f), eul(0.14f, 0.10f, 0.14f),
+            eul(0.04f, 0.04f, 0.06f), eul(0.08f, 0.05f, 0.08f), eul(0.10f, 0.04f, 0.06f),
+            eul(0.06f, 0.03f, 0.04f), eul(0.04f, 0.02f, 0.02f)
         });
 
-        // Glove arm (L) — stays front/high then tucks
+        // ── GLOVE ARM — locked box with throw hand, then target tuck ────
+        // Keys 0-4: mitt + ball hand clamped together. Break separates cleanly.
         pushRot(clip, J("Shoulder_L"), t, {
-            eul(-1.00f, -0.30f, -0.55f),
-            eul(-1.05f, -0.32f, -0.52f),
-            eul(-1.10f, -0.35f, -0.50f),
-            eul(-0.70f, -0.20f, -0.25f),
-            eul(-0.50f, -0.10f, -0.15f),
-            eul(-0.40f, -0.08f, -0.12f),
-            eul(-0.50f, -0.12f, -0.20f),
-            eul(0.02f, 0, -0.04f)
+            eul(-0.58f,  0.52f,  0.88f),  // set mitt clamped on ball hand
+            eul(-0.60f,  0.52f,  0.86f),
+            eul(-0.62f,  0.48f,  0.82f),
+            eul(-0.64f,  0.46f,  0.78f),
+            eul(-0.64f,  0.46f,  0.78f),  // hold glove box
+            eul(-0.45f,  0.20f,  0.25f),  // break — mitt stays brief target
+            eul(-0.38f,  0.05f, -0.06f),
+            eul(-0.32f, -0.02f, -0.14f),
+            eul(-0.28f, -0.04f, -0.12f),
+            eul(-0.26f, -0.04f, -0.10f),
+            eul(-0.32f, -0.05f, -0.12f),
+            eul(-0.36f, -0.06f, -0.14f),
+            eul(-0.20f, -0.03f, -0.08f),
+            eul(0.02f, 0.00f, -0.04f)
         });
+        pushRot(clip, J("UpperArm_L"), t, {
+            eul(-0.04f, 0.08f, 0.03f), eul(-0.04f, 0.08f, 0.03f), eul(-0.04f, 0.07f, 0.02f),
+            eul(-0.04f, 0.06f, 0.02f), eul(-0.04f, 0.06f, 0.02f), eul(-0.03f, 0.02f, 0),
+            eul(-0.02f, 0, 0), eul(-0.02f, 0, 0), eul(-0.02f, 0, 0),
+            eul(-0.02f, 0, 0), eul(-0.02f, 0, 0), eul(-0.02f, 0, 0),
+            eul(-0.01f, 0, 0), eul(0, 0, 0)
+        });
+        pushRot(clip, J("HumTwist_L"), t, holdQ(eul(0, 0.08f, 0), n));
         pushRot(clip, J("Elbow_L"), t, {
-            eul(1.35f, 0, 0), eul(1.40f, 0, 0), eul(1.42f, 0, 0),
-            eul(1.10f, 0, 0), eul(0.95f, 0, 0), eul(0.85f, 0, 0),
-            eul(0.95f, 0, 0), eul(0.12f, 0, 0)
+            eul(1.20f, 0, 0), eul(1.20f, 0, 0), eul(1.22f, 0, 0), eul(1.24f, 0, 0),
+            eul(1.24f, 0, 0), eul(0.95f, 0, 0), eul(0.85f, 0, 0), eul(0.78f, 0, 0),
+            eul(0.74f, 0, 0), eul(0.70f, 0, 0), eul(0.78f, 0, 0), eul(0.85f, 0, 0),
+            eul(0.40f, 0, 0), eul(0.12f, 0, 0)
         });
-        pushRot(clip, J("Wrist_L"), t, holdQ(eul(0.05f, 0, 0), n));
+        pushRot(clip, J("Forearm_L"), t, holdQ(eul(0.02f, 0.03f, 0), n));
+        pushRot(clip, J("ProTwist_L"), t, holdQ(eul(0, 0.04f, 0), n));
+        pushRot(clip, J("Wrist_L"), t, holdQ(eul(0.08f, 0, 0), n));
 
-        // Lead leg (L)
+        // LEAD LEG (L): peel → high knee → stride to plate → plant brace.
         pushRot(clip, J("Hip_L"), t, {
-            eul(0.05f, 0.04f, 0.04f),
-            eul(-0.55f, 0.08f, 0.08f),
-            eul(-1.50f, 0.12f, 0.10f), // peak kick
-            eul(-0.70f, 0.06f, 0.04f),
-            eul(-0.08f, 0, 0),
-            eul(-0.04f, -0.02f, 0),
-            eul(-0.04f, -0.02f, 0),
-            eul(0.04f, 0, 0.02f)
+            eul(0.10f, 0.08f, 0.06f),
+            eul(-0.50f, 0.10f, 0.08f),
+            eul(-1.10f, 0.12f, 0.10f),
+            eul(-1.58f, 0.14f, 0.10f),   // peak kick
+            eul(-1.60f, 0.14f, 0.10f),
+            eul(-1.10f, 0.10f, 0.06f),
+            eul(-0.42f, 0.04f, 0.02f),
+            eul(-0.06f, -0.02f, 0.00f),  // plant toward plate
+            eul(-0.04f, -0.03f, 0.00f),
+            eul(-0.03f, -0.04f, 0.00f),
+            eul(-0.03f, -0.04f, 0.00f),
+            eul(0.00f, -0.02f, 0.00f),
+            eul(0.04f, 0.00f, 0.00f),
+            eul(0.05f, 0.00f, 0.02f)
         });
         pushRot(clip, J("Knee_L"), t, {
-            eul(0.08f, 0, 0), eul(0.85f, 0, 0), eul(1.50f, 0, 0),
-            eul(0.75f, 0, 0), eul(0.25f, 0, 0), eul(0.18f, 0, 0),
-            eul(0.15f, 0, 0), eul(0.08f, 0, 0)
+            eul(0.12f, 0, 0), eul(0.72f, 0, 0), eul(1.28f, 0, 0), eul(1.62f, 0, 0),
+            eul(1.64f, 0, 0), eul(1.15f, 0, 0), eul(0.52f, 0, 0), eul(0.26f, 0, 0),
+            eul(0.20f, 0, 0), eul(0.16f, 0, 0), eul(0.14f, 0, 0), eul(0.12f, 0, 0),
+            eul(0.10f, 0, 0), eul(0.10f, 0, 0)
         });
         pushRot(clip, J("Ankle_L"), t, {
-            eul(-0.05f, 0, 0), eul(0.30f, 0, 0), eul(0.55f, 0, 0),
-            eul(0.15f, 0, 0), eul(-0.15f, 0, 0), eul(-0.12f, 0, 0),
-            eul(-0.08f, 0, 0), eul(-0.05f, 0, 0)
+            eul(-0.06f, 0, 0), eul(0.32f, 0, 0), eul(0.52f, 0, 0), eul(0.62f, 0, 0),
+            eul(0.62f, 0, 0), eul(0.25f, 0, 0), eul(-0.05f, 0, 0), eul(-0.18f, 0, 0),
+            eul(-0.16f, 0, 0), eul(-0.14f, 0, 0), eul(-0.12f, 0, 0), eul(-0.08f, 0, 0),
+            eul(-0.06f, 0, 0), eul(-0.05f, 0, 0)
         });
         pushRot(clip, J("Toe_L"), t, {
-            eul(0.05f, 0, 0), eul(0.20f, 0, 0), eul(0.35f, 0, 0),
-            eul(0.10f, 0, 0), eul(-0.05f, 0, 0), eul(-0.02f, 0, 0),
-            eul(0.02f, 0, 0), eul(0.05f, 0, 0)
+            eul(0.05f, 0, 0), eul(0.24f, 0, 0), eul(0.40f, 0, 0), eul(0.44f, 0, 0),
+            eul(0.44f, 0, 0), eul(0.18f, 0, 0), eul(0.05f, 0, 0), eul(-0.05f, 0, 0),
+            eul(-0.03f, 0, 0), eul(-0.02f, 0, 0), eul(0.00f, 0, 0), eul(0.02f, 0, 0),
+            eul(0.04f, 0, 0), eul(0.05f, 0, 0)
         });
 
-        // Plant leg (R)
+        // PLANT LEG (R): load rubber → drive toward plate.
         pushRot(clip, J("Hip_R"), t, {
-            eul(0.06f, 0, -0.03f), eul(0.18f, 0, -0.05f), eul(0.28f, 0, -0.04f),
-            eul(0.38f, 0, 0), eul(0.45f, 0, 0.03f), eul(0.38f, 0, 0.04f),
-            eul(0.25f, 0, 0.03f), eul(0.06f, 0, -0.02f)
+            eul(0.16f, 0, -0.06f), eul(0.24f, 0, -0.08f), eul(0.30f, 0, -0.07f),
+            eul(0.34f, 0, -0.06f), eul(0.36f, 0, -0.06f), eul(0.42f, 0, -0.02f),
+            eul(0.50f, 0, 0.02f), eul(0.52f, 0, 0.04f), eul(0.48f, 0, 0.05f),
+            eul(0.42f, 0, 0.06f), eul(0.28f, 0, 0.05f), eul(0.18f, 0, 0.03f),
+            eul(0.12f, 0, 0.01f), eul(0.08f, 0, -0.02f)
         });
         pushRot(clip, J("Knee_R"), t, {
-            eul(0.10f, 0, 0), eul(0.30f, 0, 0), eul(0.40f, 0, 0),
-            eul(0.50f, 0, 0), eul(0.48f, 0, 0), eul(0.40f, 0, 0),
-            eul(0.25f, 0, 0), eul(0.10f, 0, 0)
+            eul(0.24f, 0, 0), eul(0.34f, 0, 0), eul(0.40f, 0, 0), eul(0.44f, 0, 0),
+            eul(0.48f, 0, 0), eul(0.55f, 0, 0), eul(0.60f, 0, 0), eul(0.56f, 0, 0),
+            eul(0.48f, 0, 0), eul(0.42f, 0, 0), eul(0.32f, 0, 0), eul(0.24f, 0, 0),
+            eul(0.18f, 0, 0), eul(0.12f, 0, 0)
         });
         pushRot(clip, J("Ankle_R"), t, {
-            eul(-0.08f, 0, 0), eul(-0.15f, 0, 0), eul(-0.18f, 0, 0),
-            eul(-0.10f, 0, 0), eul(0.08f, 0, 0), eul(0.15f, 0, 0),
-            eul(0.05f, 0, 0), eul(-0.05f, 0, 0)
+            eul(-0.10f, 0, 0), eul(-0.16f, 0, 0), eul(-0.18f, 0, 0), eul(-0.20f, 0, 0),
+            eul(-0.22f, 0, 0), eul(-0.12f, 0, 0), eul(0.04f, 0, 0), eul(0.12f, 0, 0),
+            eul(0.16f, 0, 0), eul(0.18f, 0, 0), eul(0.10f, 0, 0), eul(0.02f, 0, 0),
+            eul(-0.04f, 0, 0), eul(-0.06f, 0, 0)
         });
         pushRot(clip, J("Toe_R"), t, {
-            eul(0.05f, 0, 0), eul(0.08f, 0, 0), eul(0.10f, 0, 0),
-            eul(0.05f, 0, 0), eul(-0.10f, 0, 0), eul(-0.15f, 0, 0),
-            eul(-0.05f, 0, 0), eul(0.05f, 0, 0)
+            eul(0.05f, 0, 0), eul(0.08f, 0, 0), eul(0.10f, 0, 0), eul(0.12f, 0, 0),
+            eul(0.12f, 0, 0), eul(0.06f, 0, 0), eul(-0.04f, 0, 0), eul(-0.12f, 0, 0),
+            eul(-0.16f, 0, 0), eul(-0.18f, 0, 0), eul(-0.08f, 0, 0), eul(0.00f, 0, 0),
+            eul(0.03f, 0, 0), eul(0.05f, 0, 0)
         });
 
         m.clips.push_back(std::move(clip));
@@ -762,17 +919,44 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     int clavL = addJoint(m, "Clavicle_L", chest, Vector3(-0.05f, 0.10f, 0.015f));
     int clavR = addJoint(m, "Clavicle_R", chest, Vector3(0.05f, 0.10f, 0.015f));
 
-    // Shoulders at biacromial width; arms hang −Y with tiny outward angle.
+    // Multi-bone hang arms (−Y). Extra joints let the throw distribute
+    // elevation / humeral ER / elbow flex / forearm pronation separately:
+    //   Clavicle → Shoulder → UpperArm → HumTwist → Elbow
+    //            → Forearm → ProTwist → Wrist → Palm
     // rz>0 swings bone toward +X, so R opens with +rz, L opens with −rz.
-    int shL = addJoint(m, "Shoulder_L", clavL, Vector3(-0.13f, 0.0f, 0.0f), eul(0, 0, -0.06f));
-    int elL = addJoint(m, "Elbow_L", shL, Vector3(0.0f, -kUpperArm, 0.010f), eul(0.10f, 0, 0));
-    int wrL = addJoint(m, "Wrist_L", elL, Vector3(0.0f, -kForearm, 0.006f));
-    int palmL = addJoint(m, "Palm_L", wrL, Vector3(0.0f, -kHand * 0.55f, 0.012f));
+    // ry on HumTwist / ProTwist = twist about the bone axis (ER / pronation).
+    const float uaA = kUpperArm * 0.48f;
+    const float uaB = kUpperArm * 0.52f;
+    const float faA = kForearm * 0.52f;
+    const float faB = kForearm * 0.48f;
 
-    int shR = addJoint(m, "Shoulder_R", clavR, Vector3(0.13f, 0.0f, 0.0f), eul(0, 0, +0.06f));
-    int elR = addJoint(m, "Elbow_R", shR, Vector3(0.0f, -kUpperArm, 0.010f), eul(0.10f, 0, 0));
-    int wrR = addJoint(m, "Wrist_R", elR, Vector3(0.0f, -kForearm, 0.006f));
-    int palmR = addJoint(m, "Palm_R", wrR, Vector3(0.0f, -kHand * 0.55f, 0.015f));
+    int shL = addJoint(m, "Shoulder_L", clavL, Vector3(-0.14f, 0.0f, 0.0f), eul(0, 0, -0.10f));
+    int uaL = addJoint(m, "UpperArm_L", shL, Vector3(0.0f, -uaA, 0.006f));
+    int htL = addJoint(m, "HumTwist_L", uaL, Vector3(0.0f, -uaB, 0.006f));
+    int elL = addJoint(m, "Elbow_L", htL, Vector3(0.0f, 0.0f, 0.0f), eul(0.08f, 0, 0));
+    int faL = addJoint(m, "Forearm_L", elL, Vector3(0.0f, -faA, 0.005f));
+    int ptL = addJoint(m, "ProTwist_L", faL, Vector3(0.0f, -faB, 0.003f));
+    int wrL = addJoint(m, "Wrist_L", ptL, Vector3(0.0f, 0.0f, 0.0f));
+    int palmL = addJoint(m, "Palm_L", wrL, Vector3(0.0f, -kHand * 0.55f, 0.014f));
+
+    int shR = addJoint(m, "Shoulder_R", clavR, Vector3(0.14f, 0.0f, 0.0f), eul(0, 0, +0.10f));
+    int uaR = addJoint(m, "UpperArm_R", shR, Vector3(0.0f, -uaA, 0.006f));
+    int htR = addJoint(m, "HumTwist_R", uaR, Vector3(0.0f, -uaB, 0.006f));
+    int elR = addJoint(m, "Elbow_R", htR, Vector3(0.0f, 0.0f, 0.0f), eul(0.08f, 0, 0));
+    int faR = addJoint(m, "Forearm_R", elR, Vector3(0.0f, -faA, 0.005f));
+    int ptR = addJoint(m, "ProTwist_R", faR, Vector3(0.0f, -faB, 0.003f));
+    int wrR = addJoint(m, "Wrist_R", ptR, Vector3(0.0f, 0.0f, 0.0f));
+    int palmR = addJoint(m, "Palm_R", wrR, Vector3(0.0f, -kHand * 0.55f, 0.016f));
+
+    // Throw-hand finger bones (mesh follows palm; joints enable grip/snap keys).
+    int fIdx = addJoint(m, "Index_R", palmR, Vector3(0.012f, -0.030f, 0.010f));
+    int fMid = addJoint(m, "Middle_R", palmR, Vector3(0.004f, -0.034f, 0.012f));
+    int fRng = addJoint(m, "Ring_R", palmR, Vector3(-0.006f, -0.032f, 0.010f));
+    int fPnk = addJoint(m, "Pinky_R", palmR, Vector3(-0.014f, -0.028f, 0.006f));
+    int fThm = addJoint(m, "Thumb_R", palmR, Vector3(0.022f, -0.008f, 0.008f), eul(0.15f, 0.4f, 0.55f));
+    // Baseball rides the throw palm: nestled in glove at set, pulled out on break.
+    int ballJ = addJoint(m, "Ball", palmR, Vector3(0.0f, -0.012f, 0.028f));
+    (void)fIdx; (void)fMid; (void)fRng; (void)fPnk; (void)fThm;
 
     int hipR = addJoint(m, "Hip_R", hips, Vector3(0.10f, -0.03f, 0.0f));
     int knR = addJoint(m, "Knee_R", hipR, Vector3(0.0f, -kThigh, 0.012f));
@@ -851,11 +1035,11 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     ball(m, W(spine), 0.115f, 0.085f, 0.098f, torso, hr, hs, spine, 0.70f, hips, 0.15f, chest, 0.15f);
     ball(m, W(chest), 0.138f, 0.095f, 0.108f, torso, hr, hs, chest, 0.85f, spine, 0.15f);
     ball(m, W(chest) + Vector3(0, -0.02f, 0.04f), 0.118f, 0.078f, 0.072f, torsoD, hr - 1, hs - 2, chest, 1.0f);
-    // Shoulder girdle bridge — continuous into both arms
-    ball(m, (W(shL) + W(shR)) * 0.5f + Vector3(0, 0.01f, 0.01f),
-         0.118f, 0.036f, 0.058f, torso, hr, hs, chest, 0.75f, spine, 0.25f);
-    ball(m, W(clavL), 0.040f, 0.028f, 0.036f, torso, hr - 1, hs - 2, clavL, 0.65f, chest, 0.35f);
-    ball(m, W(clavR), 0.040f, 0.028f, 0.036f, torso, hr - 1, hs - 2, clavR, 0.65f, chest, 0.35f);
+    // Slim collarbone bridge — do NOT overbuild delts into the chest plate.
+    ball(m, (W(shL) + W(shR)) * 0.5f + Vector3(0, 0.012f, 0.008f),
+         0.095f, 0.028f, 0.048f, torso, hr - 1, hs - 2, chest, 0.85f, spine, 0.15f);
+    ball(m, W(clavL), 0.032f, 0.022f, 0.030f, torso, hr - 2, hs - 3, clavL, 0.75f, chest, 0.25f);
+    ball(m, W(clavR), 0.032f, 0.022f, 0.030f, torso, hr - 2, hs - 3, clavR, 0.75f, chest, 0.25f);
 
     if (pitcher) {
         ball(m, G[chest].transformPoint(Vector3(0, -0.02f, 0.100f)), 0.012f, 0.042f, 0.008f, kAccent, 4, 6, chest, 1.0f);
@@ -864,51 +1048,105 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         ball(m, W(chest) + Vector3(0, 0, 0.06f), 0.135f, 0.108f, 0.062f, kGear, hr, hs, chest, 1.0f);
     }
 
-    // ── ARMS: one continuous chain clavicle→wrist ───────────────────────
-    auto makeArm = [&](int jClav, int jSh, int jEl, int jWr, int jPalm, bool mitt, bool fingers) {
-        Vector3 pC = W(jClav), pS = W(jSh), pE = W(jEl), pW = W(jWr), pP = W(jPalm);
-        Vector3 midU = lerpV(pS, pE, 0.42f) + Vector3(0, 0, 0.008f);
-        Vector3 midF = lerpV(pE, pW, 0.48f) + Vector3(0, 0, 0.004f);
-        // Single continuous surface — critical for aligned bends
+    // ── ARMS (multi-bone game-rig skinning) ─────────────────────────────
+    // Chain: Shoulder → UpperArm → HumTwist → Elbow → Forearm → ProTwist → Wrist.
+    // Hard mid-shaft weights so ER / elbow flex / pronation stay readable.
+    auto makeArm = [&](
+        int jClav, int jSh, int jUa, int jHt, int jEl, int jFa, int jPt, int jWr, int jPalm,
+        bool mitt, bool fingers
+    ) {
+        Vector3 pS = W(jSh), pUa = W(jUa), pE = W(jEl), pFa = W(jFa), pW = W(jWr), pP = W(jPalm);
+        Vector3 axisU = safeNorm(pE - pS);
+        Vector3 axisF = safeNorm(pW - pE);
+
+        // Solid athletic radii — thin tubes read as noodles when they bend.
+        const float rDeltoid = 0.048f;
+        const float rUpper = 0.044f;
+        const float rElbow = 0.036f;
+        const float rFore = 0.038f;
+        const float rWrist = 0.028f;
+
+        // Upper arm: hard mid-shaft (narrow joint blend = rigid segments).
+        Vector3 u0 = pS + axisU * 0.018f;
+        Vector3 u1 = pUa;
+        Vector3 u2 = pE - axisU * 0.018f;
         boneChain(
             m,
-            {lerpV(pC, pS, 0.4f), pS, midU, pE, midF, pW},
-            {jClav, jSh, jSh, jEl, jEl, jWr},
-            {0.040f, 0.048f, 0.045f, 0.038f, 0.034f, 0.026f},
-            sleeve, kSkin, 0.48f,
-            rings + 14, segs + 2
+            {u0, u1, u2},
+            {jSh, jUa, jHt},
+            {rDeltoid, rUpper, rElbow},
+            sleeve, sleeve, 0.5f,
+            rings + 8, segs,
+            0.04f
         );
-        // Soft deltoid fused into chest+clavicle+shoulder
-        ball(m, pS, 0.046f, 0.044f, 0.046f, sleeve, hr - 1, hs - 2, jSh, 0.50f, jClav, 0.25f, chest, 0.25f);
-        // Elbow fused upper+forearm
-        ball(m, pE, 0.032f, 0.030f, 0.032f, kSkin, hr - 2, hs - 2, jEl, 0.60f, jSh, 0.20f, jWr, 0.20f);
-        // Sleeve hem
-        ball(m, lerpV(pS, pE, 0.58f), 0.044f, 0.042f, 0.044f, torsoD, hr - 2, hs - 2, jSh, 0.40f, jEl, 0.60f);
-        ball(m, pW, 0.024f, 0.022f, 0.024f, kSkinDeep, 6, 10, jWr, 0.75f, jEl, 0.25f);
+
+        // Forearm: same hard skinning so flex is a hinge, not a bendy hose.
+        Vector3 f0 = pE + axisF * 0.014f;
+        Vector3 f1 = pFa;
+        Vector3 f2 = pW - axisF * 0.010f;
+        boneChain(
+            m,
+            {f0, f1, f2},
+            {jEl, jFa, jPt},
+            {rElbow, rFore, rWrist},
+            kSkin, kSkin, 0.5f,
+            rings + 8, segs,
+            0.04f
+        );
+
+        // Solid deltoid cap.
+        ball(m, pS + axisU * 0.01f, 0.046f, 0.042f, 0.046f, sleeve, hr - 2, hs - 2,
+             jSh, 0.88f, jClav, 0.12f);
+
+        // Elbow hinge crease — mostly elbow bone (stiff hinge).
+        ball(m, pE, 0.032f, 0.028f, 0.032f, kSkin, hr - 3, hs - 3,
+             jEl, 0.82f, jHt, 0.10f, jFa, 0.08f);
+
+        // Sleeve cuff on upper-arm bone.
+        ball(m, pUa + axisU * 0.02f, 0.044f, 0.042f, 0.044f, torsoD, hr - 3, hs - 3,
+             jUa, 0.92f, jHt, 0.08f);
+
+        // Wrist mass.
+        ball(m, pW, 0.026f, 0.022f, 0.026f, kSkinDeep, 6, 10, jWr, 0.88f, jPt, 0.12f);
 
         if (mitt) {
-            ball(m, pP, 0.068f, 0.080f, 0.046f, kMitt, hr, hs, jPalm, 0.85f, jWr, 0.15f);
-            ball(m, pP + Vector3(0, 0.028f, 0.016f), 0.050f, 0.038f, 0.032f, kMittPad, hr - 1, hs - 2, jPalm, 1.0f);
-            ball(m, pP + Vector3(-0.036f, 0.01f, 0), 0.026f, 0.040f, 0.024f, kMittDeep, 6, 10, jPalm, 1.0f);
-            ball(m, pP + Vector3(0.034f, 0.008f, 0), 0.024f, 0.036f, 0.022f, kMittDeep, 6, 10, jPalm, 1.0f);
-            ball(m, pW, 0.028f, 0.024f, 0.028f, kMittDeep, 6, 10, jWr, 0.7f, jPalm, 0.3f);
+            ball(m, pP, 0.058f, 0.070f, 0.040f, kMitt, hr - 1, hs - 2, jPalm, 0.92f, jWr, 0.08f);
+            ball(m, pP + Vector3(0, 0.024f, 0.014f), 0.042f, 0.032f, 0.028f, kMittPad, hr - 2, hs - 3, jPalm, 1.0f);
+            ball(m, pP + Vector3(-0.030f, 0.008f, 0), 0.022f, 0.034f, 0.020f, kMittDeep, 5, 8, jPalm, 1.0f);
+            ball(m, pP + Vector3(0.028f, 0.006f, 0), 0.020f, 0.030f, 0.018f, kMittDeep, 5, 8, jPalm, 1.0f);
+            ball(m, pW, 0.024f, 0.020f, 0.024f, kMittDeep, 5, 8, jWr, 0.85f, jPalm, 0.15f);
         } else if (fingers) {
-            ball(m, pP, 0.030f, 0.016f, 0.040f, kSkinDeep, hr - 1, hs - 2, jPalm, 0.85f, jWr, 0.15f);
+            ball(m, pP, 0.028f, 0.014f, 0.036f, kSkinDeep, hr - 2, hs - 3, jPalm, 0.92f, jWr, 0.08f);
             Vector3 dir = safeNorm(pP - pW, Vector3(0, -1, 0));
             Vector3 side = safeNorm(dir.cross(Vector3(0, 0, 1)), Vector3(1, 0, 0));
+            // Prefer named finger joints when present (throw hand).
+            const char* fingerNames[] = {"Index_R", "Middle_R", "Ring_R", "Pinky_R"};
             for (int f = 0; f < 4; f++) {
-                float lat = (static_cast<float>(f) - 1.5f) * 0.011f;
-                Vector3 b0 = pP + side * lat + dir * 0.015f;
-                Vector3 b1 = b0 + dir * 0.052f;
-                boneChain(m, {b0, b1}, {jPalm, jPalm}, {0.008f, 0.006f}, kSkin, kSkinDeep, 0.5f, 5, 7);
+                float lat = (static_cast<float>(f) - 1.5f) * 0.010f;
+                Vector3 b0 = pP + side * lat + dir * 0.012f;
+                Vector3 b1 = b0 + dir * 0.048f;
+                int jF = m.findJoint(fingerNames[f]);
+                if (jF < 0) jF = jPalm;
+                boneChain(m, {b0, b1}, {jPalm, jF}, {0.007f, 0.0055f}, kSkin, kSkinDeep, 0.5f, 5, 7, 0.05f);
             }
-            Vector3 tb = pP - side * 0.026f + dir * 0.004f;
-            Vector3 tt = tb - side * 0.012f + dir * 0.026f;
-            boneChain(m, {tb, tt}, {jPalm, jPalm}, {0.009f, 0.007f}, kSkin, kSkinDeep, 0.5f, 5, 7);
+            int jTh = m.findJoint("Thumb_R");
+            if (jTh < 0) jTh = jPalm;
+            Vector3 tb = pP - side * 0.024f + dir * 0.004f;
+            Vector3 tt = tb - side * 0.011f + dir * 0.024f;
+            boneChain(m, {tb, tt}, {jPalm, jTh}, {0.008f, 0.006f}, kSkin, kSkinDeep, 0.5f, 5, 7, 0.05f);
         }
     };
-    makeArm(clavL, shL, elL, wrL, palmL, !athlete, false);
-    makeArm(clavR, shR, elR, wrR, palmR, false, true);
+    makeArm(clavL, shL, uaL, htL, elL, faL, ptL, wrL, palmL, !athlete, false);
+    makeArm(clavR, shR, uaR, htR, elR, faR, ptR, wrR, palmR, false, true);
+
+    // Baseball on throw palm (set nestles it in the mitt; break pulls it free).
+    if (pitcher && ballJ >= 0) {
+        Vector3 pBall = W(ballJ);
+        ball(m, pBall, 0.037f, 0.037f, 0.037f, kBall, hr - 1, hs - 1, ballJ, 1.0f);
+        // Simple seam bands for read at distance.
+        ball(m, pBall + Vector3(0.0f, 0.0f, 0.001f), 0.038f, 0.010f, 0.012f, kBallSeam, 4, 8, ballJ, 1.0f);
+        ball(m, pBall + Vector3(0.0f, 0.001f, 0.0f), 0.010f, 0.038f, 0.012f, kBallSeam, 4, 8, ballJ, 1.0f);
+    }
 
     // ── NECK + HEAD (continuous, no floating head) ──────────────────────
     boneChain(

@@ -26,6 +26,7 @@
 #include "rendering/BaseballVisual3D.h"
 #include "rendering/BaseballPlayer3D.h"
 #include "rendering/BaseballAnims.h"
+#include "rendering/CharacterModel3D.h"
 #include "rendering/GltfLoader.h"
 #include "rendering/GlRenderer.h"
 #include "rendering/SkeletonAnimator.h"
@@ -1023,22 +1024,41 @@ int main() {
     const float catcherWorldZ = plateZ + 0.95f;
     auto playerDetail = [&]() { return fullQuality ? 2 : 2; }; // always high model detail
 
-    // Skinned path (glTF if present, else procedural humanoid) + Yamamoto bone clip.
+    // Skinned path: glTF if present, else CharacterModel3D (multi-bone throw).
     SkinnedModel3D pitcherModel = loadCharacterOrProcedural("pitcher", false, playerDetail());
     SkinnedModel3D catcherModel = loadCharacterOrProcedural("catcher", true, playerDetail());
-    AnimationClip yamamotoClip = BaseballAnims::yamamotoWindup(pitcherModel);
-    // Prefer clip from glTF if authored under this name.
-    if (const AnimationClip* c = pitcherModel.findClip("yamamoto_windup")) {
-        yamamotoClip = *c;
+
+    // Delivery clip preference: throw_preview (CharacterModel3D) → yamamoto → generated.
+    AnimationClip deliveryClip;
+    if (const AnimationClip* c = pitcherModel.findClip("throw_preview")) {
+        deliveryClip = *c;
+    } else if (const AnimationClip* c = pitcherModel.findClip("yamamoto_windup")) {
+        deliveryClip = *c;
+    } else {
+        deliveryClip = BaseballAnims::yamamotoWindup(pitcherModel);
     }
-    AnimationClip pitcherIdleClip = BaseballAnims::pitcherIdle(pitcherModel);
-    AnimationClip catcherIdleClip = BaseballAnims::catcherIdle(catcherModel);
+
+    AnimationClip pitcherIdleClip;
+    if (const AnimationClip* c = pitcherModel.findClip("idle")) {
+        pitcherIdleClip = *c;
+    } else {
+        pitcherIdleClip = BaseballAnims::pitcherIdle(pitcherModel);
+    }
+
+    AnimationClip catcherIdleClip;
+    if (const AnimationClip* c = catcherModel.findClip("crouch")) {
+        catcherIdleClip = *c;
+    } else if (const AnimationClip* c = catcherModel.findClip("idle")) {
+        catcherIdleClip = *c;
+    } else {
+        catcherIdleClip = BaseballAnims::catcherIdle(catcherModel);
+    }
 
     SkeletonAnimator pitcherAnim;
     SkeletonAnimator catcherAnim;
     pitcherAnim.setModel(pitcherModel);
     catcherAnim.setModel(catcherModel);
-    pitcherAnim.resetToRest();
+    pitcherAnim.applyClip(pitcherIdleClip, 0.0f, false);
     catcherAnim.applyClip(catcherIdleClip, 0.0f);
 
     Mesh3D pitcherMesh = pitcherModel.skinToMesh(pitcherAnim.skinMatrices());
@@ -1092,10 +1112,11 @@ int main() {
     float deliveryAge = -1.0f; // < 0 => idle; seconds into delivery clip
     float playerRebuildTimer = 0.0f;
     bool ballReleased = false;
-    // Yamamoto windup timing (FanGraphs slow-mo): long balance, late fire.
-    // Release key is at t=0.66 of the bone clip (duration 1.55s).
-    constexpr float deliveryDuration = 1.55f;
-    constexpr float releaseNormalized = 0.66f;
+    // throw_preview: release key at 1.22s / 2.20s ≈ 0.555. Older yamamoto used 0.66.
+    const float deliveryDuration = deliveryClip.duration > 1e-3f ? deliveryClip.duration : 2.20f;
+    const float releaseNormalized = (deliveryClip.name == "throw_preview")
+        ? (1.22f / deliveryDuration)
+        : 0.66f;
     constexpr float playerRebuildHz = 60.0f;
     bool paused = false;
     bool draggingSpeedSlider = false;
@@ -1304,15 +1325,15 @@ int main() {
             resultBannerTimer = std::max(0.0f, resultBannerTimer - dt);
         }
 
-        // Skinned pose first so release spawns from the throw hand joint.
+        // Skinned pose first so release spawns from the throw hand / Ball joint.
         if (deliveryAge >= 0.0f) {
             float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
-            pitcherAnim.applyClipNormalized(yamamotoClip, deliveryT);
+            pitcherAnim.applyClipNormalized(deliveryClip, deliveryT);
         } else {
-            // Still set pose — no idle arm fidget.
-            pitcherAnim.applyClip(pitcherIdleClip, 0.0f, false);
+            // Loop idle when not delivering (breathing / weight shift).
+            pitcherAnim.applyClip(pitcherIdleClip, poseClock, true);
         }
-        catcherAnim.applyClip(catcherIdleClip, 0.0f, false);
+        catcherAnim.applyClip(catcherIdleClip, poseClock, true);
 
         if (!paused) {
             poseClock += dt;
@@ -1320,7 +1341,7 @@ int main() {
             if (deliveryAge >= 0.0f) {
                 deliveryAge += dt;
                 float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
-                pitcherAnim.applyClipNormalized(yamamotoClip, deliveryT);
+                pitcherAnim.applyClipNormalized(deliveryClip, deliveryT);
 
                 // Keep the live ball glued to the skinned throw hand until release.
                 if (!ballReleased) {

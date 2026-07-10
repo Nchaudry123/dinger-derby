@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+#include "CharacterModel3D.h"
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -633,7 +635,16 @@ SkinnedModel3D loadCharacterOrProcedural(
             return std::move(loaded.model);
         }
     }
-    return catcher
-        ? SkinnedModel3D::makeProceduralCatcher(detail)
-        : SkinnedModel3D::makeProceduralPitcher(detail);
+    // Prefer the workshop CharacterModel3D athlete (multi-bone arms + throw_preview).
+    // Older makeProcedural* humanoids remain available for tests / fallback tooling.
+    CharacterModel3D::Detail d = CharacterModel3D::Detail::High;
+    if (detail <= 0) {
+        d = CharacterModel3D::Detail::Low;
+    } else if (detail == 1) {
+        d = CharacterModel3D::Detail::Medium;
+    }
+    return CharacterModel3D::build(
+        catcher ? CharacterModel3D::Role::Catcher : CharacterModel3D::Role::Pitcher,
+        d
+    );
 }

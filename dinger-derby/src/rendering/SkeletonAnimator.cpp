@@ -200,7 +200,11 @@ Vector3 SkeletonAnimator::jointWorldPosition(const std::string& name) const {
 }
 
 Vector3 SkeletonAnimator::throwHandWorld(const Matrix4& modelWorld) const {
-    // Prefer dedicated palm joint; fall back to wrist_R + offset along forearm.
+    // Prefer Ball joint (CharacterModel3D), then palm, then wrist+offset.
+    int ball = model_ ? model_->findJoint("Ball") : -1;
+    if (ball >= 0) {
+        return modelWorld.transformPoint(jointWorldPosition(ball));
+    }
     int palm = model_ ? model_->findJoint("Palm_R") : -1;
     if (palm >= 0) {
         return modelWorld.transformPoint(jointWorldPosition(palm));
