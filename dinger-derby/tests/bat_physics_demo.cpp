@@ -514,7 +514,76 @@ struct HitInfo {
     float sweet = 0;
     float s = 0;
     Vector3 point;
+    // Filled at contact, refined on landing.
+    bool fair = true;
+    float sprayDeg = 0;       // 0 = straight to CF (−Z), + = 1B, − = 3B
+    float distanceFeet = 0;   // estimated / landing
+    const char* quality = "Contact";
 };
+
+// Classify batted ball from exit velocity + landing (or projected flight).
+void classifyHit(HitInfo& h, const Vector3& velocity, const Vector3& landingOrNow) {
+    float horiz = std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+    h.launchDeg = std::atan2(velocity.y, std::max(horiz, 1e-4f)) * kDeg;
+    h.exitMph = velocity.magnitude() * 2.236936f;
+    // Spray relative to outfield center (−Z from plate).
+    h.sprayDeg = std::atan2(velocity.x, -velocity.z) * kDeg;
+    h.fair = std::abs(h.sprayDeg) <= 45.0f;
+
+    // Distance from home plate in feet.
+    float dx = landingOrNow.x;
+    float dz = landingOrNow.z - plateZ;
+    h.distanceFeet = std::sqrt(dx * dx + dz * dz) * feetPerWorldUnit;
+
+    if (!h.fair) {
+        h.quality = "Foul";
+        return;
+    }
+    // Simple quality buckets (The Show–ish).
+    if (h.launchDeg < 8.0f) {
+        h.quality = "Grounder";
+    } else if (h.launchDeg < 20.0f) {
+        h.quality = (h.exitMph >= 90.0f) ? "Line Drive" : "Soft Liner";
+    } else if (h.launchDeg < 38.0f) {
+        if (h.exitMph >= 95.0f && h.distanceFeet >= 320.0f) {
+            h.quality = "Home Run";
+        } else if (h.exitMph >= 85.0f) {
+            h.quality = "Fly Ball";
+        } else {
+            h.quality = "Flare";
+        }
+    } else {
+        h.quality = (h.exitMph >= 80.0f) ? "Pop Up" : "Weak Pop";
+    }
+    // Upgrade to HR if fair and very deep even if LA a bit high.
+    if (h.fair && h.distanceFeet >= 340.0f && h.exitMph >= 92.0f && h.launchDeg >= 18.0f &&
+        h.launchDeg <= 42.0f) {
+        h.quality = "Home Run";
+    }
+}
+
+// Project landing distance with pure gravity (for immediate post-contact readout).
+float projectLandingDistanceFeet(const Vector3& pos, const Vector3& vel) {
+    if (vel.y <= 0.0f && pos.y <= 0.2f) {
+        float dx = pos.x;
+        float dz = pos.z - plateZ;
+        return std::sqrt(dx * dx + dz * dz) * feetPerWorldUnit;
+    }
+    // Solve y + vy t - 0.5 g t^2 = 0.05
+    float g = 9.8f;
+    float y0 = pos.y - 0.05f;
+    float disc = vel.y * vel.y + 2.0f * g * y0;
+    if (disc < 0.0f) {
+        disc = 0.0f;
+    }
+    float t = (vel.y + std::sqrt(disc)) / g;
+    t = std::max(t, 0.05f);
+    Vector3 land = pos + Vector3(vel.x * t, 0.0f, vel.z * t);
+    land.y = 0.05f;
+    float dx = land.x;
+    float dz = land.z - plateZ;
+    return std::sqrt(dx * dx + dz * dz) * feetPerWorldUnit;
+}
 
 HitInfo tryHit(
     Body3D& ball,
@@ -635,6 +704,17 @@ HitInfo tryHit(
     h.exitMph = ball.velocity.magnitude() * 2.236936f;
     float horiz = std::sqrt(ball.velocity.x * ball.velocity.x + ball.velocity.z * ball.velocity.z);
     h.launchDeg = std::atan2(ball.velocity.y, horiz) * kDeg;
+    // Immediate classification from exit; distance refined on landing.
+    h.distanceFeet = projectLandingDistanceFeet(ball.position, ball.velocity);
+    classifyHit(h, ball.velocity, ball.position + ball.velocity * 0.35f);
+    // Prefer projected landing distance for the quality call.
+    h.distanceFeet = projectLandingDistanceFeet(ball.position, ball.velocity);
+    if (h.fair && h.distanceFeet >= 340.0f && h.exitMph >= 92.0f && h.launchDeg >= 18.0f &&
+        h.launchDeg <= 42.0f) {
+        h.quality = "Home Run";
+    } else if (!h.fair) {
+        h.quality = "Foul";
+    }
     return h;
 }
 
@@ -1050,6 +1130,7 @@ int main() {
     AtBatCount count;
     bool swungThisPitch = false;
     bool pitchResolved = false;
+    bool landingLogged = false;
     Vector3 plateCrossPos = strikeZoneCenter;
     float prevBallZ = moundZ;
 
@@ -1082,10 +1163,21 @@ int main() {
 
         std::string call = kind;
         if (std::string(kind) == "HIT") {
-            count.hits += 1;
-            resetAtBat();
-            statusCol = sf::Color(120, 255, 160);
-            scheduleNextPitch(practiceMode ? 5.5f : 4.0f);
+            // Fair hit ends AB; foul contact is still a strike (unless 2 strikes).
+            if (lastHit.fair) {
+                count.hits += 1;
+                resetAtBat();
+                statusCol = sf::Color(120, 255, 160);
+                scheduleNextPitch(practiceMode ? 5.5f : 4.0f);
+            } else {
+                // Foul ball: strike if under 2, otherwise stays 2.
+                if (count.strikes < 2) {
+                    count.strikes += 1;
+                }
+                call = "Foul";
+                statusCol = sf::Color(255, 200, 140);
+                scheduleNextPitch(2.2f);
+            }
         } else if (std::string(kind) == "SWINGING_STRIKE" || std::string(kind) == "CALLED_STRIKE") {
             count.strikes = std::min(3, count.strikes + 1);
             if (count.strikes >= 3) {
@@ -1133,6 +1225,7 @@ int main() {
         hasHit = false;
         swungThisPitch = false;
         pitchResolved = false;
+        landingLogged = false;
         prevBallZ = moundZ;
         plateCrossPos = strikeZoneCenter;
         followBallCam = false;
@@ -1322,12 +1415,38 @@ int main() {
                     resolvePitch("HIT");
                     std::ostringstream oss;
                     oss << std::fixed << std::setprecision(0)
-                        << prof.name << " HIT  " << lastHit.exitMph << " mph exit  LA "
-                        << lastHit.launchDeg << "°  bat " << lastHit.batMph << " mph  sweet "
-                        << (lastHit.sweet * 100.0f) << "%  ·  " << countString();
+                        << lastHit.quality << "  " << lastHit.exitMph << " mph  LA "
+                        << lastHit.launchDeg << "°  ~" << lastHit.distanceFeet << " ft  "
+                        << (lastHit.fair ? "FAIR" : "FOUL")
+                        << "  spray " << lastHit.sprayDeg << "°  ·  " << countString();
                     status = oss.str();
-                    statusCol = lastHit.sweet > 0.85f ? sf::Color(120, 255, 160)
-                        : (lastHit.sweet > 0.5f ? sf::Color(255, 230, 120) : sf::Color(255, 150, 100));
+                    if (!lastHit.fair) {
+                        statusCol = sf::Color(255, 190, 120);
+                    } else if (std::string(lastHit.quality) == "Home Run") {
+                        statusCol = sf::Color(255, 220, 80);
+                    } else {
+                        statusCol = lastHit.sweet > 0.85f ? sf::Color(120, 255, 160)
+                            : (lastHit.sweet > 0.5f ? sf::Color(255, 230, 120) : sf::Color(255, 150, 100));
+                    }
+                }
+
+                // Refine distance when the ball lands.
+                if (hasHit && !landingLogged && baseball.position.y < 0.18f &&
+                    baseball.velocity.y <= 0.0f) {
+                    landingLogged = true;
+                    float dx = baseball.position.x;
+                    float dz = baseball.position.z - plateZ;
+                    lastHit.distanceFeet = std::sqrt(dx * dx + dz * dz) * feetPerWorldUnit;
+                    if (lastHit.fair && lastHit.distanceFeet >= 340.0f && lastHit.exitMph >= 92.0f &&
+                        lastHit.launchDeg >= 18.0f && lastHit.launchDeg <= 42.0f) {
+                        lastHit.quality = "Home Run";
+                    }
+                    std::ostringstream oss;
+                    oss << std::fixed << std::setprecision(0)
+                        << lastHit.quality << " lands  " << lastHit.distanceFeet << " ft  "
+                        << lastHit.exitMph << " mph  LA " << lastHit.launchDeg << "°  "
+                        << (lastHit.fair ? "FAIR" : "FOUL") << "  ·  " << countString();
+                    status = oss.str();
                 }
 
                 // Sample plate-crossing xy for called balls/strikes.
@@ -1499,9 +1618,11 @@ int main() {
             if (lastHit.hit) {
                 std::ostringstream hit;
                 hit << std::fixed << std::setprecision(0)
-                    << "Last: exit " << lastHit.exitMph << " mph @ " << lastHit.launchDeg
-                    << "° · bat " << lastHit.batMph << " · sweet " << (lastHit.sweet * 100.0f)
-                    << "% · pitch was " << pitchMph << " mph";
+                    << "Last: " << lastHit.quality << "  " << lastHit.exitMph << " mph @ "
+                    << lastHit.launchDeg << "°  " << lastHit.distanceFeet << " ft  "
+                    << (lastHit.fair ? "FAIR" : "FOUL")
+                    << "  spray " << lastHit.sprayDeg << "°  sweet "
+                    << (lastHit.sweet * 100.0f) << "%";
                 drawText(window, font, hit.str(), 13, {22, 132}, sf::Color(255, 220, 140));
             }
         }
