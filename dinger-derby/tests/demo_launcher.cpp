@@ -282,7 +282,7 @@ void launchDemo(
     const DemoEntry& demo
 ) {
     std::filesystem::path executable = buildDirectory / demo.executable;
-    window.setTitle("Dinger Derby  ·  launching " + demo.name + "…");
+    window.setTitle("Dinger Derby | launching " + demo.name + "...");
 
     drawVerticalGradient(window, 0, 0, static_cast<float>(winW), static_cast<float>(winH), colBgTop, colBgBot);
     drawSoftCircle(window, {winW * 0.5f, winH * 0.45f}, 220.0f, sf::Color(40, 120, 90, 40));
@@ -312,7 +312,7 @@ void launchDemo(
     std::string command = shellQuote(executable);
     int result = std::system(command.c_str());
     (void)result;
-    window.setTitle("Dinger Derby  ·  Demo Launcher");
+    window.setTitle("Dinger Derby | Demo Launcher");
 }
 
 } // namespace
@@ -321,9 +321,11 @@ int main(int argc, char** argv) {
     sf::ContextSettings settings;
     settings.antiAliasingLevel = 8;
 
+    // Titles must be plain ASCII — SFML/Cocoa can fail setTitle with nil
+    // if conversion from non-ASCII string fails.
     sf::RenderWindow window(
         sf::VideoMode(sf::Vector2u(winW, winH)),
-        "Dinger Derby  ·  Demo Launcher",
+        "Dinger Derby | Demo Launcher",
         sf::Style::Default,
         sf::State::Windowed,
         settings
@@ -580,7 +582,7 @@ int main(int argc, char** argv) {
             drawText(
                 window,
                 font,
-                "Engine demos  ·  Home Run Derby foundation",
+                "Engine demos  |  Home Run Derby foundation",
                 15,
                 {84.0f, 66.0f},
                 colMuted
@@ -588,7 +590,7 @@ int main(int argc, char** argv) {
             drawText(
                 window,
                 font,
-                "↑↓ select   Enter launch   Tab category   Esc quit",
+                "Up/Down select   Enter launch   Tab category   Esc quit",
                 13,
                 {winW - 420.0f, 42.0f},
                 sf::Color(100, 130, 145)
@@ -691,7 +693,7 @@ int main(int argc, char** argv) {
 
         if (fontLoaded) {
             std::ostringstream title;
-            title << categories[filterIndex] << "  ·  " << idxList.size()
+            title << categories[filterIndex] << "  |  " << idxList.size()
                   << (idxList.size() == 1 ? " demo" : " demos");
             drawText(window, font, title.str(), 13, {L.listX, L.headerH + 28.0f}, colMuted, true);
         }
@@ -875,7 +877,7 @@ int main(int argc, char** argv) {
                 drawText(
                     window,
                     font,
-                    "★ FEATURED",
+                    "* FEATURED",
                     12,
                     {L.detailX + 32.0f, L.headerH + 424.0f},
                     colGold,
@@ -901,7 +903,7 @@ int main(int argc, char** argv) {
             drawText(
                 window,
                 font,
-                "  ▶   LAUNCH",
+                "   >  LAUNCH",
                 18,
                 {L.detailX + 70.0f, static_cast<float>(winH) - 80.0f},
                 colText,
