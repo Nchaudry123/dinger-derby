@@ -14,6 +14,7 @@ public:
     Vector3 rotation;
     float fieldOfView;
     float nearPlane;
+    float farPlane; // used by GlRenderer perspective (software path ignores)
 
     Camera3D();
 

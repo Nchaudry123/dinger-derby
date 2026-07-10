@@ -11,9 +11,10 @@
 //   2 Mound view
 //   3 CF wall view
 //   4 Press box
-//   5 Free orbit (default)
-//   R                 reset orbit
-//   G                 toggle grass grid overlay
+//   5 Free orbit
+//   6 Full park overview (default)
+//   R                 reset to overview
+//   G                 toggle labels
 //   Esc               quit
 
 #include <SFML/Graphics.hpp>
@@ -41,7 +42,7 @@ constexpr float feetPerWorldUnit = 2.0f;
 // Short-porch showcase dimensions (real-ish, compact enough to read).
 constexpr float wallFeet = 380.0f;
 constexpr float wallR = wallFeet / feetPerWorldUnit;       // ~190
-constexpr float wallH = 12.0f / feetPerWorldUnit;          // ~8 ft wall visual → 6 units
+constexpr float wallH = 18.0f / feetPerWorldUnit;          // taller wall so it reads from orbit
 constexpr float foulAngle = 45.0f * pi / 180.0f;
 constexpr float infieldR = 95.0f / feetPerWorldUnit;       // dirt arc
 constexpr float moundZ = 60.5f / feetPerWorldUnit;         // 60.5 ft from home toward CF
@@ -168,7 +169,7 @@ void addAnnulusSector(
     }
 }
 
-// Vertical wall ribbon along an arc
+// Vertical wall ribbon along an arc (double-sided so it reads from any orbit).
 void addArcWall(
     Mesh3D& m,
     float r,
@@ -189,12 +190,14 @@ void addArcWall(
         Vector3 b1 = polar(r, ang1, y0);
         Vector3 tA = polar(r, ang0, y1);
         Vector3 tB = polar(r, ang1, y1);
-        // Face inward (toward home)
+        // Inward face (toward home) + outward face for exterior orbit views
         addQuad(m, b0, b1, tB, tA, face);
-        // Cap
-        Vector3 outer0 = polar(r + 1.2f, ang0, y1);
-        Vector3 outer1 = polar(r + 1.2f, ang1, y1);
+        addQuad(m, b1, b0, tA, tB, face);
+        // Cap on top of wall
+        Vector3 outer0 = polar(r + 1.8f, ang0, y1);
+        Vector3 outer1 = polar(r + 1.8f, ang1, y1);
         addQuad(m, tA, tB, outer1, outer0, top);
+        addQuad(m, tB, tA, outer0, outer1, top);
     }
 }
 
@@ -410,7 +413,12 @@ Mesh3D buildFoulLinesOverlay() {
     return m;
 }
 
-enum class CamPreset { Free = 0, Batter, Mound, CenterField, PressBox };
+enum class CamPreset { Free = 0, Batter, Mound, CenterField, PressBox, Overview };
+
+// Park center for framing the whole bowl.
+Vector3 parkCenter() {
+    return Vector3(0.0f, 4.0f, wallR * 0.42f);
+}
 
 const char* presetName(CamPreset p) {
     switch (p) {
@@ -422,12 +430,21 @@ const char* presetName(CamPreset p) {
             return "CF Wall";
         case CamPreset::PressBox:
             return "Press Box";
+        case CamPreset::Overview:
+            return "Full Park";
         default:
             return "Free Orbit";
     }
 }
 
+void configureStadiumCamera(Camera3D& cam) {
+    cam.nearPlane = 0.5f;
+    // Wall ~190, stands out to ~250, orbit up to ~800 — need a deep far plane.
+    cam.farPlane = 2500.0f;
+}
+
 void applyPreset(Camera3D& cam, CamPreset p) {
+    configureStadiumCamera(cam);
     switch (p) {
         case CamPreset::Batter:
             lookAt(cam, Vector3(0.0f, 1.55f, -2.2f), Vector3(0.0f, 1.2f, wallR * 0.45f));
@@ -446,13 +463,26 @@ void applyPreset(Camera3D& cam, CamPreset p) {
             cam.fieldOfView = 900.0f;
             break;
         case CamPreset::PressBox:
-            lookAt(cam, Vector3(0.0f, 55.0f, -35.0f), Vector3(0.0f, 2.0f, wallR * 0.35f));
-            cam.fieldOfView = 1100.0f;
+            // High 1B-side press box looking across the whole diamond + wall.
+            lookAt(
+                cam,
+                Vector3(95.0f, 72.0f, -40.0f),
+                Vector3(0.0f, 6.0f, wallR * 0.40f)
+            );
+            cam.fieldOfView = 1050.0f;
+            break;
+        case CamPreset::Overview:
+            // Elevated behind home, entire bowl + wall in frame.
+            lookAt(
+                cam,
+                Vector3(0.0f, 145.0f, -95.0f),
+                parkCenter()
+            );
+            cam.fieldOfView = 720.0f;
             break;
         default:
             break;
     }
-    cam.nearPlane = 0.25f;
 }
 
 void updateOrbitCamera(
@@ -462,12 +492,15 @@ void updateOrbitCamera(
     float distance,
     const Vector3& target
 ) {
-    pitch = std::clamp(pitch, -0.15f, 1.25f);
+    configureStadiumCamera(cam);
+    // Allow steep top-down and wide side orbits for full-park viewing.
+    pitch = std::clamp(pitch, 0.05f, 1.45f);
     float h = std::cos(pitch) * distance;
-    cam.position = target + Vector3(std::sin(yaw) * h, std::sin(pitch) * distance + 2.0f, -std::cos(yaw) * h);
+    float elev = std::sin(pitch) * distance;
+    cam.position = target + Vector3(std::sin(yaw) * h, elev + 3.0f, -std::cos(yaw) * h);
     lookAt(cam, cam.position, target);
-    cam.fieldOfView = 980.0f;
-    cam.nearPlane = 0.3f;
+    // Wider FOV when zoomed far so the bowl fits.
+    cam.fieldOfView = std::clamp(900.0f + distance * 0.35f, 900.0f, 1400.0f);
 }
 
 } // namespace
@@ -511,12 +544,12 @@ int main() {
     }
 
     Camera3D camera;
-    CamPreset preset = CamPreset::Free;
-    float orbitYaw = 0.35f;
-    float orbitPitch = 0.55f;
-    float orbitDist = 210.0f;
-    Vector3 orbitTarget(0.0f, 2.0f, wallR * 0.28f);
-    updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
+    CamPreset preset = CamPreset::Overview;
+    float orbitYaw = 0.15f;
+    float orbitPitch = 0.72f;
+    float orbitDist = 340.0f;
+    Vector3 orbitTarget = parkCenter();
+    applyPreset(camera, preset);
 
     bool dragging = false;
     sf::Vector2i lastMouse;
@@ -549,23 +582,28 @@ int main() {
                     applyPreset(camera, preset);
                 } else if (key->code == K::Num5) {
                     preset = CamPreset::Free;
+                    orbitTarget = parkCenter();
                     updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
+                } else if (key->code == K::Num6) {
+                    preset = CamPreset::Overview;
+                    applyPreset(camera, preset);
                 } else if (key->code == K::R) {
-                    orbitYaw = 0.35f;
-                    orbitPitch = 0.55f;
-                    orbitDist = 210.0f;
-                    preset = CamPreset::Free;
-                    updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
+                    orbitYaw = 0.15f;
+                    orbitPitch = 0.72f;
+                    orbitDist = 340.0f;
+                    orbitTarget = parkCenter();
+                    preset = CamPreset::Overview;
+                    applyPreset(camera, preset);
                 } else if (key->code == K::LBracket) {
-                    orbitDist = std::min(420.0f, orbitDist + 12.0f);
-                    if (preset == CamPreset::Free) {
-                        updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
-                    }
+                    orbitDist = std::min(900.0f, orbitDist + 18.0f);
+                    preset = CamPreset::Free;
+                    orbitTarget = parkCenter();
+                    updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
                 } else if (key->code == K::RBracket) {
-                    orbitDist = std::max(40.0f, orbitDist - 12.0f);
-                    if (preset == CamPreset::Free) {
-                        updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
-                    }
+                    orbitDist = std::max(50.0f, orbitDist - 18.0f);
+                    preset = CamPreset::Free;
+                    orbitTarget = parkCenter();
+                    updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
                 } else if (key->code == K::G) {
                     showLabels = !showLabels;
                 }
@@ -574,6 +612,11 @@ int main() {
                 if (m->button == sf::Mouse::Button::Left) {
                     dragging = true;
                     lastMouse = sf::Mouse::getPosition(window);
+                    // Enter free orbit from whatever preset, framed on the park.
+                    if (preset != CamPreset::Free) {
+                        orbitTarget = parkCenter();
+                        orbitDist = std::max(orbitDist, 300.0f);
+                    }
                     preset = CamPreset::Free;
                 }
             }
@@ -583,7 +626,8 @@ int main() {
                 }
             }
             if (const auto* wh = event->getIf<sf::Event::MouseWheelScrolled>()) {
-                orbitDist = std::clamp(orbitDist - wh->delta * 10.0f, 40.0f, 420.0f);
+                orbitDist = std::clamp(orbitDist - wh->delta * 16.0f, 50.0f, 900.0f);
+                orbitTarget = parkCenter();
                 preset = CamPreset::Free;
                 updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
             }
@@ -595,14 +639,15 @@ int main() {
             lastMouse = mp;
             orbitYaw += d.x * 0.005f;
             orbitPitch += d.y * 0.004f;
+            orbitTarget = parkCenter();
             updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
         }
 
         Matrix4 id = Matrix4::identity();
         if (useGL) {
             gl.beginFrame(window, camera, sf::Color(8, 12, 22));
-            // Far ground under park
-            gl.drawGround(wallR + 80.0f, -40.0f, wallR + 80.0f, sf::Color(18, 32, 22));
+            // Large ground so exterior views still have a floor.
+            gl.drawGround(wallR + 120.0f, -80.0f, wallR + 120.0f, sf::Color(18, 32, 22));
             gl.drawMesh(glField, id);
             gl.drawMesh(glWalls, id);
             gl.drawMesh(glStands, id);
@@ -613,17 +658,18 @@ int main() {
         }
 
         if (fontOk) {
-            drawText(window, font, "Stadium Demo  ·  Home Run Derby ballpark", 22, {22, 14}, sf::Color(240, 245, 250));
+            drawText(window, font, "Stadium Demo | Home Run Derby ballpark", 22, {22, 14}, sf::Color(240, 245, 250));
             std::ostringstream info;
             info << "View: " << presetName(preset)
                  << "   Wall " << static_cast<int>(wallFeet) << " ft CF"
-                 << "   Foul poles ±45°"
-                 << "   1 unit = " << feetPerWorldUnit << " ft";
+                 << "   Foul poles +/-45 deg"
+                 << "   1 unit = " << feetPerWorldUnit << " ft"
+                 << "   zoom " << static_cast<int>(orbitDist);
             drawText(window, font, info.str(), 14, {22, 46}, sf::Color(160, 200, 180));
             drawText(
                 window,
                 font,
-                "Drag orbit   Scroll/[ ] zoom   1 Batter  2 Mound  3 CF  4 Press  5 Free   R reset",
+                "Drag orbit  Scroll/[ ] zoom  1 Batter  2 Mound  3 CF  4 Press  5 Free  6 Full park  R reset",
                 13,
                 {22, 70},
                 sf::Color(140, 170, 190)

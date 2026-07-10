@@ -429,7 +429,8 @@ Matrix4 GlRenderer::perspectiveFromCamera(const Camera3D& camera, float width, f
     float fovY = 2.0f * std::atan((height * 0.5f) / std::max(camera.fieldOfView, 1.0f));
     float aspect = width / std::max(height, 1.0f);
     float nearZ = std::max(camera.nearPlane, 0.05f);
-    float farZ = 250.0f;
+    // Honor camera far plane so large scenes (stadium) are not clipped.
+    float farZ = std::max(camera.farPlane, nearZ + 1.0f);
     float f = 1.0f / std::tan(fovY * 0.5f);
 
     Matrix4 p;

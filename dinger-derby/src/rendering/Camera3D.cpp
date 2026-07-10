@@ -45,6 +45,7 @@ Camera3D::Camera3D() {
     rotation = Vector3(0.0f, 0.0f, 0.0f);
     fieldOfView = 420.0f;
     nearPlane = 0.1f;
+    farPlane = 500.0f;
 }
 
 ProjectedPoint3D Camera3D::projectPoint(
