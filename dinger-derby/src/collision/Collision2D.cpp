@@ -58,10 +58,10 @@ void resolveCircleCollision(
         a.wakeUp();
         b.wakeUp();
 
-        // Normal impulse
-        float restitution = 0.6f;
+        // Match 3D sphere resolution: use the softer of the two materials.
+        float restitution = std::min(a.restitution, b.restitution);
 
-        float impulseStrength = -(1 + restitution) * velocityAlongNormal;
+        float impulseStrength = -(1.0f + restitution) * velocityAlongNormal;
         impulseStrength /= inverseMassSum;
 
         Vector2 impulse = normal * impulseStrength;
@@ -97,13 +97,13 @@ void resolveCircleCollision(
         }
     }
 
-    // Always correct overlap, even if bodies are moving apart
-    float slop = 0.001f;
-    float percent = 1.0f;
+    // Always correct overlap, even if bodies are moving apart.
+    // Use the same positional correction factors as 3D sphere resolution.
+    const float slop = 0.001f;
+    const float correctionPercent = 0.85f;
 
-    float correctionAmount =
-        (manifold.penetration - slop > 0.0f ? manifold.penetration - slop : 0.0f)
-        / inverseMassSum * percent;
+    float correctedPenetration = std::max(manifold.penetration - slop, 0.0f);
+    float correctionAmount = correctedPenetration / inverseMassSum * correctionPercent;
 
     Vector2 correction = normal * correctionAmount;
 
