@@ -59,6 +59,10 @@ float lerp(float a, float b, float t) {
     return a + (b - a) * t;
 }
 
+Vector3 lerp(const Vector3& a, const Vector3& b, float t) {
+    return a + (b - a) * t;
+}
+
 float easeInOut(float t) {
     t = std::clamp(t, 0.0f, 1.0f);
     return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
@@ -107,7 +111,8 @@ void ball(
     appendTransformed(dest, s, x, color);
 }
 
-// Oriented capsule: one elongated shaft + overlapping end caps (same color = continuous form).
+// Oriented capsule: elongated shaft + overlapping end caps + mid fills
+// so limbs read as one continuous volume while the skeleton animates.
 void capsule(
     Mesh3D& dest,
     const Vector3& from,
@@ -130,24 +135,23 @@ void capsule(
     Vector3 mid = (from + to) * 0.5f;
 
     Mesh3D s = Mesh3D::sphere(1.0f, ringsFor(detail), segsFor(detail));
-    // Slightly oversized shaft so ends melt into caps without a waist seam.
+    // Oversized shaft melts into caps — no waist seam while limbs swing.
     Matrix4 shaft =
         Matrix4::translation(mid) *
         Matrix4::rotationY(yaw) *
         Matrix4::rotationX(pitch) *
-        Matrix4::scale(Vector3(midR * 0.98f, len * 0.52f + midR * 0.55f, midR * 0.98f));
+        Matrix4::scale(Vector3(midR * 1.02f, len * 0.54f + midR * 0.58f, midR * 1.02f));
     appendTransformed(dest, s, shaft, color);
-    ball(dest, from, r0 * 1.12f, r0 * 1.12f, r0 * 1.12f, color, detail);
-    ball(dest, to, r1 * 1.10f, r1 * 1.10f, r1 * 1.10f, color, detail);
+    ball(dest, from, r0 * 1.18f, r0 * 1.18f, r0 * 1.18f, color, detail);
+    ball(dest, to, r1 * 1.15f, r1 * 1.15f, r1 * 1.15f, color, detail);
 
-    // Mid-fill at 1/3 and 2/3 for long limbs so they read continuous at low poly.
-    if (len > 0.22f && detail >= 1) {
-        Vector3 a = from + dir * (len * 0.33f);
-        Vector3 b = from + dir * (len * 0.66f);
-        float ra = lerp(r0, r1, 0.33f) * 1.02f;
-        float rb = lerp(r0, r1, 0.66f) * 1.02f;
-        ball(dest, a, ra, ra, ra, color, detail);
-        ball(dest, b, rb, rb, rb, color, detail);
+    // Dense mid-fills keep the silhouette fluid at every joint angle.
+    int fills = detail >= 2 ? 4 : (detail >= 1 ? 3 : 2);
+    for (int i = 1; i <= fills; i++) {
+        float u = static_cast<float>(i) / static_cast<float>(fills + 1);
+        Vector3 p = from + dir * (len * u);
+        float r = lerp(r0, r1, u) * 1.06f;
+        ball(dest, p, r, r, r, color, detail);
     }
 }
 
@@ -209,7 +213,8 @@ void addHelmet(Mesh3D& dest, const Vector3& head, float r, int detail) {
     }
 }
 
-// Forward-kinematics arm: shoulder → elbow → wrist in torso-local space, then upper xform.
+// Forward-kinematics arm tuned for Yamamoto set / high-kick hands-together /
+// layback (elbow ≈ shoulder height) / high-¾ release / finish.
 struct ArmChain {
     Vector3 shoulder;
     Vector3 elbow;
@@ -217,7 +222,9 @@ struct ArmChain {
     Vector3 palm;
 };
 
-// pitch: higher = more elevated / out front; yaw: negative = cocked back (+X RHP).
+// pitch: -0.5 layback high-back · ~0.45 set/chest · ~1.15 release extension
+// yaw:   -0.7 cocked closed · ~0.1 set · +0.5 finish across body
+// elbow: 0 extended · ~1 fully bent
 ArmChain buildArm(
     const Matrix4& upper,
     float side, // +1 right throw arm, -1 left glove
@@ -230,41 +237,70 @@ ArmChain buildArm(
     float forearmLen
 ) {
     ArmChain a;
-    Vector3 shLocal(0.145f * side, shoulderY - 0.01f, 0.0f);
+    Vector3 shLocal(0.142f * side, shoulderY - 0.008f, 0.0f);
     a.shoulder = upper.transformPoint(shLocal);
 
-    // Spherical arm direction in torso space.
-    // Base hang is slightly out and a bit forward so set pose looks natural.
-    float elev = pitch * 0.95f;          // can be negative for cocking high-back
-    float sweep = yaw * 0.90f + side * 0.18f;
+    // Elevation from straight-down (0) toward overhead (~π).
+    // pitch 0 ≈ slightly forward hang; higher pitch lifts the arm toward the slot.
+    float elev = 0.95f + pitch * 0.95f;
+    elev = std::clamp(elev, 0.15f, 2.6f);
+    // Azimuth: 0 = toward plate (+Z), + = first-base side for RHP throw arm.
+    float azim = side * 0.22f + yaw * 1.05f;
 
-    Vector3 localDir(
-        std::sin(sweep) * 0.85f + side * 0.12f,
-        -std::cos(elev) * 0.55f + std::sin(elev) * 0.62f,
-        std::sin(elev) * 0.72f + std::cos(sweep) * 0.18f
+    Vector3 upperDir(
+        std::sin(azim) * std::sin(elev),
+        -std::cos(elev),
+        std::cos(azim) * std::sin(elev)
     );
-    localDir = safeNorm(localDir, Vector3(side * 0.3f, -0.5f, 0.4f));
+    // Cocking bias: when pitch is low/negative and yaw closed, pull elbow back
+    // so the hand can lay behind the head (classic Yamamoto arm path).
+    if (pitch < 0.25f && yaw < -0.15f) {
+        float cock = smooth01((-yaw - 0.15f) / 0.55f) * smooth01((0.25f - pitch) / 0.7f);
+        upperDir = safeNorm(upperDir + Vector3(side * 0.15f, 0.35f * cock, -0.55f * cock));
+    }
+    upperDir = safeNorm(upperDir, Vector3(side * 0.25f, -0.4f, 0.5f));
 
-    Vector3 elbowLocal = shLocal + localDir * upperLen;
+    Vector3 elbowLocal = shLocal + upperDir * upperLen;
+    // Keep elbow near shoulder height during layback (optimal leverage).
+    if (pitch < 0.2f && yaw < -0.2f) {
+        float targetY = shoulderY - 0.02f;
+        elbowLocal.y = lerp(elbowLocal.y, targetY, 0.55f);
+    }
     a.elbow = upper.transformPoint(elbowLocal);
 
-    // Elbow hinge: bend forearm toward body midline + slightly up (classic slot).
-    Vector3 upperDir = safeNorm(elbowLocal - shLocal, Vector3(0.0f, -1.0f, 0.0f));
-    Vector3 hinge = safeNorm(upperDir.cross(Vector3(-side, 0.15f, 0.2f)), Vector3(0.0f, 0.0f, 1.0f));
-    // Rodrigues-ish: rotate upperDir around hinge by elbow angle.
-    float bend = elbowBend * 1.35f; // ~0..~1.35 rad mapped from 0..1 channel
+    // Elbow hinge: bend folds the forearm toward the midline + slightly up (set)
+    // or keeps it nearly colinear on release.
+    Vector3 upDir = safeNorm(elbowLocal - shLocal, Vector3(0.0f, -1.0f, 0.0f));
+    Vector3 hingeAxis = safeNorm(upDir.cross(Vector3(-side * 0.9f, 0.25f, 0.35f)), Vector3(0.0f, 0.0f, 1.0f));
+    float bend = std::clamp(elbowBend, -0.2f, 1.25f) * 1.45f;
     float c = std::cos(bend);
     float s = std::sin(bend);
     Vector3 fore =
-        upperDir * c +
-        hinge.cross(upperDir) * s +
-        hinge * hinge.dot(upperDir) * (1.0f - c);
-    // Bias forearm a bit toward target when extended (pitch finish).
-    fore = safeNorm(fore + Vector3(-side * 0.05f, -0.08f + wristCurl * 0.05f, 0.12f + std::max(0.0f, pitch) * 0.08f));
+        upDir * c +
+        hingeAxis.cross(upDir) * s +
+        hingeAxis * hingeAxis.dot(upDir) * (1.0f - c);
 
+    // Set / hands-together: pull wrist toward sternum.
+    if (elbowBend > 0.65f && pitch > 0.2f && pitch < 0.85f) {
+        Vector3 toChest = Vector3(-side * 0.08f, shoulderY - 0.18f, 0.12f) - elbowLocal;
+        fore = safeNorm(lerp(fore, safeNorm(toChest), 0.55f));
+    }
+    // Release: forearm drives toward the plate with a slight downward plane.
+    if (elbowBend < 0.35f && pitch > 0.7f) {
+        fore = safeNorm(fore * 0.35f + Vector3(-side * 0.05f, -0.12f + wristCurl * 0.04f, 0.92f));
+    }
+    // Layback: hand high-behind (external rotation look).
+    if (pitch < 0.15f && yaw < -0.25f) {
+        Vector3 layback = Vector3(side * 0.25f, 0.55f, -0.65f);
+        fore = safeNorm(lerp(fore, safeNorm(layback), 0.65f));
+    }
+
+    fore = safeNorm(fore, Vector3(0.0f, 0.0f, 1.0f));
     Vector3 wristLocal = elbowLocal + fore * forearmLen;
     a.wrist = upper.transformPoint(wristLocal);
-    a.palm = upper.transformPoint(wristLocal + fore * 0.05f + Vector3(0.0f, wristCurl * 0.01f, 0.0f));
+    a.palm = upper.transformPoint(
+        wristLocal + fore * 0.055f + Vector3(0.0f, wristCurl * 0.012f, 0.0f)
+    );
     return a;
 }
 
@@ -274,43 +310,66 @@ struct LegChain {
     Vector3 ankle;
 };
 
+// Lead lift=1 ≈ Yamamoto ~94 cm vertical knee (near chest), foot tucked under.
 LegChain buildLeg(
     float side, // +1 plant (right), -1 lead (left) for RHP
     float hipY,
     float lift,       // 0..1
     float kneeBend,   // 0..1
-    float stride,     // lead foot forward
+    float stride,     // lead foot forward toward plate
     float hipOpen,
     bool isLead
 ) {
     LegChain L;
-    float open = hipOpen * 0.04f;
-    L.hip = Vector3(0.095f * side + (isLead ? -open : open), hipY, isLead ? stride * 0.12f : stride * 0.03f);
+    float open = hipOpen * 0.045f;
+    L.hip = Vector3(
+        0.095f * side + (isLead ? -open : open),
+        hipY,
+        isLead ? stride * 0.10f : stride * 0.02f
+    );
 
-    float kneeY = 0.48f + lift * 0.28f - kneeBend * 0.06f;
-    float kneeZ = isLead ? (0.04f + stride * 0.38f + lift * 0.08f) : (stride * 0.02f);
+    // Peak kick: knee ~1.08 m (chest), almost over the plant for balance.
+    float kneeY = 0.50f + lift * 0.58f - kneeBend * 0.04f * (1.0f - lift);
+    float kneeZ;
     float kneeX = 0.098f * side;
-    // High kick pulls knee inward slightly.
     if (isLead) {
-        kneeX += lift * 0.02f * side; // lead is negative side; +lift * neg = more midline
-        kneeX -= lift * 0.035f;       // pull toward center on kick
+        // Vertical balance: knee stays stacked, barely forward until stride.
+        kneeZ = 0.02f + stride * 0.42f + lift * 0.04f;
+        // Pull toward midline on the high kick (Yamamoto closed posture).
+        kneeX = -0.06f - lift * 0.02f + stride * 0.02f;
+    } else {
+        kneeZ = stride * 0.02f;
+        kneeY = 0.48f - kneeBend * 0.08f; // plant leg loads deeper on drive
     }
     L.knee = Vector3(kneeX, kneeY, kneeZ);
 
-    float ankleY = 0.065f + lift * 0.30f - kneeBend * 0.01f;
-    float ankleZ = isLead ? (0.06f + stride * 0.82f) : (0.02f + stride * 0.04f);
-    // When knee is high, ankle tucks under.
-    if (isLead && lift > 0.2f) {
-        ankleZ = lerp(ankleZ, L.knee.z + 0.04f, smooth01((lift - 0.2f) / 0.8f));
-        ankleY = lerp(0.065f, L.knee.y - 0.12f, smooth01(lift));
+    float ankleY;
+    float ankleZ;
+    float ankleX = 0.096f * side;
+    if (isLead) {
+        float tuck = smooth01(lift);
+        // High kick: foot tucked under knee. Stride: foot drives to plate.
+        ankleY = lerp(0.065f, L.knee.y - 0.14f, tuck);
+        ankleZ = lerp(0.06f + stride * 0.88f, L.knee.z + 0.02f, tuck * (1.0f - smooth01(stride * 3.0f)));
+        // Once striding hard, plant the foot forward.
+        if (stride > 0.08f) {
+            float plant = smooth01((stride - 0.08f) / 0.20f);
+            ankleY = lerp(ankleY, 0.065f, plant);
+            ankleZ = lerp(ankleZ, 0.06f + stride * 0.90f, plant);
+            ankleX = lerp(ankleX, -0.10f, plant);
+        }
+    } else {
+        ankleY = 0.065f;
+        ankleZ = 0.02f + stride * 0.03f;
+        // Slight drag of plant foot as hips open.
+        ankleX = 0.10f + hipOpen * 0.02f;
     }
-    L.ankle = Vector3(0.096f * side, ankleY, ankleZ);
+    L.ankle = Vector3(ankleX, ankleY, ankleZ);
 
-    // Soft knee-bend shortening: pull ankle toward hip slightly via knee mid.
-    if (kneeBend > 0.05f && lift < 0.3f) {
-        Vector3 mid = (L.hip + L.ankle) * 0.5f;
-        L.knee = L.knee + (mid - L.knee) * (kneeBend * 0.15f);
-        L.knee.y = std::max(L.knee.y, ankleY + 0.12f);
+    // Soften knee on front-foot land (~15° flex look).
+    if (isLead && stride > 0.12f && lift < 0.25f) {
+        L.knee.y = std::max(L.ankle.y + 0.28f, L.knee.y - kneeBend * 0.05f);
+        L.knee.z = lerp(L.knee.z, (L.hip.z + L.ankle.z) * 0.5f, 0.35f);
     }
     return L;
 }
@@ -383,9 +442,18 @@ PitcherPose sampleKeys(const PitcherKey* keys, int count, float t) {
     }
     for (int i = 0; i < count - 1; i++) {
         if (t >= keys[i].t && t <= keys[i + 1].t) {
-            float u = (t - keys[i].t) / (keys[i + 1].t - keys[i].t);
-            // Delivery uses smooth ease so limbs don't tick between keys.
-            u = easeInOut(u);
+            float span = keys[i + 1].t - keys[i].t;
+            float u = (t - keys[i].t) / span;
+            // Long holds (lift/balance) ease smoothly; short snaps (arm fire
+            // ~50ms between plant and release) stay nearly linear so the
+            // whip reads like Yamamoto's acceleration phase.
+            if (span > 0.06f) {
+                u = easeInOut(u);
+            } else {
+                // Slight ease-in: slow start of fire, then crack.
+                u = u * u * (3.0f - 2.0f * u * 0.35f);
+                u = std::clamp(u, 0.0f, 1.0f);
+            }
             return BaseballPlayer3D::blend(keys[i].pose, keys[i + 1].pose, u);
         }
     }
@@ -434,217 +502,262 @@ CatcherPose BaseballPlayer3D::blend(const CatcherPose& a, const CatcherPose& b, 
 
 PitcherPose BaseballPlayer3D::pitcherIdlePose(float timeSeconds) {
     PitcherPose p;
-    // Quiet athletic breathing / micro-sway on the rubber.
-    p.torsoTwist = std::sin(timeSeconds * 0.9f) * 0.035f;
-    p.torsoLean = 0.06f + std::sin(timeSeconds * 0.55f) * 0.014f;
-    p.torsoSide = std::sin(timeSeconds * 0.38f) * 0.012f;
-    p.headTurn = std::sin(timeSeconds * 0.33f) * 0.08f;
-    p.headNod = std::sin(timeSeconds * 0.85f) * 0.025f;
-    // Yamamoto-ish set: hands chest-high, compact glove tuck.
-    p.throwShoulderPitch = 0.55f + std::sin(timeSeconds * 0.65f) * 0.03f;
-    p.throwShoulderYaw = 0.12f;
-    p.throwElbow = 0.78f;
-    p.throwWrist = 0.14f;
-    p.gloveShoulderPitch = 0.78f;
-    p.gloveShoulderYaw = 0.20f;
-    p.gloveElbow = 0.92f;
-    p.plantKneeBend = 0.18f;
-    p.frontKneeBend = 0.14f;
-    p.frontLegLift = 0.03f + std::max(0.0f, std::sin(timeSeconds * 0.48f)) * 0.02f;
-    p.hipOpen = 0.05f;
+    // Yamamoto set: still, upright, weight over back leg, hands chest-high together.
+    p.torsoTwist = std::sin(timeSeconds * 0.7f) * 0.02f;
+    p.torsoLean = 0.04f + std::sin(timeSeconds * 0.5f) * 0.01f;
+    p.torsoSide = std::sin(timeSeconds * 0.35f) * 0.008f;
+    p.headTurn = std::sin(timeSeconds * 0.28f) * 0.05f;
+    p.headNod = std::sin(timeSeconds * 0.75f) * 0.015f;
+    // Hands together at the sternum (ball in throwing hand, glove pocketed).
+    p.throwShoulderPitch = 0.48f + std::sin(timeSeconds * 0.55f) * 0.02f;
+    p.throwShoulderYaw = 0.08f;
+    p.throwElbow = 0.88f;
+    p.throwWrist = 0.10f;
+    p.gloveShoulderPitch = 0.72f;
+    p.gloveShoulderYaw = 0.22f;
+    p.gloveElbow = 0.98f;
+    p.plantKneeBend = 0.16f;
+    p.frontKneeBend = 0.12f;
+    p.frontLegLift = 0.02f;
+    p.hipOpen = 0.04f;
     p.stride = 0.0f;
     return p;
 }
 
-// Keyframed Yamamoto-style delivery — deliberate rocker, high balance kick,
-// late hip open, high 3/4 release ~0.60, long finish.
+// Frame-accurate Yamamoto windup (FanGraphs slow-mo omgz7L7Sfw0 + biomechanics):
+// set → rocker → vertical high kick (hands STILL together) → balance hold →
+// hand break → stride/plant with arm layback → high 3/4 release (~0.66) → finish.
 PitcherPose BaseballPlayer3D::pitcherDeliveryPose(float t) {
-    // 0.00 set
+    auto setHands = [](PitcherPose& p) {
+        // Compact set / lift: both hands meet at chest.
+        p.throwShoulderPitch = 0.48f;
+        p.throwShoulderYaw = 0.08f;
+        p.throwElbow = 0.88f;
+        p.throwWrist = 0.10f;
+        p.gloveShoulderPitch = 0.72f;
+        p.gloveShoulderYaw = 0.22f;
+        p.gloveElbow = 0.98f;
+    };
+
+    // ── 0.00 SET ────────────────────────────────────────────────────────
+    // Still rubber set. Upright, relaxed, weight on plant (back) leg.
     PitcherPose k0{};
-    k0.torsoLean = 0.06f;
-    k0.throwShoulderPitch = 0.55f;
-    k0.throwShoulderYaw = 0.12f;
-    k0.throwElbow = 0.78f;
-    k0.throwWrist = 0.14f;
-    k0.gloveShoulderPitch = 0.78f;
-    k0.gloveShoulderYaw = 0.20f;
-    k0.gloveElbow = 0.92f;
-    k0.plantKneeBend = 0.18f;
-    k0.frontKneeBend = 0.14f;
-    k0.frontLegLift = 0.03f;
-    k0.hipOpen = 0.05f;
+    k0.torsoLean = 0.04f;
+    k0.plantKneeBend = 0.16f;
+    k0.frontKneeBend = 0.12f;
+    k0.frontLegLift = 0.02f;
+    k0.hipOpen = 0.04f;
+    setHands(k0);
 
-    // 0.10 rocker — weight back, slight closed coil
+    // ── 0.08 ROCKER ─────────────────────────────────────────────────────
+    // Tiny closed coil; front heel peels; hands stay glued.
     PitcherPose k1 = k0;
-    k1.torsoTwist = -0.22f;
-    k1.torsoLean = 0.08f;
-    k1.torsoSide = -0.06f;
-    k1.headTurn = 0.04f;
-    k1.frontLegLift = 0.28f;
-    k1.frontKneeBend = 0.40f;
-    k1.plantKneeBend = 0.22f;
-    k1.throwShoulderPitch = 0.38f;
-    k1.throwShoulderYaw = -0.18f;
-    k1.throwElbow = 0.92f;
-    k1.gloveElbow = 0.96f;
+    k1.torsoTwist = -0.18f;
+    k1.torsoLean = 0.05f;
+    k1.torsoSide = -0.05f;
+    k1.headTurn = 0.03f;
+    k1.frontLegLift = 0.22f;
+    k1.frontKneeBend = 0.38f;
+    k1.plantKneeBend = 0.20f;
     k1.hipOpen = 0.02f;
+    k1.throwElbow = 0.92f;
+    k1.gloveElbow = 1.00f;
 
-    // 0.24 gather — knee climbing, hands still together-ish
+    // ── 0.20 LEG LIFT rising ────────────────────────────────────────────
+    // Knee climbing straight up. Hands STILL together at chest. Head locked.
     PitcherPose k2{};
-    k2.torsoTwist = -0.38f;
-    k2.torsoLean = 0.07f;
-    k2.torsoSide = -0.05f;
-    k2.headTurn = 0.06f;
-    k2.frontLegLift = 0.70f;
-    k2.frontKneeBend = 0.72f;
-    k2.plantKneeBend = 0.24f;
-    k2.hipOpen = 0.06f;
-    k2.throwShoulderPitch = 0.10f;
-    k2.throwShoulderYaw = -0.35f;
-    k2.throwElbow = 1.00f;
-    k2.throwWrist = 0.18f;
-    k2.gloveShoulderPitch = 0.88f;
-    k2.gloveShoulderYaw = 0.24f;
-    k2.gloveElbow = 1.00f;
+    k2.torsoTwist = -0.32f;
+    k2.torsoLean = 0.03f; // stays stacked over back leg — no early lean
+    k2.torsoSide = -0.04f;
+    k2.headTurn = 0.05f;
+    k2.headNod = -0.02f;
+    k2.frontLegLift = 0.62f;
+    k2.frontKneeBend = 0.78f;
+    k2.plantKneeBend = 0.22f;
+    k2.hipOpen = 0.05f;
+    k2.stride = 0.0f;
+    setHands(k2);
+    k2.throwShoulderPitch = 0.50f;
+    k2.throwElbow = 0.94f;
+    k2.gloveElbow = 1.02f;
 
-    // 0.36 high balance kick — vertical lead knee, hips still closed, arm loading
+    // ── 0.34 PEAK KICK ──────────────────────────────────────────────────
+    // Vertical balance: lead knee ~chest (94cm), hips ~92° flex, hands together.
     PitcherPose k3{};
-    k3.torsoTwist = -0.52f;
-    k3.torsoLean = 0.05f;
-    k3.torsoSide = -0.04f;
-    k3.headTurn = 0.10f;
-    k3.headNod = -0.04f;
+    k3.torsoTwist = -0.42f;
+    k3.torsoLean = 0.02f; // still over plant leg
+    k3.torsoSide = -0.03f;
+    k3.headTurn = 0.06f;
+    k3.headNod = -0.03f;
     k3.frontLegLift = 1.00f;
-    k3.frontKneeBend = 0.88f;
-    k3.plantKneeBend = 0.26f;
-    k3.hipOpen = 0.10f;
-    k3.stride = 0.02f;
-    k3.throwShoulderPitch = -0.32f; // high-back cock
-    k3.throwShoulderYaw = -0.58f;
-    k3.throwElbow = 1.12f;
-    k3.throwWrist = 0.22f;
-    k3.gloveShoulderPitch = 0.90f;
-    k3.gloveShoulderYaw = 0.26f;
-    k3.gloveElbow = 1.02f;
+    k3.frontKneeBend = 0.92f;
+    k3.plantKneeBend = 0.24f;
+    k3.hipOpen = 0.08f;
+    k3.stride = 0.01f;
+    setHands(k3);
+    k3.throwShoulderPitch = 0.52f;
+    k3.throwShoulderYaw = 0.05f;
+    k3.throwElbow = 0.96f;
+    k3.gloveShoulderPitch = 0.78f;
+    k3.gloveElbow = 1.04f;
 
-    // 0.48 drive / early stride — hips start open, shoulders still trailing
-    PitcherPose k4{};
-    k4.torsoTwist = -0.28f;
-    k4.torsoLean = 0.11f;
-    k4.torsoSide = -0.02f;
-    k4.headTurn = 0.06f;
-    k4.frontLegLift = 0.35f;
-    k4.frontKneeBend = 0.45f;
-    k4.plantKneeBend = 0.36f;
-    k4.hipOpen = 0.38f;
-    k4.stride = 0.14f;
-    k4.throwShoulderPitch = -0.12f;
-    k4.throwShoulderYaw = -0.50f;
-    k4.throwElbow = 1.08f;
-    k4.throwWrist = 0.15f;
-    k4.gloveShoulderPitch = 0.60f;
-    k4.gloveShoulderYaw = 0.10f;
-    k4.gloveElbow = 0.80f;
+    // ── 0.44 BALANCE HOLD ───────────────────────────────────────────────
+    // Brief still point — controlled potential energy. Hands still together.
+    PitcherPose k4 = k3;
+    k4.torsoTwist = -0.45f;
+    k4.frontLegLift = 1.00f;
+    k4.plantKneeBend = 0.26f;
+    k4.headTurn = 0.07f; // eyes locked on mitt
 
-    // 0.55 foot plant — front heel down, arm still back (separation)
+    // ── 0.52 HAND BREAK + START DRIVE ───────────────────────────────────
+    // Hands separate: ball hand peels back/up, glove stays front. Lead leg drops.
     PitcherPose k5{};
-    k5.torsoTwist = -0.08f;
-    k5.torsoLean = 0.14f;
-    k5.headTurn = 0.04f;
-    k5.headNod = 0.02f;
-    k5.frontLegLift = 0.06f;
-    k5.frontKneeBend = 0.30f;
-    k5.plantKneeBend = 0.40f;
-    k5.hipOpen = 0.50f;
-    k5.stride = 0.20f;
-    k5.throwShoulderPitch = 0.25f;
-    k5.throwShoulderYaw = -0.22f;
-    k5.throwElbow = 0.85f;
-    k5.throwWrist = 0.05f;
-    k5.gloveShoulderPitch = 0.42f;
-    k5.gloveShoulderYaw = -0.02f;
-    k5.gloveElbow = 0.62f;
+    k5.torsoTwist = -0.38f;
+    k5.torsoLean = 0.06f;
+    k5.torsoSide = -0.02f;
+    k5.headTurn = 0.05f;
+    k5.frontLegLift = 0.55f;
+    k5.frontKneeBend = 0.55f;
+    k5.plantKneeBend = 0.32f;
+    k5.hipOpen = 0.18f;
+    k5.stride = 0.08f;
+    // Throw arm starts the path back — not yet full layback.
+    k5.throwShoulderPitch = 0.05f;
+    k5.throwShoulderYaw = -0.35f;
+    k5.throwElbow = 1.05f;
+    k5.throwWrist = 0.18f;
+    // Glove begins to stay front / tuck.
+    k5.gloveShoulderPitch = 0.55f;
+    k5.gloveShoulderYaw = 0.12f;
+    k5.gloveElbow = 0.85f;
 
-    // 0.60 release — high 3/4, full extension, glove tucked, front foot firm
+    // ── 0.58 STRIDE / EARLY PLANT ───────────────────────────────────────
+    // Hips start open; shoulders still closed (separation). Arm loading back.
     PitcherPose k6{};
-    k6.torsoTwist = 0.38f;
-    k6.torsoLean = 0.17f;
-    k6.torsoSide = 0.04f;
-    k6.headNod = 0.10f;
-    k6.frontLegLift = 0.0f;
-    k6.frontKneeBend = 0.22f;
-    k6.plantKneeBend = 0.42f;
-    k6.hipOpen = 0.62f;
-    k6.stride = 0.24f;
-    k6.throwShoulderPitch = 1.12f;
-    k6.throwShoulderYaw = 0.28f;
-    k6.throwElbow = 0.12f;
-    k6.throwWrist = -0.28f;
-    k6.gloveShoulderPitch = 0.32f;
-    k6.gloveShoulderYaw = -0.08f;
-    k6.gloveElbow = 0.52f;
+    k6.torsoTwist = -0.22f; // shoulders lag
+    k6.torsoLean = 0.10f;
+    k6.headTurn = 0.04f;
+    k6.frontLegLift = 0.18f;
+    k6.frontKneeBend = 0.35f;
+    k6.plantKneeBend = 0.38f;
+    k6.hipOpen = 0.42f; // hips already turning
+    k6.stride = 0.18f;
+    // Full layback: elbow ~ shoulder height, hand behind head.
+    k6.throwShoulderPitch = -0.38f;
+    k6.throwShoulderYaw = -0.62f;
+    k6.throwElbow = 1.12f;
+    k6.throwWrist = 0.22f;
+    // Glove pulls tight to chest (glove-side connection).
+    k6.gloveShoulderPitch = 0.38f;
+    k6.gloveShoulderYaw = -0.05f;
+    k6.gloveElbow = 0.70f;
 
-    // 0.72 follow-through — arm whip across body
+    // ── 0.63 FOOT PLANT + MAX EXTERNAL ROTATION ─────────────────────────
+    // Front foot lands ~15° flex. Hips open ~45°, shoulders still trailing.
+    // Hand still moving BACK relative to plate (negative work / rubber band).
     PitcherPose k7{};
-    k7.torsoTwist = 0.62f;
-    k7.torsoLean = 0.20f;
-    k7.torsoSide = 0.06f;
-    k7.headTurn = -0.10f;
-    k7.headNod = 0.08f;
-    k7.frontKneeBend = 0.20f;
-    k7.plantKneeBend = 0.32f;
-    k7.hipOpen = 0.58f;
-    k7.stride = 0.22f;
-    k7.throwShoulderPitch = 0.78f;
-    k7.throwShoulderYaw = 0.48f;
-    k7.throwElbow = -0.08f;
-    k7.throwWrist = -0.22f;
-    k7.gloveShoulderPitch = 0.38f;
-    k7.gloveElbow = 0.48f;
+    k7.torsoTwist = -0.05f;
+    k7.torsoLean = 0.13f;
+    k7.torsoSide = 0.02f;
+    k7.headNod = 0.04f;
+    k7.frontLegLift = 0.0f;
+    k7.frontKneeBend = 0.28f; // soft land ~15°
+    k7.plantKneeBend = 0.42f;
+    k7.hipOpen = 0.55f;
+    k7.stride = 0.28f; // ~85% height scaled into model space
+    k7.throwShoulderPitch = -0.15f;
+    k7.throwShoulderYaw = -0.48f;
+    k7.throwElbow = 0.95f;
+    k7.throwWrist = 0.08f;
+    k7.gloveShoulderPitch = 0.30f;
+    k7.gloveShoulderYaw = -0.10f;
+    k7.gloveElbow = 0.58f;
 
-    // 0.86 fielding posture approach
+    // ── 0.66 RELEASE ────────────────────────────────────────────────────
+    // High 3/4 slot, full extension, glove tucked, front side is a firm wall.
+    // Arm path: max ER → ball leave in ~50ms (snappy between k7→k8).
     PitcherPose k8{};
-    k8.torsoTwist = 0.48f;
-    k8.torsoLean = 0.14f;
-    k8.headTurn = -0.06f;
-    k8.frontKneeBend = 0.18f;
-    k8.plantKneeBend = 0.24f;
-    k8.hipOpen = 0.42f;
-    k8.stride = 0.16f;
-    k8.throwShoulderPitch = 0.50f;
+    k8.torsoTwist = 0.42f;
+    k8.torsoLean = 0.16f;
+    k8.torsoSide = 0.05f;
+    k8.headNod = 0.10f;
+    k8.frontLegLift = 0.0f;
+    k8.frontKneeBend = 0.20f;
+    k8.plantKneeBend = 0.40f;
+    k8.hipOpen = 0.68f;
+    k8.stride = 0.30f;
+    k8.throwShoulderPitch = 1.15f;
     k8.throwShoulderYaw = 0.30f;
-    k8.throwElbow = 0.18f;
-    k8.throwWrist = -0.08f;
-    k8.gloveShoulderPitch = 0.48f;
-    k8.gloveElbow = 0.60f;
+    k8.throwElbow = 0.08f; // nearly straight
+    k8.throwWrist = -0.32f; // snap
+    k8.gloveShoulderPitch = 0.28f;
+    k8.gloveShoulderYaw = -0.12f;
+    k8.gloveElbow = 0.50f; // tucked to chest
 
-    // 1.00 athletic finish
+    // ── 0.74 FOLLOW-THROUGH ─────────────────────────────────────────────
+    // Arm whip across body over front leg; torso fully open.
     PitcherPose k9{};
-    k9.torsoTwist = 0.32f;
-    k9.torsoLean = 0.10f;
-    k9.frontKneeBend = 0.16f;
-    k9.plantKneeBend = 0.20f;
-    k9.hipOpen = 0.30f;
-    k9.stride = 0.12f;
-    k9.throwShoulderPitch = 0.42f;
-    k9.throwShoulderYaw = 0.18f;
-    k9.throwElbow = 0.28f;
-    k9.gloveShoulderPitch = 0.55f;
-    k9.gloveElbow = 0.70f;
+    k9.torsoTwist = 0.70f;
+    k9.torsoLean = 0.20f;
+    k9.torsoSide = 0.08f;
+    k9.headTurn = -0.12f;
+    k9.headNod = 0.08f;
+    k9.frontKneeBend = 0.18f;
+    k9.plantKneeBend = 0.30f;
+    k9.hipOpen = 0.62f;
+    k9.stride = 0.28f;
+    k9.throwShoulderPitch = 0.72f;
+    k9.throwShoulderYaw = 0.55f;
+    k9.throwElbow = -0.10f;
+    k9.throwWrist = -0.20f;
+    k9.gloveShoulderPitch = 0.35f;
+    k9.gloveElbow = 0.48f;
+
+    // ── 0.86 DECEL / FIELDING APPROACH ──────────────────────────────────
+    PitcherPose k10{};
+    k10.torsoTwist = 0.48f;
+    k10.torsoLean = 0.12f;
+    k10.headTurn = -0.06f;
+    k10.frontKneeBend = 0.16f;
+    k10.plantKneeBend = 0.22f;
+    k10.hipOpen = 0.40f;
+    k10.stride = 0.18f;
+    k10.throwShoulderPitch = 0.48f;
+    k10.throwShoulderYaw = 0.28f;
+    k10.throwElbow = 0.22f;
+    k10.throwWrist = -0.06f;
+    k10.gloveShoulderPitch = 0.50f;
+    k10.gloveElbow = 0.65f;
+
+    // ── 1.00 ATHLETIC FINISH ────────────────────────────────────────────
+    PitcherPose k11{};
+    k11.torsoTwist = 0.28f;
+    k11.torsoLean = 0.08f;
+    k11.frontKneeBend = 0.14f;
+    k11.plantKneeBend = 0.18f;
+    k11.hipOpen = 0.28f;
+    k11.stride = 0.12f;
+    k11.throwShoulderPitch = 0.40f;
+    k11.throwShoulderYaw = 0.15f;
+    k11.throwElbow = 0.30f;
+    k11.gloveShoulderPitch = 0.55f;
+    k11.gloveElbow = 0.72f;
 
     const PitcherKey keys[] = {
         {0.00f, k0},
-        {0.10f, k1},
-        {0.24f, k2},
-        {0.36f, k3},
-        {0.48f, k4},
-        {0.55f, k5},
-        {0.60f, k6},
-        {0.72f, k7},
-        {0.86f, k8},
-        {1.00f, k9}
+        {0.08f, k1},
+        {0.20f, k2},
+        {0.34f, k3},
+        {0.44f, k4},
+        {0.52f, k5},
+        {0.58f, k6},
+        {0.63f, k7},
+        {0.66f, k8}, // RELEASE
+        {0.74f, k9},
+        {0.86f, k10},
+        {1.00f, k11}
     };
-    return sampleKeys(keys, 10, t);
+    return sampleKeys(keys, 12, t);
 }
 
 CatcherPose BaseballPlayer3D::catcherIdlePose(float timeSeconds) {
@@ -695,65 +808,81 @@ Mesh3D BaseballPlayer3D::pitcher(int detail, const PitcherPose& pose) {
     Mesh3D mesh;
     PitcherSkel s = buildPitcherSkel(pose);
 
-    // ── legs ────────────────────────────────────────────────────────────
-    capsule(mesh, s.plant.hip, s.plant.knee, 0.082f, 0.068f, pants, detail);
-    capsule(mesh, s.plant.knee, s.plant.ankle, 0.064f, 0.050f, pantsDeep, detail);
-    capsule(mesh, s.lead.hip, s.lead.knee, 0.082f, 0.068f, pants, detail);
-    capsule(mesh, s.lead.knee, s.lead.ankle, 0.064f, 0.050f, pantsDeep, detail);
+    // Compact athletic frame (Yamamoto-scale proportions) built as continuous
+    // fused volumes so the high kick / layback / release stay fluid on camera.
+
+    // ── legs (same-color thigh→shin with big knee melt) ─────────────────
+    capsule(mesh, s.plant.hip, s.plant.knee, 0.088f, 0.072f, pants, detail);
+    ball(mesh, s.plant.knee, 0.074f, 0.070f, 0.074f, pants, detail);
+    capsule(mesh, s.plant.knee, s.plant.ankle, 0.068f, 0.052f, pantsDeep, detail);
+    capsule(mesh, s.lead.hip, s.lead.knee, 0.088f, 0.072f, pants, detail);
+    ball(mesh, s.lead.knee, 0.074f, 0.070f, 0.074f, pants, detail);
+    capsule(mesh, s.lead.knee, s.lead.ankle, 0.068f, 0.052f, pantsDeep, detail);
     addCleat(mesh, s.plant.ankle, detail);
     addCleat(mesh, s.lead.ankle, detail);
 
-    // ── pelvis / belt (bridges both hips, one continuous mass) ───────────
-    ball(mesh, s.pelvis, 0.158f, 0.112f, 0.118f, pants, detail);
-    ball(mesh, s.pelvis + Vector3(0.0f, 0.042f, 0.0f), 0.142f, 0.026f, 0.108f, belt, detail);
-    // Soft hip joints so thigh roots don't read as separate blobs.
-    ball(mesh, s.plant.hip, 0.090f, 0.085f, 0.090f, pants, detail);
-    ball(mesh, s.lead.hip, 0.090f, 0.085f, 0.090f, pants, detail);
+    // ── pelvis bridges hips into one mass (no floaty legs) ──────────────
+    ball(mesh, s.pelvis, 0.165f, 0.118f, 0.122f, pants, detail);
+    ball(mesh, s.pelvis + Vector3(0.0f, 0.045f, 0.0f), 0.148f, 0.028f, 0.112f, belt, detail);
+    ball(mesh, s.plant.hip, 0.096f, 0.090f, 0.096f, pants, detail);
+    ball(mesh, s.lead.hip, 0.096f, 0.090f, 0.096f, pants, detail);
+    // Soft waist fill into jersey.
+    ball(mesh, s.pelvis + Vector3(0.0f, 0.08f, 0.01f), 0.135f, 0.055f, 0.100f, jerseyShade, detail);
 
-    // ── torso: single large volume + fused shoulders (same jersey) ───────
-    ball(mesh, s.torsoC, 0.150f, s.torsoH, 0.112f, jersey, detail);
-    // Slight chest / upper fill to kill neck seam.
-    Vector3 chest = s.upper.transformPoint(Vector3(0.0f, kShoulderY - 0.08f, 0.04f));
-    ball(mesh, chest, 0.128f, 0.10f, 0.095f, jersey, detail);
-    ball(mesh, s.throwArm.shoulder, 0.086f, 0.078f, 0.086f, jersey, detail);
-    ball(mesh, s.glove.shoulder, 0.086f, 0.078f, 0.086f, jersey, detail);
-    // Collar / neck base.
-    ball(mesh, s.upper.transformPoint(Vector3(0.0f, kShoulderY + 0.015f, 0.012f)),
-         0.072f, 0.048f, 0.062f, jerseyDeep, detail);
-    // Number stripe accent on chest.
-    ball(mesh, s.upper.transformPoint(Vector3(0.0f, (kHipY + kShoulderY) * 0.55f, 0.105f)),
-         0.020f, 0.055f, 0.010f, accent, detail);
+    // ── torso: stacked fused volumes = one continuous jersey silhouette ─
+    ball(mesh, s.torsoC, 0.155f, s.torsoH * 1.05f, 0.118f, jersey, detail);
+    Vector3 lowerChest = s.upper.transformPoint(Vector3(0.0f, kHipY + 0.18f, 0.03f));
+    Vector3 upperChest = s.upper.transformPoint(Vector3(0.0f, kShoulderY - 0.10f, 0.045f));
+    ball(mesh, lowerChest, 0.142f, 0.10f, 0.105f, jersey, detail);
+    ball(mesh, upperChest, 0.135f, 0.11f, 0.100f, jersey, detail);
+    // Delts fused into torso (same jersey color) so arms never detach.
+    ball(mesh, s.throwArm.shoulder, 0.095f, 0.088f, 0.095f, jersey, detail);
+    ball(mesh, s.glove.shoulder, 0.095f, 0.088f, 0.095f, jersey, detail);
+    ball(mesh, (s.throwArm.shoulder + s.glove.shoulder) * 0.5f + Vector3(0.0f, 0.02f, 0.0f),
+         0.12f, 0.06f, 0.08f, jersey, detail);
+    // Collar.
+    ball(mesh, s.upper.transformPoint(Vector3(0.0f, kShoulderY + 0.018f, 0.014f)),
+         0.075f, 0.050f, 0.065f, jerseyDeep, detail);
+    // Subtle chest stripe.
+    ball(mesh, s.upper.transformPoint(Vector3(0.0f, (kHipY + kShoulderY) * 0.55f, 0.110f)),
+         0.018f, 0.050f, 0.010f, accent, detail);
 
-    // ── head ────────────────────────────────────────────────────────────
-    Vector3 neckA = s.upper.transformPoint(Vector3(0.0f, kShoulderY + 0.03f, 0.014f));
-    Vector3 neckB = s.head + Vector3(0.0f, -kHeadR * 0.50f, 0.0f);
-    capsule(mesh, neckA, neckB, 0.042f, 0.040f, skin, detail);
-    ball(mesh, s.head, kHeadR, kHeadR * 1.04f, kHeadR * 0.96f, skin, detail);
+    // ── head (short neck, continuous into cap) ──────────────────────────
+    Vector3 neckA = s.upper.transformPoint(Vector3(0.0f, kShoulderY + 0.032f, 0.015f));
+    Vector3 neckB = s.head + Vector3(0.0f, -kHeadR * 0.48f, 0.0f);
+    capsule(mesh, neckA, neckB, 0.044f, 0.042f, skin, detail);
+    ball(mesh, s.head, kHeadR * 1.02f, kHeadR * 1.05f, kHeadR * 0.98f, skin, detail);
     if (detail >= 1) {
-        // Ears + slight jaw fill (reads as face, not floating head).
-        ball(mesh, s.head + Vector3(-kHeadR * 0.82f, -0.01f, 0.0f),
-             kHeadR * 0.11f, kHeadR * 0.14f, kHeadR * 0.09f, skinDeep, detail);
-        ball(mesh, s.head + Vector3(kHeadR * 0.82f, -0.01f, 0.0f),
-             kHeadR * 0.11f, kHeadR * 0.14f, kHeadR * 0.09f, skinDeep, detail);
-        ball(mesh, s.head + Vector3(0.0f, -kHeadR * 0.35f, kHeadR * 0.35f),
-             kHeadR * 0.35f, kHeadR * 0.28f, kHeadR * 0.30f, skin, detail);
+        ball(mesh, s.head + Vector3(-kHeadR * 0.80f, -0.01f, 0.0f),
+             kHeadR * 0.12f, kHeadR * 0.15f, kHeadR * 0.10f, skinDeep, detail);
+        ball(mesh, s.head + Vector3(kHeadR * 0.80f, -0.01f, 0.0f),
+             kHeadR * 0.12f, kHeadR * 0.15f, kHeadR * 0.10f, skinDeep, detail);
+        ball(mesh, s.head + Vector3(0.0f, -kHeadR * 0.32f, kHeadR * 0.38f),
+             kHeadR * 0.36f, kHeadR * 0.30f, kHeadR * 0.32f, skin, detail);
     }
     addCap(mesh, s.head, kHeadR, detail);
 
-    // ── glove arm ───────────────────────────────────────────────────────
-    capsule(mesh, s.glove.shoulder, s.glove.elbow, 0.056f, 0.048f, jerseyDeep, detail);
-    capsule(mesh, s.glove.elbow, s.glove.wrist, 0.046f, 0.038f, skin, detail);
+    // ── glove arm: jersey sleeve melts into skin forearm ────────────────
+    Vector3 gMid = (s.glove.shoulder + s.glove.elbow) * 0.5f;
+    capsule(mesh, s.glove.shoulder, s.glove.elbow, 0.060f, 0.050f, jerseyDeep, detail);
+    ball(mesh, gMid, 0.055f, 0.055f, 0.055f, jerseyDeep, detail);
+    ball(mesh, s.glove.elbow, 0.050f, 0.048f, 0.050f, skin, detail);
+    capsule(mesh, s.glove.elbow, s.glove.wrist, 0.048f, 0.040f, skin, detail);
     Vector3 gloveFwd = safeNorm(s.glove.palm - s.glove.elbow, Vector3(0.15f, -0.1f, 0.9f));
-    addMitt(mesh, s.glove.wrist, gloveFwd, 0.30f, detail);
+    addMitt(mesh, s.glove.wrist, gloveFwd, 0.32f, detail);
 
-    // ── throw arm ───────────────────────────────────────────────────────
-    capsule(mesh, s.throwArm.shoulder, s.throwArm.elbow, 0.056f, 0.048f, jerseyDeep, detail);
-    capsule(mesh, s.throwArm.elbow, s.throwArm.wrist, 0.046f, 0.038f, skin, detail);
-    // Hand / fingers mass where the ball lives.
-    ball(mesh, s.throwArm.palm, 0.038f, 0.036f, 0.042f, skinDeep, detail);
+    // ── throw arm: continuous path through layback + release ────────────
+    Vector3 tMid = (s.throwArm.shoulder + s.throwArm.elbow) * 0.5f;
+    capsule(mesh, s.throwArm.shoulder, s.throwArm.elbow, 0.060f, 0.050f, jerseyDeep, detail);
+    ball(mesh, tMid, 0.055f, 0.055f, 0.055f, jerseyDeep, detail);
+    ball(mesh, s.throwArm.elbow, 0.050f, 0.048f, 0.050f, skin, detail);
+    capsule(mesh, s.throwArm.elbow, s.throwArm.wrist, 0.048f, 0.040f, skin, detail);
+    // Palm + fingers — ball glues to palm in the demo.
+    ball(mesh, s.throwArm.palm, 0.040f, 0.038f, 0.044f, skinDeep, detail);
     if (detail >= 1) {
-        Vector3 fingers = s.throwArm.palm + safeNorm(s.throwArm.palm - s.throwArm.wrist) * 0.025f;
-        ball(mesh, fingers, 0.028f, 0.022f, 0.030f, skinShadow, detail);
+        Vector3 fingers = s.throwArm.palm + safeNorm(s.throwArm.palm - s.throwArm.wrist) * 0.028f;
+        ball(mesh, fingers, 0.030f, 0.024f, 0.032f, skinShadow, detail);
+        ball(mesh, s.throwArm.wrist, 0.038f, 0.036f, 0.038f, skin, detail);
     }
 
     mesh.rebuildNormals();

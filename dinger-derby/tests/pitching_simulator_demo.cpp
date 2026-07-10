@@ -1040,9 +1040,10 @@ int main() {
     float deliveryAge = -1.0f; // < 0 => idle; seconds into delivery clip
     float playerRebuildTimer = 0.0f;
     bool ballReleased = false;
-    // Yamamoto-style timing: high kick hold, late hip-shoulder fire, release ~60%.
-    constexpr float deliveryDuration = 1.35f;
-    constexpr float releaseNormalized = 0.60f;
+    // Yamamoto windup timing (FanGraphs slow-mo): long balance, late fire.
+    // Release key is at t=0.66 in pitcherDeliveryPose.
+    constexpr float deliveryDuration = 1.55f;
+    constexpr float releaseNormalized = 0.66f;
     constexpr float playerRebuildHz = 60.0f;
     bool paused = false;
     bool draggingSpeedSlider = false;

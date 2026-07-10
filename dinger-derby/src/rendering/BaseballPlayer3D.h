@@ -49,7 +49,8 @@ public:
     static Vector3 throwHandLocal(const PitcherPose& pose);
 
     static PitcherPose pitcherIdlePose(float timeSeconds);
-    // t∈[0,1]: set → rocker → high kick → plant → release(~0.60) → finish.
+    // t∈[0,1]: Yamamoto windup — set → high kick (hands together) →
+    // plant/layback → high 3/4 release(~0.66) → finish.
     static PitcherPose pitcherDeliveryPose(float t);
     static CatcherPose catcherIdlePose(float timeSeconds);
     static CatcherPose catcherReceivePose(
