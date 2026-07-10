@@ -1,6 +1,7 @@
 #include "Stadium3D.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace Stadium3D {
@@ -181,17 +182,84 @@ void addStands(
     }
 }
 
+// Dirt strip of half-width hw along segment a→b (y = y0).
+void addDirtPath(
+    Mesh3D& m,
+    const Vector3& a,
+    const Vector3& b,
+    float hw,
+    float y0,
+    sf::Color col
+) {
+    Vector3 d = b - a;
+    d.y = 0.0f;
+    float len = d.magnitude();
+    if (len < 1e-4f) {
+        return;
+    }
+    d = d * (1.0f / len);
+    Vector3 side(-d.z * hw, 0.0f, d.x * hw);
+    Vector3 a0 = a + Vector3(0, y0, 0);
+    Vector3 b0 = b + Vector3(0, y0, 0);
+    addQuad(m, a0 + side, a0 - side, b0 - side, b0 + side, col);
+}
+
+// Filled quad (diamond face) at constant y.
+void addFlatQuad(
+    Mesh3D& m,
+    const Vector3& a,
+    const Vector3& b,
+    const Vector3& c,
+    const Vector3& d,
+    float y,
+    sf::Color col
+) {
+    addQuad(
+        m,
+        Vector3(a.x, y, a.z),
+        Vector3(b.x, y, b.z),
+        Vector3(c.x, y, c.z),
+        Vector3(d.x, y, d.z),
+        col
+    );
+}
+
+void addDisk(Mesh3D& m, const Vector3& center, float radius, float y, int n, sf::Color col) {
+    Vector3 c(center.x, y, center.z);
+    for (int i = 0; i < n; i++) {
+        float a0 = (static_cast<float>(i) / n) * pi * 2.0f;
+        float a1 = (static_cast<float>(i + 1) / n) * pi * 2.0f;
+        Vector3 p0 = c + Vector3(std::cos(a0) * radius, 0.0f, std::sin(a0) * radius);
+        Vector3 p1 = c + Vector3(std::cos(a1) * radius, 0.0f, std::sin(a1) * radius);
+        addTri(m, c, p0, p1, col);
+    }
+}
+
 Mesh3D buildField(const Layout& L) {
     Mesh3D m;
     const float aL = -L.foulAngleRad();
     const float aR = L.foulAngleRad();
-    const float wallR = L.maxWallR();
     const float plateZ = L.plateZ();
     const int segs = 56;
+    const float bp = L.basePath();
+
+    // True diamond corners (square rotated 45° in spray space).
+    const Vector3 home = L.home();
+    const Vector3 b1 = L.firstBase();
+    const Vector3 b2 = L.secondBase();
+    const Vector3 b3 = L.thirdBase();
 
     sf::Color grass(34, 110, 48);
     sf::Color grassDark(28, 92, 40);
-    // Grass filled to local fence radius (asymmetric OF).
+    sf::Color grassInfield(38, 118, 52);
+    sf::Color dirt(168, 120, 70);
+    sf::Color dirtDark(140, 98, 55);
+    sf::Color dirtPath(175, 128, 78);
+    sf::Color track(150, 120, 70);
+
+    // ── Fair-territory grass out to the fence (beyond the diamond) ─────
+    // Skip the inner diamond radius so dirt/grass cutouts own the infield.
+    const float infieldSkip = bp * 1.55f; // past 2B + margin
     for (int i = 0; i < segs; i++) {
         float t0 = static_cast<float>(i) / segs;
         float t1 = static_cast<float>(i + 1) / segs;
@@ -199,28 +267,32 @@ Mesh3D buildField(const Layout& L) {
         float ang1 = aL + (aR - aL) * t1;
         float rFence0 = L.wallRAtAngle(ang0) - 0.4f;
         float rFence1 = L.wallRAtAngle(ang1) - 0.4f;
-        Vector3 o = L.home() + Vector3(0, 0.0f, 0);
-        Vector3 a = L.fromHome(0.5f, ang0, 0.0f);
-        Vector3 b = L.fromHome(0.5f, ang1, 0.0f);
-        Vector3 c = L.fromHome(rFence1, ang1, 0.0f);
-        Vector3 d = L.fromHome(rFence0, ang0, 0.0f);
-        (void)o;
-        addQuad(m, a, b, c, d, grass);
-        // Darker band mid-OF
+        float r0 = std::min(infieldSkip, rFence0 - 1.0f);
+        float r1 = std::min(infieldSkip, rFence1 - 1.0f);
+        addQuad(
+            m,
+            L.fromHome(r0, ang0, 0.0f),
+            L.fromHome(r1, ang1, 0.0f),
+            L.fromHome(rFence1, ang1, 0.0f),
+            L.fromHome(rFence0, ang0, 0.0f),
+            grass
+        );
+        // Darker mid-OF band
         float mid0 = rFence0 * 0.55f;
         float mid1 = rFence1 * 0.55f;
         float mid0b = rFence0 * 0.68f;
         float mid1b = rFence1 * 0.68f;
-        addQuad(
-            m,
-            L.fromHome(mid0, ang0, 0.01f),
-            L.fromHome(mid1, ang1, 0.01f),
-            L.fromHome(mid1b, ang1, 0.01f),
-            L.fromHome(mid0b, ang0, 0.01f),
-            grassDark
-        );
+        if (mid0b > infieldSkip) {
+            addQuad(
+                m,
+                L.fromHome(std::max(mid0, infieldSkip), ang0, 0.01f),
+                L.fromHome(std::max(mid1, infieldSkip), ang1, 0.01f),
+                L.fromHome(mid1b, ang1, 0.01f),
+                L.fromHome(mid0b, ang0, 0.01f),
+                grassDark
+            );
+        }
         // Warning track
-        sf::Color track(150, 120, 70);
         addQuad(
             m,
             L.fromHome(rFence0 - 3.5f, ang0, 0.02f),
@@ -230,13 +302,108 @@ Mesh3D buildField(const Layout& L) {
             track
         );
     }
-    (void)wallR;
 
-    sf::Color dirt(168, 120, 70);
-    sf::Color dirtDark(140, 98, 55);
-    addAnnulusSector(m, L, 0.0f, L.infieldR(), aL * 1.15f, aR * 1.15f, 0.03f, 36, dirt);
+    // ── Foul-territory grass: home → stands along arcs outside foul lines ─
+    // Uses the same bowl inner radius helper so grass meets the crowd.
+    auto foulGrassR = [&](float ang) {
+        // Mirror of bowlInnerRadius without including Stadium internals twice:
+        // keep a modest apron so dirt diamond + dugouts sit on grass.
+        float fa = L.foulAngleRad();
+        float a = ang;
+        while (a > pi) {
+            a -= 2.0f * pi;
+        }
+        while (a < -pi) {
+            a += 2.0f * pi;
+        }
+        if (std::abs(a) <= fa + 0.02f) {
+            return L.wallRAtAngle(a) - 0.5f;
+        }
+        float foulPoleR = L.wallRAtAngle(a >= 0.0f ? fa : -fa) + 1.0f;
+        float backR = 16.0f;
+        float fromFoul = std::abs(a) - fa;
+        float span = pi - fa;
+        float u = std::clamp(fromFoul / std::max(span, 0.01f), 0.0f, 1.0f);
+        // Hold wide along baselines, then pull in behind home.
+        float hold = 0.28f;
+        float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
+        u2 = u2 * u2 * (3.0f - 2.0f * u2);
+        float dugoutClear = bp * 0.9f + 20.0f;
+        float r = foulPoleR + (backR - foulPoleR) * u2;
+        float minClear = backR + (dugoutClear - backR) * (1.0f - u2);
+        return std::max(r, minClear);
+    };
 
-    // Mound at origin
+    const int foulSegs = 40;
+    for (int side = 0; side < 2; side++) {
+        // side 0: RF foul (+X, +ang → +pi); side 1: LF foul (−ang → −pi)
+        for (int i = 0; i < foulSegs; i++) {
+            float t0 = static_cast<float>(i) / foulSegs;
+            float t1 = static_cast<float>(i + 1) / foulSegs;
+            float ang0, ang1;
+            if (side == 0) {
+                ang0 = aR + (pi - aR) * t0;
+                ang1 = aR + (pi - aR) * t1;
+            } else {
+                ang0 = -aR - (pi - aR) * t0;
+                ang1 = -aR - (pi - aR) * t1;
+            }
+            float r0 = foulGrassR(ang0);
+            float r1 = foulGrassR(ang1);
+            // Inner edge follows diamond footprint (scaled diamond ring).
+            float inner0 = bp * 0.35f;
+            float inner1 = bp * 0.35f;
+            addQuad(
+                m,
+                L.fromHome(inner0, ang0, 0.0f),
+                L.fromHome(inner1, ang1, 0.0f),
+                L.fromHome(r1, ang1, 0.0f),
+                L.fromHome(r0, ang0, 0.0f),
+                grass
+            );
+        }
+    }
+
+    // ── Skinned dirt diamond (square home–1B–2B–3B, slightly oversized) ─
+    // Expand a bit past the base bags so dirt frames the bags.
+    auto expandDiamond = [&](float scale) {
+        Vector3 c = (home + b1 + b2 + b3) * 0.25f;
+        auto push = [&](const Vector3& p) {
+            Vector3 d = p - c;
+            d.y = 0.0f;
+            return c + d * scale + Vector3(0, 0, 0);
+        };
+        return std::array<Vector3, 4>{push(home), push(b1), push(b2), push(b3)};
+    };
+    // Full dirt pad under the diamond
+    {
+        auto d = expandDiamond(1.12f);
+        addFlatQuad(m, d[0], d[1], d[2], d[3], 0.025f, dirt);
+    }
+    // Infield grass "skin" — classic diamond cut (smaller square inside dirt)
+    {
+        auto g = expandDiamond(0.72f);
+        addFlatQuad(m, g[0], g[1], g[2], g[3], 0.035f, grassInfield);
+    }
+
+    // Base paths (dirt strips on top of grass skin)
+    const float pathHw = 2.0f; // ~4 ft wide paths in world units (1u≈2ft → ~8ft visual)
+    addDirtPath(m, home, b1, pathHw, 0.04f, dirtPath);
+    addDirtPath(m, b1, b2, pathHw, 0.04f, dirtPath);
+    addDirtPath(m, b2, b3, pathHw, 0.04f, dirtPath);
+    addDirtPath(m, b3, home, pathHw, 0.04f, dirtPath);
+    // Coach's box / cutoff path toward 2B from mound area
+    addDirtPath(m, L.mound(), b2, pathHw * 0.65f, 0.04f, dirtPath);
+
+    // Pitcher's dirt circle + home plate circle (classic look)
+    addDisk(m, L.mound(), 6.5f, 0.045f, 28, dirt);
+    addDisk(m, home, 8.0f, 0.045f, 28, dirt);
+    // Slight dirt cutouts around each bag
+    addDisk(m, b1, 3.2f, 0.05f, 16, dirt);
+    addDisk(m, b2, 3.2f, 0.05f, 16, dirt);
+    addDisk(m, b3, 3.2f, 0.05f, 16, dirt);
+
+    // Mound mound (raised)
     {
         Vector3 c(0.0f, 0.12f, L.moundZ());
         const int n = 20;
@@ -251,7 +418,7 @@ Mesh3D buildField(const Layout& L) {
         addBox(m, Vector3(0.0f, 0.18f, L.moundZ()), 1.0f, 0.06f, 0.3f, sf::Color(230, 225, 210));
     }
 
-    // Home plate at plateZ — tip toward catcher (+Z)
+    // Home plate — tip toward catcher (+Z)
     {
         float z = plateZ;
         Vector3 tip(0.0f, 0.06f, z + 0.55f);
@@ -264,23 +431,59 @@ Mesh3D buildField(const Layout& L) {
         addQuad(m, bl, br, fr, fl, plate);
     }
 
-    // Bases (approx diamond)
-    float bp = L.basePath();
-    auto base = [&](float x, float z) {
-        addBox(m, Vector3(x, 0.08f, z), 1.1f, 0.08f, 1.1f, sf::Color(245, 240, 225));
+    // Bases at true diamond corners
+    auto placeBase = [&](const Vector3& p) {
+        addBox(
+            m,
+            Vector3(p.x, 0.08f, p.z),
+            1.15f,
+            0.08f,
+            1.15f,
+            sf::Color(245, 240, 225)
+        );
     };
-    // 1B +X, 3B -X slightly toward mound; 2B toward CF
-    base(bp * 0.85f, plateZ - bp * 0.35f);
-    base(0.0f, plateZ - bp * 0.95f);
-    base(-bp * 0.85f, plateZ - bp * 0.35f);
+    placeBase(b1);
+    placeBase(b2);
+    placeBase(b3);
 
     // Batter's boxes
     addBox(m, Vector3(-1.5f, 0.04f, plateZ - 0.2f), 1.4f, 0.04f, 2.2f, dirtDark);
     addBox(m, Vector3(1.5f, 0.04f, plateZ - 0.2f), 1.4f, 0.04f, 2.2f, dirtDark);
 
-    // Dugouts along baselines near home
-    addBox(m, Vector3(-18.0f, 1.0f, plateZ - 12.0f), 14.0f, 2.0f, 4.0f, sf::Color(50, 60, 70));
-    addBox(m, Vector3(18.0f, 1.0f, plateZ - 12.0f), 14.0f, 2.0f, 4.0f, sf::Color(50, 60, 70));
+    // Dugouts outside 1B/3B lines (foul side of diamond)
+    {
+        Vector3 mid1 = (home + b1) * 0.5f;
+        Vector3 mid3 = (home + b3) * 0.5f;
+        auto foulNormal = [](const Vector3& along, float preferXSign) {
+            Vector3 n(-along.z, 0.0f, along.x);
+            float nm = n.magnitude();
+            if (nm > 1e-4f) {
+                n = n * (1.0f / nm);
+            }
+            if (n.x * preferXSign < 0.0f) {
+                n = n * -1.0f;
+            }
+            return n;
+        };
+        Vector3 n1 = foulNormal(b1 - home, +1.0f);
+        Vector3 n3 = foulNormal(b3 - home, -1.0f);
+        addBox(
+            m,
+            Vector3(mid1.x, 1.0f, mid1.z) + n1 * 10.0f,
+            14.0f,
+            2.0f,
+            4.0f,
+            sf::Color(50, 60, 70)
+        );
+        addBox(
+            m,
+            Vector3(mid3.x, 1.0f, mid3.z) + n3 * 10.0f,
+            14.0f,
+            2.0f,
+            4.0f,
+            sf::Color(50, 60, 70)
+        );
+    }
 
     m.rebuildNormals();
     return m;
@@ -369,8 +572,10 @@ float hash01(int n) {
 }
 
 // Inner radius of lower bowl seating for a given angle (full 360° stadium).
+// Follows the OF fence in fair territory; along foul territory holds wide
+// past the diamond / dugouts, then pulls in tightly behind the backstop so
+// the crowd wraps a true diamond rather than a circle centered on home.
 float bowlInnerRadius(const Layout& L, float ang) {
-    // Normalize to [-pi, pi]
     while (ang > pi) {
         ang -= 2.0f * pi;
     }
@@ -382,15 +587,25 @@ float bowlInnerRadius(const Layout& L, float ang) {
         // Behind OF fence
         return L.wallRAtAngle(ang) + 2.2f;
     }
-    // Foul territory + wrap behind home (ang near ±pi)
-    float foulR = L.wallRAtAngle(ang >= 0.0f ? fa : -fa) + 2.2f;
-    float backR = 15.5f; // just behind catcher
+
+    float foulPoleR = L.wallRAtAngle(ang >= 0.0f ? fa : -fa) + 2.2f;
+    float backR = 14.0f; // just behind catcher / backstop
+    float bp = L.basePath();
+    // Keep stands outside diamond + dugout apron along the baselines.
+    float dugoutClear = bp * 0.95f + 22.0f;
+
     float fromFoul = std::abs(ang) - fa;
     float span = pi - fa;
     float u = std::clamp(fromFoul / std::max(span, 0.01f), 0.0f, 1.0f);
-    // Ease toward the backstop so corners fill in.
-    u = u * u * (3.0f - 2.0f * u);
-    return foulR + (backR - foulR) * u;
+    // Hold near foul-pole radius along the 1B/3B sides so the bowl
+    // traces the diamond sides, then ease into the backstop.
+    const float hold = 0.30f;
+    float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
+    u2 = u2 * u2 * (3.0f - 2.0f * u2);
+
+    float r = foulPoleR + (backR - foulPoleR) * u2;
+    float minClear = backR + (dugoutClear - backR) * (1.0f - u2);
+    return std::max(r, minClear);
 }
 
 float bowlBaseHeight(const Layout& L, float ang) {
@@ -398,9 +613,12 @@ float bowlBaseHeight(const Layout& L, float ang) {
     if (std::abs(ang) <= fa + 0.05f) {
         return L.wallHeightAtAngle(ang) + 0.5f;
     }
-    // Ramp up behind home
+    // Lower near dugouts / baselines; ramp up behind home for backstop seating.
     float u = std::clamp((std::abs(ang) - fa) / (pi - fa), 0.0f, 1.0f);
-    return 2.0f + u * 5.0f;
+    const float hold = 0.30f;
+    float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
+    u2 = u2 * u2 * (3.0f - 2.0f * u2);
+    return 2.2f + u2 * 5.5f;
 }
 
 void addLowPolyFan(Mesh3D& m, const Vector3& seatTop, float scale, sf::Color shirt, sf::Color skin) {
@@ -740,22 +958,31 @@ Mesh3D buildCity(const Layout& L) {
 Mesh3D buildLines(const Layout& L) {
     Mesh3D m;
     sf::Color chalk(245, 245, 235);
-    auto line = [&](float ang) {
-        float len = L.wallRAtAngle(ang) + 1.0f;
-        Vector3 a = L.home() + Vector3(0.0f, 0.07f, 0.0f);
-        Vector3 b = L.fromHome(len, ang, 0.07f);
+    auto thickLine = [&](const Vector3& aIn, const Vector3& bIn, float halfW, float y) {
+        Vector3 a = aIn + Vector3(0, y, 0);
+        Vector3 b = bIn + Vector3(0, y, 0);
         Vector3 dir = b - a;
+        dir.y = 0.0f;
         float dlen = dir.magnitude();
         if (dlen < 1e-4f) {
             return;
         }
         dir = dir * (1.0f / dlen);
-        Vector3 side(-dir.z, 0, dir.x);
-        side = side * 0.18f;
+        Vector3 side(-dir.z * halfW, 0.0f, dir.x * halfW);
         addQuad(m, a + side, a - side, b - side, b + side, chalk);
     };
-    line(-L.foulAngleRad());
-    line(L.foulAngleRad());
+    // Foul lines home → poles
+    auto foulLine = [&](float ang) {
+        float len = L.wallRAtAngle(ang) + 1.0f;
+        thickLine(L.home(), L.fromHome(len, ang, 0.0f), 0.18f, 0.07f);
+    };
+    foulLine(-L.foulAngleRad());
+    foulLine(L.foulAngleRad());
+    // Diamond chalk: base paths
+    thickLine(L.home(), L.firstBase(), 0.12f, 0.075f);
+    thickLine(L.firstBase(), L.secondBase(), 0.12f, 0.075f);
+    thickLine(L.secondBase(), L.thirdBase(), 0.12f, 0.075f);
+    thickLine(L.thirdBase(), L.home(), 0.12f, 0.075f);
     m.rebuildNormals();
     return m;
 }

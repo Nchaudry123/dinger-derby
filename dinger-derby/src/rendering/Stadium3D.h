@@ -57,6 +57,14 @@ struct Layout {
     Vector3 cfWall() const { return wallPoint(0.0f, 1.0f); }
     Vector3 parkCenter() const;
 
+    // True diamond bases (1 unit ≈ feetPerUnit feet; basePath = 90 ft side).
+    // Foul lines at ±foulAngle; 1B/3B sit on those lines at basePath.
+    Vector3 firstBase() const { return fromHome(basePath(), foulAngleRad()); }
+    Vector3 thirdBase() const { return fromHome(basePath(), -foulAngleRad()); }
+    Vector3 secondBase() const {
+        return fromHome(basePath() * 1.41421356f, 0.0f);
+    }
+
     // Max fence radius (for ground size / far plane).
     float maxWallR() const;
 };

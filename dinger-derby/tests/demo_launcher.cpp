@@ -45,8 +45,8 @@ std::vector<DemoEntry> makeDemoEntries() {
         // Featured first
         {"Stadium", "stadium_demo",
          "HR Derby ballpark — field, wall, stands, orbit cameras", "Featured", true},
-        {"Bat Physics 3D", "bat_physics_demo",
-         "Reticle aim, 3D swing, fly balls, at-bat loop", "Featured", true},
+        {"HR Derby / Bat", "bat_physics_demo",
+         "Soft toss, fixed swings, HR count + longest", "Featured", true},
         {"Pitching Simulator", "pitching_simulator_demo",
          "Aim box, spin, Magnus break, catcher/pitcher cams", "Featured", true},
         {"Character Viewer", "character_viewer_demo",
