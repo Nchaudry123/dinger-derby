@@ -240,170 +240,139 @@ Mesh3D buildField(const Layout& L) {
     const float aL = -L.foulAngleRad();
     const float aR = L.foulAngleRad();
     const float plateZ = L.plateZ();
-    const int segs = 56;
     const float bp = L.basePath();
+    const int ringSegs = 80;
 
-    // True diamond corners (square rotated 45° in spray space).
     const Vector3 home = L.home();
     const Vector3 b1 = L.firstBase();
     const Vector3 b2 = L.secondBase();
     const Vector3 b3 = L.thirdBase();
 
-    sf::Color grass(34, 110, 48);
-    sf::Color grassDark(28, 92, 40);
-    sf::Color grassInfield(38, 118, 52);
-    sf::Color dirt(168, 120, 70);
-    sf::Color dirtDark(140, 98, 55);
-    sf::Color dirtPath(175, 128, 78);
-    sf::Color track(150, 120, 70);
+    const sf::Color grass = grassColor();
+    const sf::Color grassDark = grassDarkColor();
+    const sf::Color grassInfield(40, 122, 54);
+    const sf::Color dirt = dirtColor();
+    const sf::Color dirtDark(140, 98, 55);
+    const sf::Color dirtPath(175, 128, 78);
+    const sf::Color track = warningTrackColor();
+    const sf::Color apron(120, 115, 105); // concrete/walkway between fence and seats
 
-    // ── Fair-territory grass out to the fence (beyond the diamond) ─────
-    // Skip the inner diamond radius so dirt/grass cutouts own the infield.
-    const float infieldSkip = bp * 1.55f; // past 2B + margin
-    for (int i = 0; i < segs; i++) {
-        float t0 = static_cast<float>(i) / segs;
-        float t1 = static_cast<float>(i + 1) / segs;
-        float ang0 = aL + (aR - aL) * t0;
-        float ang1 = aL + (aR - aL) * t1;
-        float rFence0 = L.wallRAtAngle(ang0) - 0.4f;
-        float rFence1 = L.wallRAtAngle(ang1) - 0.4f;
-        float r0 = std::min(infieldSkip, rFence0 - 1.0f);
-        float r1 = std::min(infieldSkip, rFence1 - 1.0f);
+    // ── Continuous playable surface (full 360°) ────────────────────────
+    // Every angle has seamless grass from near home out to fence (fair) or
+    // bowl apron (foul). No radial gaps → no wrong-color ground bleeding.
+    for (int i = 0; i < ringSegs; i++) {
+        float t0 = static_cast<float>(i) / ringSegs;
+        float t1 = static_cast<float>(i + 1) / ringSegs;
+        float ang0 = -pi + t0 * 2.0f * pi;
+        float ang1 = -pi + t1 * 2.0f * pi;
+        float angM = 0.5f * (ang0 + ang1);
+        while (angM > pi) {
+            angM -= 2.0f * pi;
+        }
+        while (angM < -pi) {
+            angM += 2.0f * pi;
+        }
+
+        const bool fair = std::abs(angM) <= L.foulAngleRad() + 0.02f;
+        float rFence0 = fair ? (L.wallRAtAngle(ang0) - 0.35f) : 0.0f;
+        float rFence1 = fair ? (L.wallRAtAngle(ang1) - 0.35f) : 0.0f;
+        float rBowl0 = L.bowlInnerRadius(ang0) - 0.6f;
+        float rBowl1 = L.bowlInnerRadius(ang1) - 0.6f;
+        // Play surface outer edge: fence in fair territory, bowl in foul.
+        float rOut0 = fair ? rFence0 : rBowl0;
+        float rOut1 = fair ? rFence1 : rBowl1;
+        rOut0 = std::max(rOut0, 2.0f);
+        rOut1 = std::max(rOut1, 2.0f);
+
+        // Base grass (full coverage under dirt diamond).
         addQuad(
             m,
-            L.fromHome(r0, ang0, 0.0f),
-            L.fromHome(r1, ang1, 0.0f),
-            L.fromHome(rFence1, ang1, 0.0f),
-            L.fromHome(rFence0, ang0, 0.0f),
+            L.fromHome(0.25f, ang0, 0.0f),
+            L.fromHome(0.25f, ang1, 0.0f),
+            L.fromHome(rOut1, ang1, 0.0f),
+            L.fromHome(rOut0, ang0, 0.0f),
             grass
         );
-        // Darker mid-OF band
-        float mid0 = rFence0 * 0.55f;
-        float mid1 = rFence1 * 0.55f;
-        float mid0b = rFence0 * 0.68f;
-        float mid1b = rFence1 * 0.68f;
-        if (mid0b > infieldSkip) {
-            addQuad(
-                m,
-                L.fromHome(std::max(mid0, infieldSkip), ang0, 0.01f),
-                L.fromHome(std::max(mid1, infieldSkip), ang1, 0.01f),
-                L.fromHome(mid1b, ang1, 0.01f),
-                L.fromHome(mid0b, ang0, 0.01f),
-                grassDark
-            );
-        }
-        // Warning track
-        addQuad(
-            m,
-            L.fromHome(rFence0 - 3.5f, ang0, 0.02f),
-            L.fromHome(rFence1 - 3.5f, ang1, 0.02f),
-            L.fromHome(rFence1, ang1, 0.02f),
-            L.fromHome(rFence0, ang0, 0.02f),
-            track
-        );
-    }
 
-    // ── Foul-territory grass: home → stands along arcs outside foul lines ─
-    // Uses the same bowl inner radius helper so grass meets the crowd.
-    auto foulGrassR = [&](float ang) {
-        // Mirror of bowlInnerRadius without including Stadium internals twice:
-        // keep a modest apron so dirt diamond + dugouts sit on grass.
-        float fa = L.foulAngleRad();
-        float a = ang;
-        while (a > pi) {
-            a -= 2.0f * pi;
-        }
-        while (a < -pi) {
-            a += 2.0f * pi;
-        }
-        if (std::abs(a) <= fa + 0.02f) {
-            return L.wallRAtAngle(a) - 0.5f;
-        }
-        float foulPoleR = L.wallRAtAngle(a >= 0.0f ? fa : -fa) + 1.0f;
-        float backR = 16.0f;
-        float fromFoul = std::abs(a) - fa;
-        float span = pi - fa;
-        float u = std::clamp(fromFoul / std::max(span, 0.01f), 0.0f, 1.0f);
-        // Hold wide along baselines, then pull in behind home.
-        float hold = 0.28f;
-        float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
-        u2 = u2 * u2 * (3.0f - 2.0f * u2);
-        float dugoutClear = bp * 0.9f + 20.0f;
-        float r = foulPoleR + (backR - foulPoleR) * u2;
-        float minClear = backR + (dugoutClear - backR) * (1.0f - u2);
-        return std::max(r, minClear);
-    };
-
-    const int foulSegs = 40;
-    for (int side = 0; side < 2; side++) {
-        // side 0: RF foul (+X, +ang → +pi); side 1: LF foul (−ang → −pi)
-        for (int i = 0; i < foulSegs; i++) {
-            float t0 = static_cast<float>(i) / foulSegs;
-            float t1 = static_cast<float>(i + 1) / foulSegs;
-            float ang0, ang1;
-            if (side == 0) {
-                ang0 = aR + (pi - aR) * t0;
-                ang1 = aR + (pi - aR) * t1;
-            } else {
-                ang0 = -aR - (pi - aR) * t0;
-                ang1 = -aR - (pi - aR) * t1;
+        if (fair) {
+            // Mowing stripes (mid-OF dark bands) — only beyond diamond.
+            float stripeIn = bp * 1.35f;
+            float mid0 = std::max(stripeIn, rOut0 * 0.52f);
+            float mid1 = std::max(stripeIn, rOut1 * 0.52f);
+            float mid0b = std::min(rOut0 - 4.0f, rOut0 * 0.66f);
+            float mid1b = std::min(rOut1 - 4.0f, rOut1 * 0.66f);
+            if (mid0b > mid0 + 0.5f) {
+                addQuad(
+                    m,
+                    L.fromHome(mid0, ang0, 0.012f),
+                    L.fromHome(mid1, ang1, 0.012f),
+                    L.fromHome(mid1b, ang1, 0.012f),
+                    L.fromHome(mid0b, ang0, 0.012f),
+                    grassDark
+                );
             }
-            float r0 = foulGrassR(ang0);
-            float r1 = foulGrassR(ang1);
-            // Inner edge follows diamond footprint (scaled diamond ring).
-            float inner0 = bp * 0.35f;
-            float inner1 = bp * 0.35f;
+            // Warning track inside fence
             addQuad(
                 m,
-                L.fromHome(inner0, ang0, 0.0f),
-                L.fromHome(inner1, ang1, 0.0f),
-                L.fromHome(r1, ang1, 0.0f),
-                L.fromHome(r0, ang0, 0.0f),
-                grass
+                L.fromHome(rOut0 - 3.5f, ang0, 0.018f),
+                L.fromHome(rOut1 - 3.5f, ang1, 0.018f),
+                L.fromHome(rOut1, ang1, 0.018f),
+                L.fromHome(rOut0, ang0, 0.018f),
+                track
             );
+            // Apron: fence → stands (matches bowl, no void)
+            float wall0 = L.wallRAtAngle(ang0);
+            float wall1 = L.wallRAtAngle(ang1);
+            float bowl0 = L.bowlInnerRadius(ang0) - 0.15f;
+            float bowl1 = L.bowlInnerRadius(ang1) - 0.15f;
+            if (bowl0 > wall0 + 0.2f) {
+                addQuad(
+                    m,
+                    L.fromHome(wall0, ang0, 0.01f),
+                    L.fromHome(wall1, ang1, 0.01f),
+                    L.fromHome(bowl1, ang1, 0.01f),
+                    L.fromHome(bowl0, ang0, 0.01f),
+                    apron
+                );
+            }
         }
     }
+    (void)aL;
+    (void)aR;
 
-    // ── Skinned dirt diamond (square home–1B–2B–3B, slightly oversized) ─
-    // Expand a bit past the base bags so dirt frames the bags.
+    // ── Skinned dirt diamond (square home–1B–2B–3B) ───────────────────
     auto expandDiamond = [&](float scale) {
         Vector3 c = (home + b1 + b2 + b3) * 0.25f;
         auto push = [&](const Vector3& p) {
             Vector3 d = p - c;
             d.y = 0.0f;
-            return c + d * scale + Vector3(0, 0, 0);
+            return c + d * scale;
         };
         return std::array<Vector3, 4>{push(home), push(b1), push(b2), push(b3)};
     };
-    // Full dirt pad under the diamond
     {
-        auto d = expandDiamond(1.12f);
-        addFlatQuad(m, d[0], d[1], d[2], d[3], 0.025f, dirt);
+        auto d = expandDiamond(1.08f);
+        addFlatQuad(m, d[0], d[1], d[2], d[3], 0.022f, dirt);
     }
-    // Infield grass "skin" — classic diamond cut (smaller square inside dirt)
     {
-        auto g = expandDiamond(0.72f);
-        addFlatQuad(m, g[0], g[1], g[2], g[3], 0.035f, grassInfield);
+        auto g = expandDiamond(0.70f);
+        addFlatQuad(m, g[0], g[1], g[2], g[3], 0.032f, grassInfield);
     }
 
-    // Base paths (dirt strips on top of grass skin)
-    const float pathHw = 2.0f; // ~4 ft wide paths in world units (1u≈2ft → ~8ft visual)
-    addDirtPath(m, home, b1, pathHw, 0.04f, dirtPath);
-    addDirtPath(m, b1, b2, pathHw, 0.04f, dirtPath);
-    addDirtPath(m, b2, b3, pathHw, 0.04f, dirtPath);
-    addDirtPath(m, b3, home, pathHw, 0.04f, dirtPath);
-    // Coach's box / cutoff path toward 2B from mound area
-    addDirtPath(m, L.mound(), b2, pathHw * 0.65f, 0.04f, dirtPath);
+    const float pathHw = 1.85f;
+    addDirtPath(m, home, b1, pathHw, 0.038f, dirtPath);
+    addDirtPath(m, b1, b2, pathHw, 0.038f, dirtPath);
+    addDirtPath(m, b2, b3, pathHw, 0.038f, dirtPath);
+    addDirtPath(m, b3, home, pathHw, 0.038f, dirtPath);
+    addDirtPath(m, L.mound(), b2, pathHw * 0.6f, 0.038f, dirtPath);
 
-    // Pitcher's dirt circle + home plate circle (classic look)
-    addDisk(m, L.mound(), 6.5f, 0.045f, 28, dirt);
-    addDisk(m, home, 8.0f, 0.045f, 28, dirt);
-    // Slight dirt cutouts around each bag
-    addDisk(m, b1, 3.2f, 0.05f, 16, dirt);
-    addDisk(m, b2, 3.2f, 0.05f, 16, dirt);
-    addDisk(m, b3, 3.2f, 0.05f, 16, dirt);
+    addDisk(m, L.mound(), 6.5f, 0.042f, 28, dirt);
+    addDisk(m, home, 7.5f, 0.042f, 28, dirt);
+    addDisk(m, b1, 3.0f, 0.046f, 16, dirt);
+    addDisk(m, b2, 3.0f, 0.046f, 16, dirt);
+    addDisk(m, b3, 3.0f, 0.046f, 16, dirt);
 
-    // Mound mound (raised)
+    // Raised mound
     {
         Vector3 c(0.0f, 0.12f, L.moundZ());
         const int n = 20;
@@ -418,7 +387,7 @@ Mesh3D buildField(const Layout& L) {
         addBox(m, Vector3(0.0f, 0.18f, L.moundZ()), 1.0f, 0.06f, 0.3f, sf::Color(230, 225, 210));
     }
 
-    // Home plate — tip toward catcher (+Z)
+    // Home plate
     {
         float z = plateZ;
         Vector3 tip(0.0f, 0.06f, z + 0.55f);
@@ -431,26 +400,17 @@ Mesh3D buildField(const Layout& L) {
         addQuad(m, bl, br, fr, fl, plate);
     }
 
-    // Bases at true diamond corners
     auto placeBase = [&](const Vector3& p) {
-        addBox(
-            m,
-            Vector3(p.x, 0.08f, p.z),
-            1.15f,
-            0.08f,
-            1.15f,
-            sf::Color(245, 240, 225)
-        );
+        addBox(m, Vector3(p.x, 0.08f, p.z), 1.15f, 0.08f, 1.15f, sf::Color(245, 240, 225));
     };
     placeBase(b1);
     placeBase(b2);
     placeBase(b3);
 
-    // Batter's boxes
     addBox(m, Vector3(-1.5f, 0.04f, plateZ - 0.2f), 1.4f, 0.04f, 2.2f, dirtDark);
     addBox(m, Vector3(1.5f, 0.04f, plateZ - 0.2f), 1.4f, 0.04f, 2.2f, dirtDark);
 
-    // Dugouts outside 1B/3B lines (foul side of diamond)
+    // Dugouts on foul side of baselines
     {
         Vector3 mid1 = (home + b1) * 0.5f;
         Vector3 mid3 = (home + b3) * 0.5f;
@@ -467,22 +427,11 @@ Mesh3D buildField(const Layout& L) {
         };
         Vector3 n1 = foulNormal(b1 - home, +1.0f);
         Vector3 n3 = foulNormal(b3 - home, -1.0f);
-        addBox(
-            m,
-            Vector3(mid1.x, 1.0f, mid1.z) + n1 * 10.0f,
-            14.0f,
-            2.0f,
-            4.0f,
-            sf::Color(50, 60, 70)
-        );
-        addBox(
-            m,
-            Vector3(mid3.x, 1.0f, mid3.z) + n3 * 10.0f,
-            14.0f,
-            2.0f,
-            4.0f,
-            sf::Color(50, 60, 70)
-        );
+        addBox(m, Vector3(mid1.x, 1.0f, mid1.z) + n1 * 10.0f, 14.0f, 2.0f, 4.0f, sf::Color(50, 60, 70));
+        addBox(m, Vector3(mid3.x, 1.0f, mid3.z) + n3 * 10.0f, 14.0f, 2.0f, 4.0f, sf::Color(50, 60, 70));
+        // Dugout roofs / rail
+        addBox(m, Vector3(mid1.x, 2.15f, mid1.z) + n1 * 10.0f, 14.2f, 0.25f, 4.4f, sf::Color(40, 48, 55));
+        addBox(m, Vector3(mid3.x, 2.15f, mid3.z) + n3 * 10.0f, 14.2f, 0.25f, 4.4f, sf::Color(40, 48, 55));
     }
 
     m.rebuildNormals();
@@ -554,13 +503,29 @@ Mesh3D buildWalls(const Layout& L) {
     mark(0.0f, "401");
     mark(45.0f, "330");
 
-    // CF scoreboard beyond deepest CF
+    // CF scoreboard chassis (screen face is a separate mesh for pulse).
     float cfR = L.wallRAtAngle(0.0f);
     float cfH = L.wallHeightAtAngle(0.0f);
     Vector3 cf = L.fromHome(cfR + 8.0f, 0.0f, cfH + 10.0f);
     addBox(m, cf, 32.0f, 16.0f, 3.0f, sf::Color(30, 35, 45));
-    addBox(m, cf + Vector3(0, 0, 1.6f), 28.0f, 12.0f, 0.4f, sf::Color(20, 90, 50));
+    // Ribbon / LED strip under board
+    addBox(m, cf + Vector3(0, -9.0f, 0.5f), 30.0f, 1.2f, 0.5f, sf::Color(200, 40, 50));
 
+    m.rebuildNormals();
+    return m;
+}
+
+Mesh3D buildScoreboardScreen(const Layout& L) {
+    Mesh3D m;
+    float cfR = L.wallRAtAngle(0.0f);
+    float cfH = L.wallHeightAtAngle(0.0f);
+    Vector3 cf = L.fromHome(cfR + 8.0f, 0.0f, cfH + 10.0f);
+    // Bright face slightly in front of chassis toward home (+Z from CF wall is toward plate).
+    addBox(m, cf + Vector3(0, 0, 1.65f), 28.0f, 12.0f, 0.35f, sf::Color(30, 140, 70));
+    // Fake "HR" panel blocks
+    addBox(m, cf + Vector3(-8.0f, 2.0f, 1.9f), 8.0f, 3.5f, 0.2f, sf::Color(255, 220, 60));
+    addBox(m, cf + Vector3(8.0f, 2.0f, 1.9f), 8.0f, 3.5f, 0.2f, sf::Color(255, 255, 255));
+    addBox(m, cf + Vector3(0.0f, -2.5f, 1.9f), 22.0f, 2.2f, 0.2f, sf::Color(40, 200, 90));
     m.rebuildNormals();
     return m;
 }
@@ -571,54 +536,12 @@ float hash01(int n) {
     return static_cast<float>(x & 0xFFFFFFu) / static_cast<float>(0x1000000u);
 }
 
-// Inner radius of lower bowl seating for a given angle (full 360° stadium).
-// Follows the OF fence in fair territory; along foul territory holds wide
-// past the diamond / dugouts, then pulls in tightly behind the backstop so
-// the crowd wraps a true diamond rather than a circle centered on home.
+// Free-function wrappers used inside this TU (Layout methods are the API).
 float bowlInnerRadius(const Layout& L, float ang) {
-    while (ang > pi) {
-        ang -= 2.0f * pi;
-    }
-    while (ang < -pi) {
-        ang += 2.0f * pi;
-    }
-    float fa = L.foulAngleRad();
-    if (std::abs(ang) <= fa + 0.05f) {
-        // Behind OF fence
-        return L.wallRAtAngle(ang) + 2.2f;
-    }
-
-    float foulPoleR = L.wallRAtAngle(ang >= 0.0f ? fa : -fa) + 2.2f;
-    float backR = 14.0f; // just behind catcher / backstop
-    float bp = L.basePath();
-    // Keep stands outside diamond + dugout apron along the baselines.
-    float dugoutClear = bp * 0.95f + 22.0f;
-
-    float fromFoul = std::abs(ang) - fa;
-    float span = pi - fa;
-    float u = std::clamp(fromFoul / std::max(span, 0.01f), 0.0f, 1.0f);
-    // Hold near foul-pole radius along the 1B/3B sides so the bowl
-    // traces the diamond sides, then ease into the backstop.
-    const float hold = 0.30f;
-    float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
-    u2 = u2 * u2 * (3.0f - 2.0f * u2);
-
-    float r = foulPoleR + (backR - foulPoleR) * u2;
-    float minClear = backR + (dugoutClear - backR) * (1.0f - u2);
-    return std::max(r, minClear);
+    return L.bowlInnerRadius(ang);
 }
-
 float bowlBaseHeight(const Layout& L, float ang) {
-    float fa = L.foulAngleRad();
-    if (std::abs(ang) <= fa + 0.05f) {
-        return L.wallHeightAtAngle(ang) + 0.5f;
-    }
-    // Lower near dugouts / baselines; ramp up behind home for backstop seating.
-    float u = std::clamp((std::abs(ang) - fa) / (pi - fa), 0.0f, 1.0f);
-    const float hold = 0.30f;
-    float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
-    u2 = u2 * u2 * (3.0f - 2.0f * u2);
-    return 2.2f + u2 * 5.5f;
+    return L.bowlBaseHeight(ang);
 }
 
 void addLowPolyFan(Mesh3D& m, const Vector3& seatTop, float scale, sf::Color shirt, sf::Color skin) {
@@ -797,7 +720,7 @@ Mesh3D buildStands(const Layout& L) {
 // Build low-poly fans in kFanSectors angular wedges for cheer animation.
 std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     std::vector<Mesh3D> sectors(kFanSectorCount);
-    const int angSamples = 96;
+    const int angSamples = 120; // denser angular packing
     const int lowerRows = 14;
     const int upperRows = 8;
     const float rowDepth = 2.6f;
@@ -812,10 +735,10 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
         float rIn = bowlInnerRadius(L, ang);
         float yBase = bowlBaseHeight(L, ang);
 
-        // Lower bowl fans — skip aisles, thin density for performance
+        // Lower bowl — denser crowd (~70% seats filled, skip aisles)
         for (int row = 1; row < lowerRows; row += 1) {
-            if ((i + row) % 2 != 0) {
-                continue; // checkerboard occupancy ~50%
+            if ((i + row * 2) % 5 == 0) {
+                continue; // sparse empty seats
             }
             if (i % 6 == 0) {
                 continue; // aisle
@@ -823,23 +746,26 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             float r = rIn + (row + 0.45f) * rowDepth;
             float y = yBase + (row + 1.0f) * rowRise;
             Vector3 seat = L.fromHome(r, ang, y);
+            // Slight seat jitter so the bowl doesn't look grid-perfect.
+            seat.x += (hash01(fanId) - 0.5f) * 0.25f;
+            seat.z += (hash01(fanId + 3) - 0.5f) * 0.25f;
             addLowPolyFan(
                 sectors[sector],
                 seat,
-                0.95f + 0.15f * hash01(fanId),
+                0.92f + 0.18f * hash01(fanId),
                 fanShirtColor(fanId),
                 fanSkinColor(fanId + 3)
             );
             fanId++;
         }
 
-        // Upper deck fans (sparser)
+        // Upper deck (still busy)
         float rLowTop = rIn + lowerRows * rowDepth;
         float yConc = yBase + lowerRows * rowRise + 0.3f;
         float rUp0 = rLowTop + upperGap;
         float yUp0 = yConc + 1.2f;
         for (int row = 0; row < upperRows; row += 1) {
-            if ((i + row * 3) % 3 != 0) {
+            if ((i + row * 2) % 2 != 0) {
                 continue;
             }
             float r = rUp0 + (row + 0.4f) * (rowDepth * 1.15f);
@@ -848,7 +774,7 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             addLowPolyFan(
                 sectors[sector],
                 seat,
-                0.9f,
+                0.88f + 0.12f * hash01(fanId + 9),
                 fanShirtColor(fanId + 11),
                 fanSkinColor(fanId + 7)
             );
@@ -862,12 +788,66 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     return sectors;
 }
 
+void buildFlags(const Layout& L, std::vector<Mesh3D>& flags, std::vector<Vector3>& bases) {
+    flags.clear();
+    bases.clear();
+    flags.reserve(kFlagCount);
+    bases.reserve(kFlagCount);
+
+    sf::Color poleCol(180, 185, 190);
+    sf::Color flagCols[] = {
+        sf::Color(200, 40, 50),
+        sf::Color(30, 60, 160),
+        sf::Color(240, 240, 245),
+        sf::Color(230, 160, 40),
+        sf::Color(40, 120, 70),
+    };
+
+    for (int i = 0; i < kFlagCount; i++) {
+        float t = (static_cast<float>(i) + 0.5f) / kFlagCount;
+        float ang = -pi + t * 2.0f * pi;
+        float r = L.bowlInnerRadius(ang) + 6.0f + hash01(i * 5) * 4.0f;
+        Vector3 base = L.fromHome(r, ang, 0.0f);
+        base.y = L.bowlBaseHeight(ang) + 2.0f;
+
+        Mesh3D m;
+        // Pole local: origin at base
+        addBox(m, Vector3(0, 5.0f, 0), 0.18f, 10.0f, 0.18f, poleCol);
+        // Flag cloth hanging in +X from pole top
+        sf::Color fc = flagCols[static_cast<unsigned>(i) % 5];
+        addQuad(
+            m,
+            Vector3(0.1f, 9.2f, 0),
+            Vector3(3.8f, 9.0f, 0.15f),
+            Vector3(3.6f, 6.6f, 0.15f),
+            Vector3(0.1f, 7.0f, 0),
+            fc
+        );
+        addQuad(
+            m,
+            Vector3(0.1f, 9.2f, 0),
+            Vector3(0.1f, 7.0f, 0),
+            Vector3(3.6f, 6.6f, -0.05f),
+            Vector3(3.8f, 9.0f, -0.05f),
+            sf::Color(
+                static_cast<std::uint8_t>(fc.r * 0.85f),
+                static_cast<std::uint8_t>(fc.g * 0.85f),
+                static_cast<std::uint8_t>(fc.b * 0.85f)
+            )
+        );
+        m.rebuildNormals();
+        flags.push_back(std::move(m));
+        bases.push_back(base);
+    }
+}
+
 Mesh3D buildCity(const Layout& L) {
     Mesh3D m;
     const float plateZ = L.plateZ();
     const float baseR = L.maxWallR();
-    // Suburban ground ring around the park
-    sf::Color grassFar(42, 95, 48);
+    // Match in-park grass so the suburb ring doesn't show a color seam.
+    sf::Color grassFar = grassColor();
+    sf::Color grassFarDark = grassDarkColor();
     sf::Color road(55, 55, 58);
     sf::Color sidewalk(120, 118, 110);
     sf::Color roof(90, 55, 45);
@@ -877,8 +857,10 @@ Mesh3D buildCity(const Layout& L) {
     sf::Color tree(30, 90, 40);
     sf::Color trunk(70, 50, 30);
 
-    // Large flat suburb ground (disk via annulus full circle)
-    addAnnulusSector(m, L, baseR + 5.0f, baseR + 220.0f, -pi, pi, -0.02f, 64, grassFar);
+    // Suburb ground starts just outside the max fence (overlaps stand apron slightly).
+    addAnnulusSector(m, L, baseR + 1.0f, baseR + 220.0f, -pi, pi, -0.02f, 72, grassFar);
+    // Subtle outer grass darkening for depth
+    addAnnulusSector(m, L, baseR + 160.0f, baseR + 220.0f, -pi, pi, -0.01f, 48, grassFarDark);
     // Outer ring road
     addAnnulusSector(
         m, L, baseR + 55.0f, baseR + 62.0f, -pi, pi, 0.01f, 64, road
@@ -949,6 +931,21 @@ Mesh3D buildCity(const Layout& L) {
         float h = 8.0f + hash01(i + 200) * 14.0f;
         Vector3 c = L.fromHome(r, ang, h * 0.45f);
         addBox(m, c, 40.0f, h, 18.0f, sf::Color(50, 85, 55));
+    }
+
+    // Parked cars on the ring roads (static traffic — park feels populated).
+    for (int i = 0; i < 48; i++) {
+        float t = static_cast<float>(i) / 48.0f;
+        float ang = -pi + t * 2.0f * pi;
+        float r = (i % 2 == 0) ? (baseR + 58.0f) : (baseR + 123.0f);
+        Vector3 c = L.fromHome(r, ang, 0.55f);
+        sf::Color body(
+            static_cast<std::uint8_t>(40 + hash01(i) * 180),
+            static_cast<std::uint8_t>(40 + hash01(i + 2) * 120),
+            static_cast<std::uint8_t>(40 + hash01(i + 4) * 160)
+        );
+        addBox(m, c, 2.4f, 0.9f, 1.2f, body);
+        addBox(m, c + Vector3(0, 0.55f, 0), 1.4f, 0.55f, 1.05f, sf::Color(60, 90, 120, 180));
     }
 
     m.rebuildNormals();
@@ -1082,6 +1079,54 @@ float Layout::radiusFromHome(const Vector3& worldPos) const {
     return r;
 }
 
+float Layout::bowlInnerRadius(float ang) const {
+    while (ang > pi) {
+        ang -= 2.0f * pi;
+    }
+    while (ang < -pi) {
+        ang += 2.0f * pi;
+    }
+    float fa = foulAngleRad();
+    if (std::abs(ang) <= fa + 0.05f) {
+        // Immediately behind OF fence (walkway + first row).
+        return wallRAtAngle(ang) + 2.2f;
+    }
+
+    float foulPoleR = wallRAtAngle(ang >= 0.0f ? fa : -fa) + 2.2f;
+    float backR = 14.0f;
+    float bp = basePath();
+    float dugoutClear = bp * 0.95f + 22.0f;
+
+    float fromFoul = std::abs(ang) - fa;
+    float span = pi - fa;
+    float u = std::clamp(fromFoul / std::max(span, 0.01f), 0.0f, 1.0f);
+    const float hold = 0.30f;
+    float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
+    u2 = u2 * u2 * (3.0f - 2.0f * u2);
+
+    float r = foulPoleR + (backR - foulPoleR) * u2;
+    float minClear = backR + (dugoutClear - backR) * (1.0f - u2);
+    return std::max(r, minClear);
+}
+
+float Layout::bowlBaseHeight(float ang) const {
+    float fa = foulAngleRad();
+    while (ang > pi) {
+        ang -= 2.0f * pi;
+    }
+    while (ang < -pi) {
+        ang += 2.0f * pi;
+    }
+    if (std::abs(ang) <= fa + 0.05f) {
+        return wallHeightAtAngle(ang) + 0.5f;
+    }
+    float u = std::clamp((std::abs(ang) - fa) / (pi - fa), 0.0f, 1.0f);
+    const float hold = 0.30f;
+    float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
+    u2 = u2 * u2 * (3.0f - 2.0f * u2);
+    return 2.2f + u2 * 5.5f;
+}
+
 WallClearResult evaluateWallClear(
     const Layout& layout,
     Vector3 position,
@@ -1200,7 +1245,9 @@ Meshes build(const Layout& layout) {
     out.stands = buildStands(layout);
     out.lines = buildLines(layout);
     out.city = buildCity(layout);
+    out.scoreboardScreen = buildScoreboardScreen(layout);
     out.fanSectors = buildFanSectors(layout);
+    buildFlags(layout, out.flagMeshes, out.flagBases);
     return out;
 }
 
@@ -1208,12 +1255,31 @@ float recommendedFarPlane(const Layout& layout) {
     return std::max(3500.0f, layout.maxWallR() * 12.0f + 800.0f);
 }
 
-float fanCheerOffsetY(int sectorIndex, float timeSec) {
-    // Traveling wave of fans standing / bouncing.
+float fanCheerOffsetY(int sectorIndex, float timeSec, float boost) {
+    // Traveling wave of fans standing / bouncing — more energetic by default.
     float phase = static_cast<float>(sectorIndex) * 0.55f;
-    float wave = std::sin(timeSec * 5.5f + phase);
-    float wave2 = std::sin(timeSec * 3.2f + phase * 1.7f);
-    return 0.12f + 0.22f * std::max(0.0f, wave) + 0.06f * wave2;
+    float wave = std::sin(timeSec * 6.2f + phase);
+    float wave2 = std::sin(timeSec * 3.8f + phase * 1.7f);
+    float wave3 = std::sin(timeSec * 9.1f + phase * 0.4f);
+    float b = std::max(0.4f, boost);
+    return (0.10f + 0.28f * std::max(0.0f, wave) + 0.10f * wave2 + 0.05f * std::max(0.0f, wave3)) * b;
+}
+
+float fanCheerOffsetX(int sectorIndex, float timeSec, float boost) {
+    float phase = static_cast<float>(sectorIndex) * 0.71f;
+    float b = std::max(0.4f, boost);
+    return 0.08f * std::sin(timeSec * 4.4f + phase) * b;
+}
+
+float flagSwayYaw(int flagIndex, float timeSec) {
+    float phase = static_cast<float>(flagIndex) * 0.9f;
+    return 0.22f * std::sin(timeSec * 2.4f + phase) + 0.08f * std::sin(timeSec * 5.1f + phase * 1.3f);
+}
+
+float scoreboardPulse(float timeSec, float excitement) {
+    float base = 0.55f + 0.25f * std::sin(timeSec * 3.5f);
+    float pop = excitement > 0.01f ? (0.35f * std::sin(timeSec * 12.0f) * excitement) : 0.0f;
+    return std::clamp(base + pop, 0.25f, 1.0f);
 }
 
 } // namespace Stadium3D

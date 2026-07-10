@@ -1225,7 +1225,9 @@ int main() {
     GlMesh glStadiumStands;
     GlMesh glStadiumLines;
     GlMesh glStadiumCity;
+    GlMesh glStadiumBoard;
     std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
+    std::vector<GlMesh> glStadiumFlags(Stadium3D::kFlagCount);
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useGL) {
@@ -1237,9 +1239,15 @@ int main() {
         glStadiumStands.upload(stadiumMeshes.stands);
         glStadiumLines.upload(stadiumMeshes.lines);
         glStadiumCity.upload(stadiumMeshes.city);
+        glStadiumBoard.upload(stadiumMeshes.scoreboardScreen);
         for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
             if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
                 glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
+            }
+        }
+        for (int i = 0; i < Stadium3D::kFlagCount; i++) {
+            if (i < static_cast<int>(stadiumMeshes.flagMeshes.size())) {
+                glStadiumFlags[i].upload(stadiumMeshes.flagMeshes[i]);
             }
         }
     }
@@ -2110,29 +2118,49 @@ int main() {
 
         Matrix4 stadiumXform = Matrix4::identity();
         if (useGL) {
-            // Suburban day sky clear
-            gl.beginFrame(window, camera, sf::Color(135, 185, 230));
+            gl.beginFrame(window, camera, Stadium3D::skyColor());
             const float gr = stadiumLayout.maxWallR() + 220.0f;
-            gl.drawGround(gr, plateZ - gr, plateZ + gr, sf::Color(42, 95, 48));
+            // Match field grass — no color seam under the park.
+            gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::groundClearColor());
             gl.drawMesh(glStadiumCity, stadiumXform);
             gl.drawMesh(glStadiumField, stadiumXform);
             gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);
             gl.drawMesh(glStadiumLines, stadiumXform);
+            // Live scoreboard (pulses harder after dingers)
+            float excitement = (hrBannerTimer > 0.0f) ? 1.0f : 0.15f;
+            if (derby.roundOver) {
+                excitement = std::max(excitement, 0.7f);
+            }
+            float boardA = Stadium3D::scoreboardPulse(stadiumCheerTime, excitement);
+            gl.drawMesh(glStadiumBoard, stadiumXform, 0.55f + 0.45f * boardA);
             // Crowd cheer wave (stronger after a big hit / round end)
-            float cheerBoost = (hrBannerTimer > 0.0f) ? 1.6f : 1.0f;
+            float cheerBoost = (hrBannerTimer > 0.0f) ? 1.85f : 1.15f;
             if (derby.roundOver && derby.roundOverTimer > 0.0f) {
-                cheerBoost = std::max(cheerBoost, 1.85f);
+                cheerBoost = std::max(cheerBoost, 2.1f);
             }
             for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
                 if (!glStadiumFans[i].valid()) {
                     continue;
                 }
-                float bob = Stadium3D::fanCheerOffsetY(i, stadiumCheerTime) * cheerBoost;
+                float bob = Stadium3D::fanCheerOffsetY(i, stadiumCheerTime, cheerBoost);
+                float sway = Stadium3D::fanCheerOffsetX(i, stadiumCheerTime, cheerBoost);
                 gl.drawMesh(
                     glStadiumFans[i],
-                    Matrix4::translation(Vector3(0.0f, bob, 0.0f)) * stadiumXform
+                    Matrix4::translation(Vector3(sway, bob, 0.0f)) * stadiumXform
                 );
+            }
+            // Wind-blown flags around the bowl
+            for (int i = 0; i < Stadium3D::kFlagCount; i++) {
+                if (!glStadiumFlags[i].valid() ||
+                    i >= static_cast<int>(stadiumMeshes.flagBases.size())) {
+                    continue;
+                }
+                Vector3 base = stadiumMeshes.flagBases[i];
+                float yaw = Stadium3D::flagSwayYaw(i, stadiumCheerTime);
+                Matrix4 flagX =
+                    Matrix4::translation(base) * Matrix4::rotationY(yaw);
+                gl.drawMesh(glStadiumFlags[i], flagX);
             }
             if (!followBallCam) {
                 gl.drawMesh(glPitcher, pitcherXform);

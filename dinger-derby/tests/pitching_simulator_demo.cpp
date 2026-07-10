@@ -1318,7 +1318,9 @@ int main() {
     GlMesh glStadiumStands;
     GlMesh glStadiumLines;
     GlMesh glStadiumCity;
+    GlMesh glStadiumBoard;
     std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
+    std::vector<GlMesh> glStadiumFlags(Stadium3D::kFlagCount);
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useOpenGL) {
@@ -1330,9 +1332,15 @@ int main() {
         glStadiumStands.upload(stadiumMeshes.stands);
         glStadiumLines.upload(stadiumMeshes.lines);
         glStadiumCity.upload(stadiumMeshes.city);
+        glStadiumBoard.upload(stadiumMeshes.scoreboardScreen);
         for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
             if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
                 glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
+            }
+        }
+        for (int i = 0; i < Stadium3D::kFlagCount; i++) {
+            if (i < static_cast<int>(stadiumMeshes.flagMeshes.size())) {
+                glStadiumFlags[i].upload(stadiumMeshes.flagMeshes[i]);
             }
         }
     }
@@ -1785,22 +1793,37 @@ int main() {
 
         Matrix4 stadiumXform = Matrix4::identity();
         if (useOpenGL) {
-            gl.beginFrame(window, camera, sf::Color(135, 185, 230));
+            gl.beginFrame(window, camera, Stadium3D::skyColor());
             const float gr = stadiumLayout.maxWallR() + 220.0f;
-            gl.drawGround(gr, plateZ - gr, plateZ + gr, sf::Color(42, 95, 48));
+            gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::groundClearColor());
             gl.drawMesh(glStadiumCity, stadiumXform);
             gl.drawMesh(glStadiumField, stadiumXform);
             gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);
             gl.drawMesh(glStadiumLines, stadiumXform);
+            float boardA = Stadium3D::scoreboardPulse(stadiumCheerTime, 0.2f);
+            gl.drawMesh(glStadiumBoard, stadiumXform, 0.55f + 0.45f * boardA);
             for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
                 if (!glStadiumFans[i].valid()) {
                     continue;
                 }
-                float bob = Stadium3D::fanCheerOffsetY(i, stadiumCheerTime);
+                float bob = Stadium3D::fanCheerOffsetY(i, stadiumCheerTime, 1.1f);
+                float sway = Stadium3D::fanCheerOffsetX(i, stadiumCheerTime, 1.1f);
                 gl.drawMesh(
                     glStadiumFans[i],
-                    Matrix4::translation(Vector3(0.0f, bob, 0.0f)) * stadiumXform
+                    Matrix4::translation(Vector3(sway, bob, 0.0f)) * stadiumXform
+                );
+            }
+            for (int i = 0; i < Stadium3D::kFlagCount; i++) {
+                if (!glStadiumFlags[i].valid() ||
+                    i >= static_cast<int>(stadiumMeshes.flagBases.size())) {
+                    continue;
+                }
+                Vector3 base = stadiumMeshes.flagBases[i];
+                float yaw = Stadium3D::flagSwayYaw(i, stadiumCheerTime);
+                gl.drawMesh(
+                    glStadiumFlags[i],
+                    Matrix4::translation(base) * Matrix4::rotationY(yaw) * stadiumXform
                 );
             }
             gl.drawMesh(glPitcher, pitcherTransform);

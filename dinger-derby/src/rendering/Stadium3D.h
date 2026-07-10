@@ -21,6 +21,14 @@
 
 namespace Stadium3D {
 
+// Shared palette so field / ground / city suburbs never fight.
+inline sf::Color grassColor() { return sf::Color(34, 110, 48); }
+inline sf::Color grassDarkColor() { return sf::Color(28, 92, 40); }
+inline sf::Color dirtColor() { return sf::Color(168, 120, 70); }
+inline sf::Color warningTrackColor() { return sf::Color(150, 120, 70); }
+inline sf::Color skyColor() { return sf::Color(135, 185, 230); }
+inline sf::Color groundClearColor() { return grassColor(); }
+
 struct Layout {
     float feetPerUnit = 2.0f;
     float pitchingDistanceFeet = 60.5f;
@@ -72,6 +80,10 @@ struct Layout {
     // angleRad: 0 = CF (−Z), + toward +X (RF).
     void polarFromHome(const Vector3& worldPos, float& radiusOut, float& angleRadOut) const;
     float radiusFromHome(const Vector3& worldPos) const;
+
+    // Shared bowl footprint (field apron + stands use the same curve).
+    float bowlInnerRadius(float angleRad) const;
+    float bowlBaseHeight(float angleRad) const;
 };
 
 // Result of sampling a batted-ball arc against the asymmetric OF fence.
@@ -101,6 +113,8 @@ WallClearResult evaluateWallClear(
 
 // Fan sections for cheer-wave animation (draw each with a small Y bob).
 constexpr int kFanSectorCount = 16;
+// Flags around the park (draw with flagSwayYaw for wind).
+constexpr int kFlagCount = 12;
 
 struct Meshes {
     Mesh3D field;
@@ -108,8 +122,13 @@ struct Meshes {
     Mesh3D stands;   // full bowl: seats, aisles, concourses, backstop
     Mesh3D lines;
     Mesh3D city;     // suburban skyline backdrop (full ring)
+    Mesh3D scoreboardScreen; // CF board face — demos can pulse alpha/color feel
     // Low-poly crowd split by angle so demos can bob sections for cheering.
     std::vector<Mesh3D> fanSectors;
+    // Wind-blown flags (pivot near pole base of each mesh).
+    std::vector<Mesh3D> flagMeshes;
+    // World-space base of each flag for sway transform.
+    std::vector<Vector3> flagBases;
 };
 
 Layout defaultPlayLayout();
@@ -117,7 +136,13 @@ Meshes build(const Layout& layout = defaultPlayLayout());
 
 float recommendedFarPlane(const Layout& layout = defaultPlayLayout());
 
-// Cheer bob offset for sector i at time t (seconds).
-float fanCheerOffsetY(int sectorIndex, float timeSec);
+// Cheer bob offset for sector i at time t (seconds). boost >1 after HRs.
+float fanCheerOffsetY(int sectorIndex, float timeSec, float boost = 1.0f);
+// Extra lateral sway for denser "active crowd" feel (meters-ish world units).
+float fanCheerOffsetX(int sectorIndex, float timeSec, float boost = 1.0f);
+// Flag yaw sway (radians) for wind animation.
+float flagSwayYaw(int flagIndex, float timeSec);
+// Scoreboard screen emissive pulse 0..1 for HR moments.
+float scoreboardPulse(float timeSec, float excitement = 0.0f);
 
 } // namespace Stadium3D
