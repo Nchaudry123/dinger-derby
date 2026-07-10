@@ -357,9 +357,10 @@ void drawProjectedPolyline(
 void drawStrikeZone(
     sf::RenderWindow& window,
     const Camera3D& camera,
-    const Vector3& aimPoint,
-    const PitchProfile& pitch
+    const Vector3& /*aimPoint*/,
+    const PitchProfile& /*pitch*/
 ) {
+    // Zone outline only — aim reticle is drawn once in drawCatcherTarget.
     std::array<Vector3, 4> corners = {
         Vector3(-strikeZoneHalfWidth, -strikeZoneHalfHeight, 0.0f) + strikeZoneCenter,
         Vector3(strikeZoneHalfWidth, -strikeZoneHalfHeight, 0.0f) + strikeZoneCenter,
@@ -373,27 +374,10 @@ void drawStrikeZone(
             camera,
             corners[i],
             corners[(i + 1) % 4],
-            3.0f,
-            sf::Color(115, 230, 235, 210)
+            2.4f,
+            sf::Color(115, 230, 235, 200)
         );
     }
-
-    drawThickProjectedLine(
-        window,
-        camera,
-        Vector3(aimPoint.x - 0.22f, aimPoint.y, plateZ),
-        Vector3(aimPoint.x + 0.22f, aimPoint.y, plateZ),
-        3.6f,
-        pitch.color
-    );
-    drawThickProjectedLine(
-        window,
-        camera,
-        Vector3(aimPoint.x, aimPoint.y - 0.22f, plateZ),
-        Vector3(aimPoint.x, aimPoint.y + 0.22f, plateZ),
-        3.6f,
-        pitch.color
-    );
 }
 
 void drawHomePlate(sf::RenderWindow& window, const Camera3D& camera) {
@@ -427,14 +411,39 @@ void drawCatcherTarget(
     const Vector3& aimPoint,
     const PitchProfile& pitch
 ) {
-    Vector3 target = Vector3(aimPoint.x, aimPoint.y, plateZ + 0.12f);
-    sf::Color ghost = pitch.color;
-    ghost.a = 90;
-    drawProjectedDot(window, camera, target, 10.0f, sf::Color(25, 35, 42, 135));
-    drawThickProjectedLine(window, camera, target + Vector3(-0.18f, 0.0f, 0.0f), target + Vector3(-0.07f, 0.0f, 0.0f), 2.2f, ghost);
-    drawThickProjectedLine(window, camera, target + Vector3(0.07f, 0.0f, 0.0f), target + Vector3(0.18f, 0.0f, 0.0f), 2.2f, ghost);
-    drawThickProjectedLine(window, camera, target + Vector3(0.0f, -0.18f, 0.0f), target + Vector3(0.0f, -0.07f, 0.0f), 2.2f, ghost);
-    drawThickProjectedLine(window, camera, target + Vector3(0.0f, 0.07f, 0.0f), target + Vector3(0.0f, 0.18f, 0.0f), 2.2f, ghost);
+    // Single small reticle at the aim (half-gap cross + tiny center).
+    Vector3 target = Vector3(aimPoint.x, aimPoint.y, plateZ + 0.06f);
+    sf::Color arm = pitch.color;
+    arm.a = 200;
+    constexpr float armLen = 0.07f;
+    constexpr float gap = 0.028f;
+    constexpr float thickness = 1.6f;
+
+    drawThickProjectedLine(
+        window, camera,
+        target + Vector3(-armLen - gap, 0.0f, 0.0f),
+        target + Vector3(-gap, 0.0f, 0.0f),
+        thickness, arm
+    );
+    drawThickProjectedLine(
+        window, camera,
+        target + Vector3(gap, 0.0f, 0.0f),
+        target + Vector3(armLen + gap, 0.0f, 0.0f),
+        thickness, arm
+    );
+    drawThickProjectedLine(
+        window, camera,
+        target + Vector3(0.0f, -armLen - gap, 0.0f),
+        target + Vector3(0.0f, -gap, 0.0f),
+        thickness, arm
+    );
+    drawThickProjectedLine(
+        window, camera,
+        target + Vector3(0.0f, gap, 0.0f),
+        target + Vector3(0.0f, armLen + gap, 0.0f),
+        thickness, arm
+    );
+    drawProjectedDot(window, camera, target, 2.5f, sf::Color(arm.r, arm.g, arm.b, 220));
 }
 
 
