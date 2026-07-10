@@ -2066,7 +2066,11 @@ int main() {
                     baseball.restitution = 0.0f;
                     baseball.magnusScale = 0.0f; // no weird post-contact rise from residual spin
                     // Bat crack / thud on contact; crowd waits for confirmed HR call.
-                    sfx.playContact(lastHit.sweet, isDingerQuality(lastHit.quality));
+                    sfx.playContact(
+                        lastHit.sweet,
+                        isDingerQuality(lastHit.quality),
+                        lastHit.exitMph
+                    );
                     // Broadcast: leave plate, chase the ball; shake on solid wood.
                     broadcastCam = BroadcastCam::Chase;
                     followBallCam = true;
