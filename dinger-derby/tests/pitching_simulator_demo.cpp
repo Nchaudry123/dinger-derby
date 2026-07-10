@@ -24,7 +24,6 @@
 #include "rendering/Mesh3D.h"
 #include "rendering/Rasterizer3D.h"
 #include "rendering/BaseballVisual3D.h"
-#include "rendering/BaseballPlayer3D.h"
 #include "rendering/BaseballAnims.h"
 #include "rendering/CharacterModel3D.h"
 #include "rendering/GltfLoader.h"

@@ -1,5 +1,7 @@
 #include "SkinnedModel3D.h"
 
+#include "CharacterModel3D.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -817,9 +819,22 @@ void SkinnedModel3D::skinInto(const std::vector<Matrix4>& skinMatrices, Mesh3D& 
 }
 
 SkinnedModel3D SkinnedModel3D::makeProceduralPitcher(int detail) {
-    return makeHumanoid(false, detail);
+    // Canonical procedural athlete is CharacterModel3D (multi-bone arms + clips).
+    CharacterModel3D::Detail d = CharacterModel3D::Detail::High;
+    if (detail <= 0) {
+        d = CharacterModel3D::Detail::Low;
+    } else if (detail == 1) {
+        d = CharacterModel3D::Detail::Medium;
+    }
+    return CharacterModel3D::build(CharacterModel3D::Role::Pitcher, d);
 }
 
 SkinnedModel3D SkinnedModel3D::makeProceduralCatcher(int detail) {
-    return makeHumanoid(true, detail);
+    CharacterModel3D::Detail d = CharacterModel3D::Detail::High;
+    if (detail <= 0) {
+        d = CharacterModel3D::Detail::Low;
+    } else if (detail == 1) {
+        d = CharacterModel3D::Detail::Medium;
+    }
+    return CharacterModel3D::build(CharacterModel3D::Role::Catcher, d);
 }

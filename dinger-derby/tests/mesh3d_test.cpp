@@ -2,6 +2,8 @@
 #include <cmath>
 
 #include "rendering/BaseballPlayer3D.h"
+#include "rendering/CharacterModel3D.h"
+#include "rendering/SkeletonAnimator.h"
 #include "rendering/Mesh3D.h"
 
 namespace {
@@ -68,8 +70,21 @@ void testBoxAndPlayerMeshes() {
     assert(box.vertices.size() == 8);
     assert(box.triangles.size() == 12);
 
-    Mesh3D pitcher = BaseballPlayer3D::pitcher(0);
-    Mesh3D catcher = BaseballPlayer3D::catcher(0);
+    // Canonical characters: CharacterModel3D skinned meshes.
+    SkinnedModel3D pitcherModel = CharacterModel3D::build(
+        CharacterModel3D::Role::Pitcher, CharacterModel3D::Detail::Low
+    );
+    SkinnedModel3D catcherModel = CharacterModel3D::build(
+        CharacterModel3D::Role::Catcher, CharacterModel3D::Detail::Low
+    );
+    SkeletonAnimator pAnim;
+    SkeletonAnimator cAnim;
+    pAnim.setModel(pitcherModel);
+    cAnim.setModel(catcherModel);
+    pAnim.resetToRest();
+    cAnim.resetToRest();
+    Mesh3D pitcher = pitcherModel.skinToMesh(pAnim.skinMatrices());
+    Mesh3D catcher = catcherModel.skinToMesh(cAnim.skinMatrices());
     assert(pitcher.triangles.size() > 20);
     assert(catcher.triangles.size() > 20);
     assert(pitcher.vertexNormals.size() == pitcher.vertices.size());
@@ -83,23 +98,20 @@ void testBoxAndPlayerMeshes() {
     assert(pitcherBounds.center.y + pitcherBounds.radius >
         catcherBounds.center.y + catcherBounds.radius * 0.5f);
 
-    PitcherPose delivery = BaseballPlayer3D::pitcherDeliveryPose(0.55f);
-    assert(delivery.throwShoulderPitch != 0.0f || delivery.stride != 0.0f);
-    Mesh3D midDelivery = BaseballPlayer3D::pitcher(0, delivery);
+    const AnimationClip* throwClip = pitcherModel.findClip("throw_preview");
+    assert(throwClip != nullptr);
+    pAnim.applyClipNormalized(*throwClip, 0.55f);
+    Mesh3D midDelivery = pitcherModel.skinToMesh(pAnim.skinMatrices());
     assert(midDelivery.triangles.size() > 20);
-
-    CatcherPose receive = BaseballPlayer3D::catcherReceivePose(0.0f, 0.3f, 1.5f, 0.0f, 0.0f);
-    assert(std::abs(receive.mittSide) > 0.0f || std::abs(receive.mittHeight) > 0.0f);
-
-    PitcherPose idle = BaseballPlayer3D::pitcherIdlePose(0.0f);
-    PitcherPose blended = BaseballPlayer3D::blend(idle, delivery, 0.5f);
-    assert(blended.stride >= std::min(idle.stride, delivery.stride));
-    assert(blended.stride <= std::max(idle.stride, delivery.stride));
-
-    PitcherPose atRelease = BaseballPlayer3D::pitcherDeliveryPose(0.6f);
-    Vector3 hand = BaseballPlayer3D::throwHandLocal(atRelease);
+    Vector3 hand = pAnim.throwHandWorld(Matrix4::identity());
     assert(hand.y > 0.8f);
     assert(hand.magnitude() > 0.5f);
+
+    // Legacy rigid pose path still builds (deprecated, coverage only).
+    Mesh3D legacyPitcher = BaseballPlayer3D::pitcher(0);
+    assert(legacyPitcher.triangles.size() > 20);
+    PitcherPose delivery = BaseballPlayer3D::pitcherDeliveryPose(0.55f);
+    assert(delivery.throwShoulderPitch != 0.0f || delivery.stride != 0.0f);
 }
 
 }

@@ -62,7 +62,7 @@ public:
     Mesh3D skinToMesh(const std::vector<Matrix4>& skinMatrices) const;
     void skinInto(const std::vector<Matrix4>& skinMatrices, Mesh3D& out) const;
 
-    // Compact athletic RHP / catcher with joint weights (no external file).
+    // Procedural athletes — delegates to CharacterModel3D (multi-bone + clips).
     static SkinnedModel3D makeProceduralPitcher(int detail = 2);
     static SkinnedModel3D makeProceduralCatcher(int detail = 2);
 

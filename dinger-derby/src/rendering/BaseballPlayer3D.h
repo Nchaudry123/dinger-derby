@@ -39,7 +39,8 @@ struct CatcherPose {
     float freeArmBrace = 0.0f;
 };
 
-// High-detail procedural pitcher/catcher + Yamamoto windup delivery.
+// DEPRECATED: rigid pose-mesh path. Prefer CharacterModel3D + SkeletonAnimator
+// for gameplay characters. Kept for legacy mesh3d_test and offline experiments.
 class BaseballPlayer3D {
 public:
     // detail: 0 performance · 1 default · 2 high (recommended).
