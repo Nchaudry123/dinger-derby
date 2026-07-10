@@ -26,7 +26,9 @@ inline sf::Color grassColor() { return sf::Color(34, 110, 48); }
 inline sf::Color grassDarkColor() { return sf::Color(28, 92, 40); }
 inline sf::Color dirtColor() { return sf::Color(168, 120, 70); }
 inline sf::Color warningTrackColor() { return sf::Color(150, 120, 70); }
-inline sf::Color skyColor() { return sf::Color(135, 185, 230); }
+// Daylight sky (clear color matches dome horizon so seams disappear).
+inline sf::Color skyColor() { return sf::Color(148, 190, 228); }
+inline sf::Color skyZenithColor() { return sf::Color(72, 130, 200); }
 inline sf::Color groundClearColor() { return grassColor(); }
 
 struct Layout {
@@ -155,6 +157,8 @@ struct Meshes {
     Mesh3D lines;
     Mesh3D city;     // suburban skyline backdrop (full ring)
     Mesh3D scoreboardScreen; // CF board face — demos can pulse alpha/color feel
+    Mesh3D skyDome;  // gradient hemisphere (draw first, far away)
+    Mesh3D clouds;   // soft cloud puffs (draw with slight alpha)
     // Low-poly crowd split by angle so demos can bob sections for cheering.
     std::vector<Mesh3D> fanSectors;
     // Wind-blown flags (pivot near pole base of each mesh).

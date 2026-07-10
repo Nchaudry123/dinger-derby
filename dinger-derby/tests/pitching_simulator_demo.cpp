@@ -1319,6 +1319,8 @@ int main() {
     GlMesh glStadiumLines;
     GlMesh glStadiumCity;
     GlMesh glStadiumBoard;
+    GlMesh glStadiumSky;
+    GlMesh glStadiumClouds;
     std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
     std::vector<GlMesh> glStadiumFlags(Stadium3D::kFlagCount);
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
@@ -1333,6 +1335,8 @@ int main() {
         glStadiumLines.upload(stadiumMeshes.lines);
         glStadiumCity.upload(stadiumMeshes.city);
         glStadiumBoard.upload(stadiumMeshes.scoreboardScreen);
+        glStadiumSky.upload(stadiumMeshes.skyDome);
+        glStadiumClouds.upload(stadiumMeshes.clouds);
         for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
             if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
                 glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
@@ -1803,6 +1807,13 @@ int main() {
         if (useOpenGL) {
             gl.beginFrame(window, camera, Stadium3D::skyColor());
             const float gr = stadiumLayout.maxWallR() + 220.0f;
+            gl.drawMesh(glStadiumSky, stadiumXform);
+            gl.drawMesh(
+                glStadiumClouds,
+                Matrix4::translation(Vector3(stadiumCheerTime * 0.2f, 0.0f, stadiumCheerTime * 0.06f)) *
+                    stadiumXform,
+                0.92f
+            );
             gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::groundClearColor());
             gl.drawMesh(glStadiumCity, stadiumXform);
             gl.drawMesh(glStadiumField, stadiumXform);

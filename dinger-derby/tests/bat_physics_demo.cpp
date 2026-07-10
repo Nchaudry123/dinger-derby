@@ -4,8 +4,8 @@
 // Yellow silhouette = aim reticle (does NOT swing). Shows where contact will be.
 // 3D bat mesh = real swing path (load → contact → finish) when you press Space/LMB.
 //
-// Default: HR DERBY — fixed swings, front-of-plate soft toss, HR count + longest.
-// Practice: unlimited slow meatballs from the mound. Live: full-speed AB.
+// Default: HR DERBY — fixed swings; CharacterModel3D pitcher soft-tosses from the
+// mound (same asset/delivery as pitching_simulator_demo). Practice/Live as before.
 //
 // Controls:
 //   Mouse              aim reticle (PCI / sweet spot)
@@ -1226,6 +1226,8 @@ int main() {
     GlMesh glStadiumLines;
     GlMesh glStadiumCity;
     GlMesh glStadiumBoard;
+    GlMesh glStadiumSky;
+    GlMesh glStadiumClouds;
     std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
     std::vector<GlMesh> glStadiumFlags(Stadium3D::kFlagCount);
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
@@ -1240,6 +1242,8 @@ int main() {
         glStadiumLines.upload(stadiumMeshes.lines);
         glStadiumCity.upload(stadiumMeshes.city);
         glStadiumBoard.upload(stadiumMeshes.scoreboardScreen);
+        glStadiumSky.upload(stadiumMeshes.skyDome);
+        glStadiumClouds.upload(stadiumMeshes.clouds);
         for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
             if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
                 glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
@@ -1265,17 +1269,11 @@ int main() {
     enum class PlayMode { Derby, Practice, Live };
     PlayMode playMode = PlayMode::Derby; // product default: HR Derby
     constexpr int kDerbySwings = 10;
-    // Soft toss readout only (true speed comes from flight-time solver).
-    constexpr float kDerbySoftTossMph = 28.0f;
+    // Derby: slow meatball from the pitcher's hand after full delivery motion.
+    constexpr float kDerbySoftTossMph = 48.0f;
     constexpr float kPracticeMph = 52.0f;
     float pitchMph = kDerbySoftTossMph;
     float normalPitchMph = 90.0f;
-    float softTossTimer = -1.0f; // derby: countdown to lob release
-
-    // Coach soft toss: ~16 ft in front of the plate, waist/chest height.
-    auto softTossOrigin = []() {
-        return Vector3(0.0f, 1.35f, plateZ - 8.0f);
-    };
 
     struct DerbyState {
         int swingsLeft = kDerbySwings;
@@ -1567,17 +1565,17 @@ int main() {
         // Open park — no tight box walls/ceiling clamping exit trajectories.
         world.setBounds(boundsMinimum, boundsMaximum);
         world.airResistanceEnabled = false;
-        const bool derbyToss = (playMode == PlayMode::Derby);
-        Vector3 startPos = derbyToss ? softTossOrigin() : Vector3(0, 1.5f, moundZ);
-        baseball = Body3D(startPos, 0.145f);
+        // Same CharacterModel3D pitcher as pitching_simulator_demo — ball starts in the hand.
+        Vector3 hand0 = pitcherAnim.throwHandWorld(pitcherWorldTransform());
+        baseball = Body3D(hand0, 0.145f);
         baseball.setRadius(baseballRadius);
         baseball.restitution = 0.15f; // pitch path; set to 0 after contact
         baseball.velocity = Vector3();
         baseball.angularVelocity = Vector3();
         world.addBody(&baseball);
-        // Derby: no full windup — short hover then lob. Practice/Live: mound delivery.
-        deliveryAge = derbyToss ? -1.0f : 0.0f;
-        softTossTimer = derbyToss ? 0.65f : -1.0f;
+        // Full mound delivery for every mode (Derby = soft meatball after release).
+        deliveryAge = 0.0f;
+        pitcherAnim.applyClipNormalized(deliveryClip, 0.0f);
         ballReleased = false;
         hasHit = false;
         swungThisPitch = false;
@@ -1587,7 +1585,7 @@ int main() {
         wallResolved = false;
         swingConsumed = false;
         hrBannerTimer = 0.0f;
-        prevBallZ = startPos.z;
+        prevBallZ = hand0.z;
         prevBallR = 0.0f;
         plateCrossPos = strikeZoneCenter;
         followBallCam = false;
@@ -1601,7 +1599,7 @@ int main() {
         if (playMode == PlayMode::Derby) {
             pitchMph = kDerbySoftTossMph;
             bat.type = SwingType::Contact;
-            status = "SOFT TOSS loading  ·  " + countString() + "  ·  ready your reticle";
+            status = "Pitcher delivering  ·  " + countString() + "  ·  ready your reticle";
             statusCol = sf::Color(255, 220, 80);
         } else if (playMode == PlayMode::Practice) {
             pitchMph = kPracticeMph;
@@ -1616,35 +1614,33 @@ int main() {
     };
 
     auto releaseBall = [&]() {
-        Vector3 start;
+        // Always leave the pitcher's throw hand (same path as pitching sim).
+        Vector3 start = pitcherAnim.throwHandWorld(pitcherWorldTransform());
         Vector3 aim = strikeZoneCenter;
         if (playMode == PlayMode::Derby) {
-            // Front-of-plate soft toss: lob that arrives in the heart of the zone.
-            start = softTossOrigin();
-            aim = strikeZoneCenter;
-            // Tiny scatter still inside the zone (aim only — velocity solves to aim).
+            // Soft meatball: lob into the heart of the zone from the hand.
             static std::uint32_t tossRng = 0xA11CEu;
             tossRng = tossRng * 1664525u + 1013904223u;
             float ux = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
             tossRng = tossRng * 1664525u + 1013904223u;
             float uy = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
             aim.x = clampf(
-                aim.x + ux * 0.08f,
+                aim.x + ux * 0.07f,
                 -strikeZoneHalfWidth * 0.85f,
                 strikeZoneHalfWidth * 0.85f
             );
             aim.y = clampf(
-                aim.y + uy * 0.07f,
-                strikeZoneCenter.y - strikeZoneHalfHeight * 0.7f,
-                strikeZoneCenter.y + strikeZoneHalfHeight * 0.7f
+                aim.y + uy * 0.06f,
+                strikeZoneCenter.y - strikeZoneHalfHeight * 0.65f,
+                strikeZoneCenter.y + strikeZoneHalfHeight * 0.65f
             );
             baseball.position = start;
-            // ~0.85s lob: readable arc that still ends at the plate.
-            baseball.velocity = softTossVelocity(start, aim, 0.85f);
-            // Display mph from actual exit speed for the HUD.
+            // Flight time scales with distance from hand → plate (~1.0s soft lob).
+            float dist = std::max(8.0f, aim.z - start.z);
+            float T = clampf(dist / 14.0f, 0.85f, 1.35f);
+            baseball.velocity = softTossVelocity(start, aim, T);
             pitchMph = baseball.velocity.magnitude() * 2.236936f;
         } else {
-            start = pitcherAnim.throwHandWorld(pitcherWorldTransform());
             if (playMode == PlayMode::Live) {
                 static std::uint32_t rng = 0xC0FFEEu;
                 rng = rng * 1664525u + 1013904223u;
@@ -1665,7 +1661,6 @@ int main() {
         }
         prevBallZ = start.z;
         ballReleased = true;
-        softTossTimer = -1.0f;
         status = std::string(modeTitle()) + "  ·  " + countString() + "  ·  cover reticle, Space/LMB";
         statusCol = sf::Color(180, 230, 255);
     };
@@ -1798,35 +1793,29 @@ int main() {
             derby.roundOverTimer = std::max(0.0f, derby.roundOverTimer - dt);
         }
 
-        // Pitcher animation + ball glue / soft-toss release
-        if (playMode == PlayMode::Derby && softTossTimer >= 0.0f && !ballReleased) {
-            // Idle pitcher; ball hovers at the soft-toss spot, then lobs in.
-            pitcherAnim.applyClip(idleClip, poseClock, true);
-            softTossTimer -= dt;
-            Vector3 o = softTossOrigin();
-            float bob = 0.04f * std::sin(poseClock * 9.0f);
-            baseball.position = o + Vector3(0.0f, bob, 0.0f);
-            baseball.velocity = Vector3();
-            if (softTossTimer <= 0.0f) {
-                releaseBall();
-            }
-        } else if (deliveryAge >= 0.0f) {
+        // Pitcher animation (same CharacterModel3D delivery as pitching sim).
+        // Ball glued to throw hand until release frame.
+        if (deliveryAge >= 0.0f) {
             deliveryAge += dt;
             float t01 = clampf(deliveryAge / deliveryDuration, 0.0f, 1.0f);
             pitcherAnim.applyClipNormalized(deliveryClip, t01);
             if (!ballReleased) {
                 baseball.position = pitcherAnim.throwHandWorld(pitcherWorldTransform());
                 baseball.velocity = Vector3();
+                baseball.acceleration = Vector3();
                 if (t01 >= releaseNorm) {
                     releaseBall();
                 }
             }
             if (deliveryAge > deliveryDuration + 2.5f && !bat.swinging()) {
-                // Hold last pose briefly then idle
                 pitcherAnim.applyClip(idleClip, poseClock, true);
             }
         } else {
             pitcherAnim.applyClip(idleClip, poseClock, true);
+            if (!ballReleased) {
+                baseball.position = pitcherAnim.throwHandWorld(pitcherWorldTransform());
+                baseball.velocity = Vector3();
+            }
         }
 
         // Reticle: mouse aims the yellow silhouette (never swings).
@@ -2105,6 +2094,15 @@ int main() {
         if (useGL) {
             gl.beginFrame(window, camera, Stadium3D::skyColor());
             const float gr = stadiumLayout.maxWallR() + 220.0f;
+            // Sky dome + drifting clouds (draw first for depth).
+            gl.drawMesh(glStadiumSky, stadiumXform);
+            float cloudDrift = stadiumCheerTime * 1.8f;
+            gl.drawMesh(
+                glStadiumClouds,
+                Matrix4::translation(Vector3(cloudDrift * 0.15f, 0.0f, cloudDrift * 0.05f)) *
+                    stadiumXform,
+                0.92f
+            );
             // Match field grass — no color seam under the park.
             gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::groundClearColor());
             gl.drawMesh(glStadiumCity, stadiumXform);
@@ -2147,9 +2145,8 @@ int main() {
                     Matrix4::translation(base) * Matrix4::rotationY(yaw);
                 gl.drawMesh(glStadiumFlags[i], flagX);
             }
-            if (!followBallCam) {
-                gl.drawMesh(glPitcher, pitcherXform);
-            }
+            // Always draw the mound pitcher (same model as pitching demo).
+            gl.drawMesh(glPitcher, pitcherXform);
             if (drawBatMesh) {
                 gl.drawMesh(glBat, batXform);
             }

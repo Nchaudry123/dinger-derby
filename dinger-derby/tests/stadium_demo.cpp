@@ -183,6 +183,8 @@ int main() {
     GlMesh glLines;
     GlMesh glCity;
     GlMesh glBoard;
+    GlMesh glSky;
+    GlMesh glClouds;
     std::vector<GlMesh> glFans(Stadium3D::kFanSectorCount);
     std::vector<GlMesh> glFlags(Stadium3D::kFlagCount);
     if (useGL) {
@@ -192,6 +194,8 @@ int main() {
         glLines.upload(meshes.lines);
         glCity.upload(meshes.city);
         glBoard.upload(meshes.scoreboardScreen);
+        glSky.upload(meshes.skyDome);
+        glClouds.upload(meshes.clouds);
         for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
             if (i < static_cast<int>(meshes.fanSectors.size())) {
                 glFans[i].upload(meshes.fanSectors[i]);
@@ -308,6 +312,12 @@ int main() {
         if (useGL) {
             gl.beginFrame(window, camera, Stadium3D::skyColor());
             const float gr = layout.maxWallR() + 220.0f;
+            gl.drawMesh(glSky, id);
+            gl.drawMesh(
+                glClouds,
+                Matrix4::translation(Vector3(cheerTime * 0.25f, 0.0f, cheerTime * 0.08f)),
+                0.92f
+            );
             gl.drawGround(
                 gr, layout.plateZ() - gr, layout.plateZ() + gr, Stadium3D::groundClearColor()
             );

@@ -1527,6 +1527,135 @@ Layout defaultPlayLayout() {
     return L;
 }
 
+Mesh3D buildSkyDome(const Layout& L) {
+    Mesh3D m;
+    // Large hemisphere centered over the park; vertex colors = zenith → horizon gradient.
+    const Vector3 center(0.0f, 0.0f, L.plateZ() - L.maxWallR() * 0.25f);
+    const float R = std::max(900.0f, L.maxWallR() * 8.0f);
+    const int rings = 18;
+    const int segs = 48;
+    sf::Color zenith = skyZenithColor();
+    sf::Color horizon = skyColor();
+    // Slight warm haze near horizon
+    sf::Color haze(190, 210, 225);
+
+    auto skyPoint = [&](float elev, float azim) {
+        // elev 0 = horizon, elev pi/2 = zenith
+        float y = std::sin(elev) * R;
+        float rr = std::cos(elev) * R;
+        return center + Vector3(std::sin(azim) * rr, y, -std::cos(azim) * rr);
+    };
+    auto skyCol = [&](float elev) {
+        float t = std::clamp(elev / (pi * 0.5f), 0.0f, 1.0f);
+        // Soft ease: more haze low, deeper blue high
+        float u = t * t * (3.0f - 2.0f * t);
+        sf::Color lo = (t < 0.25f) ? haze : horizon;
+        float v = (t < 0.25f) ? (t / 0.25f) : ((t - 0.25f) / 0.75f);
+        if (t < 0.25f) {
+            return sf::Color(
+                static_cast<std::uint8_t>(lo.r + (horizon.r - lo.r) * v),
+                static_cast<std::uint8_t>(lo.g + (horizon.g - lo.g) * v),
+                static_cast<std::uint8_t>(lo.b + (horizon.b - lo.b) * v)
+            );
+        }
+        return sf::Color(
+            static_cast<std::uint8_t>(horizon.r + (zenith.r - horizon.r) * u),
+            static_cast<std::uint8_t>(horizon.g + (zenith.g - horizon.g) * u),
+            static_cast<std::uint8_t>(horizon.b + (zenith.b - horizon.b) * u)
+        );
+    };
+
+    for (int i = 0; i < rings; i++) {
+        float e0 = (static_cast<float>(i) / rings) * (pi * 0.5f);
+        float e1 = (static_cast<float>(i + 1) / rings) * (pi * 0.5f);
+        sf::Color c0 = skyCol(e0);
+        sf::Color c1 = skyCol(e1);
+        // Average band color (per-quad solid color — still reads as gradient)
+        sf::Color band(
+            static_cast<std::uint8_t>((c0.r + c1.r) / 2),
+            static_cast<std::uint8_t>((c0.g + c1.g) / 2),
+            static_cast<std::uint8_t>((c0.b + c1.b) / 2)
+        );
+        for (int j = 0; j < segs; j++) {
+            float a0 = (static_cast<float>(j) / segs) * pi * 2.0f;
+            float a1 = (static_cast<float>(j + 1) / segs) * pi * 2.0f;
+            // Inward-facing so we see the dome from inside
+            addQuad(
+                m,
+                skyPoint(e0, a0),
+                skyPoint(e0, a1),
+                skyPoint(e1, a1),
+                skyPoint(e1, a0),
+                band
+            );
+        }
+    }
+    m.rebuildNormals();
+    return m;
+}
+
+Mesh3D buildClouds(const Layout& L) {
+    Mesh3D m;
+    const Vector3 park = L.parkCenter();
+    const float baseR = L.maxWallR();
+
+    auto addPuff = [&](const Vector3& c, float sx, float sy, float sz, sf::Color col) {
+        // Soft stack of flattened boxes = cumulus without textures.
+        addBox(m, c, sx, sy, sz, col);
+        addBox(m, c + Vector3(sx * 0.35f, sy * 0.15f, sz * 0.1f), sx * 0.7f, sy * 0.85f, sz * 0.75f, col);
+        addBox(m, c + Vector3(-sx * 0.3f, sy * 0.2f, -sz * 0.15f), sx * 0.65f, sy * 0.75f, sz * 0.7f, col);
+        addBox(m, c + Vector3(sx * 0.05f, sy * 0.45f, 0.0f), sx * 0.5f, sy * 0.55f, sz * 0.55f, col);
+    };
+
+    // Layered cloud field around / above the park.
+    const int cloudCount = 28;
+    for (int i = 0; i < cloudCount; i++) {
+        float t = static_cast<float>(i) / cloudCount;
+        float ang = -pi + t * 2.0f * pi + hash01(i * 3) * 0.4f;
+        float r = baseR * (1.8f + hash01(i * 7) * 3.5f);
+        float y = 55.0f + hash01(i * 11) * 70.0f;
+        Vector3 c = L.fromHome(r, ang, y);
+        // Bias a few over CF / behind home for catcher-view interest.
+        if (hash01(i + 50) > 0.7f) {
+            c = park + Vector3(
+                (hash01(i + 1) - 0.5f) * 120.0f,
+                70.0f + hash01(i + 2) * 50.0f,
+                -40.0f - hash01(i + 3) * 80.0f
+            );
+        }
+        float sx = 18.0f + hash01(i * 13) * 28.0f;
+        float sy = 4.0f + hash01(i * 17) * 6.0f;
+        float sz = 12.0f + hash01(i * 19) * 22.0f;
+        // Bright white with slight grey variation for depth.
+        float shade = 0.88f + hash01(i * 23) * 0.12f;
+        sf::Color col(
+            static_cast<std::uint8_t>(255 * shade),
+            static_cast<std::uint8_t>(255 * shade),
+            static_cast<std::uint8_t>(250 * shade),
+            210
+        );
+        addPuff(c, sx, sy, sz, col);
+    }
+
+    // Thin high cirrus streaks
+    for (int i = 0; i < 10; i++) {
+        float ang = hash01(i + 300) * pi * 2.0f;
+        float r = baseR * (2.5f + hash01(i + 310) * 2.0f);
+        Vector3 c = L.fromHome(r, ang, 110.0f + hash01(i + 320) * 30.0f);
+        addBox(
+            m,
+            c,
+            40.0f + hash01(i) * 50.0f,
+            1.8f,
+            6.0f + hash01(i + 5) * 8.0f,
+            sf::Color(245, 248, 255, 160)
+        );
+    }
+
+    m.rebuildNormals();
+    return m;
+}
+
 Meshes build(const Layout& layout) {
     Meshes out;
     out.field = buildField(layout);
@@ -1535,6 +1664,8 @@ Meshes build(const Layout& layout) {
     out.lines = buildLines(layout);
     out.city = buildCity(layout);
     out.scoreboardScreen = buildScoreboardScreen(layout);
+    out.skyDome = buildSkyDome(layout);
+    out.clouds = buildClouds(layout);
     out.fanSectors = buildFanSectors(layout);
     buildFlags(layout, out.flagMeshes, out.flagBases);
     return out;
