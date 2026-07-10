@@ -11,7 +11,8 @@
 //   Z / X / C          Power / Contact / Regular
 //   Space / LMB        swing (3D bat animates)
 //   P                  toggle practice mode
-//   R                  new pitch
+//   R                  new pitch (same count)
+//   N                  new at-bat (reset count)
 //   [ ]                pitch speed (normal mode)
 //   Esc                quit
 
@@ -1034,8 +1035,87 @@ int main() {
     std::vector<Vector3> trail;
     float spinX = 0, spinY = 0, spinZ = 0;
 
-    // HUD accent — matches bat yellow outline.
+        // HUD accent — matches bat yellow outline.
     const sf::Color batOutlineCol(255, 230, 40);
+
+    // ── At-bat loop: pitch → swing/take → count → next pitch ───────────
+    struct AtBatCount {
+        int balls = 0;
+        int strikes = 0;
+        int outs = 0;
+        int hits = 0;
+        int walks = 0;
+        int pitchNum = 0;
+    };
+    AtBatCount count;
+    bool swungThisPitch = false;
+    bool pitchResolved = false;
+    Vector3 plateCrossPos = strikeZoneCenter;
+    float prevBallZ = moundZ;
+
+    auto countString = [&]() {
+        std::ostringstream oss;
+        oss << "Count " << count.balls << "-" << count.strikes
+            << "   P#" << count.pitchNum
+            << "   H " << count.hits
+            << "   BB " << count.walks
+            << "   K/Out " << count.outs;
+        return oss.str();
+    };
+
+    auto resetAtBat = [&]() {
+        count.balls = 0;
+        count.strikes = 0;
+        // keep outs / hits / walks as session stats
+    };
+
+    auto scheduleNextPitch = [&](float delay) {
+        practiceRepitchTimer = delay;
+    };
+
+    auto resolvePitch = [&](const char* kind) {
+        if (pitchResolved) {
+            return;
+        }
+        pitchResolved = true;
+        count.pitchNum += 1;
+
+        std::string call = kind;
+        if (std::string(kind) == "HIT") {
+            count.hits += 1;
+            resetAtBat();
+            statusCol = sf::Color(120, 255, 160);
+            scheduleNextPitch(practiceMode ? 5.5f : 4.0f);
+        } else if (std::string(kind) == "SWINGING_STRIKE" || std::string(kind) == "CALLED_STRIKE") {
+            count.strikes = std::min(3, count.strikes + 1);
+            if (count.strikes >= 3) {
+                count.outs += 1;
+                call = (std::string(kind) == "SWINGING_STRIKE") ? "STRIKEOUT swinging" : "STRIKEOUT looking";
+                resetAtBat();
+                statusCol = sf::Color(255, 140, 120);
+            } else {
+                call = (std::string(kind) == "SWINGING_STRIKE") ? "Swinging strike" : "Called strike";
+                statusCol = sf::Color(255, 200, 120);
+            }
+            scheduleNextPitch(1.6f);
+        } else if (std::string(kind) == "BALL") {
+            count.balls = std::min(4, count.balls + 1);
+            if (count.balls >= 4) {
+                count.walks += 1;
+                call = "WALK";
+                resetAtBat();
+                statusCol = sf::Color(140, 200, 255);
+            } else {
+                call = "Ball";
+                statusCol = sf::Color(180, 210, 255);
+            }
+            scheduleNextPitch(1.4f);
+        }
+
+        std::ostringstream oss;
+        oss << call << "   ·   " << countString();
+        status = oss.str();
+    };
 
     auto beginPitch = [&]() {
         world = PhysicsWorld3D();
@@ -1051,6 +1131,10 @@ int main() {
         deliveryAge = 0.0f;
         ballReleased = false;
         hasHit = false;
+        swungThisPitch = false;
+        pitchResolved = false;
+        prevBallZ = moundZ;
+        plateCrossPos = strikeZoneCenter;
         followBallCam = false;
         applyCatcherCamera(camera);
         practiceRepitchTimer = -1.0f;
@@ -1062,10 +1146,10 @@ int main() {
         if (practiceMode) {
             pitchMph = 52.0f;
             bat.type = SwingType::Contact;
-            status = "PRACTICE meatball — put yellow circle on the ball, then swing";
+            status = "PRACTICE  ·  " + countString() + "  ·  aim yellow reticle, Space swing";
             statusCol = sf::Color(120, 255, 160);
         } else {
-            status = "Pitcher winding up…";
+            status = "Pitch  ·  " + countString();
             statusCol = sf::Color(255, 230, 140);
         }
     };
@@ -1076,10 +1160,11 @@ int main() {
         Vector3 aim = strikeZoneCenter;
         baseball.position = hand;
         baseball.velocity = launchVelocityTowardPlate(hand, aim, pitchMph);
+        prevBallZ = hand.z;
         ballReleased = true;
         status = practiceMode
-            ? "PRACTICE ball coming — cover with yellow circle, Space/LMB"
-            : "Ball in flight — swing!";
+            ? "Live pitch  ·  " + countString() + "  ·  cover reticle, Space/LMB"
+            : "Ball in flight  ·  " + countString();
         statusCol = sf::Color(180, 230, 255);
     };
 
@@ -1119,6 +1204,11 @@ int main() {
                     statusCol = profileOf(SwingType::Regular).color;
                 } else if (key->code == K::R) {
                     beginPitch();
+                } else if (key->code == K::N) {
+                    count = AtBatCount{};
+                    beginPitch();
+                    status = "New at-bat  ·  " + countString();
+                    statusCol = sf::Color(200, 230, 255);
                 } else if (key->code == K::P) {
                     practiceMode = !practiceMode;
                     if (practiceMode) {
@@ -1152,21 +1242,24 @@ int main() {
                     }
                 } else if (key->code == K::Space) {
                     // Swing only on press — reticle stays put; 3D bat animates.
-                    if (!bat.swinging()) {
+                    if (!bat.swinging() && !pitchResolved && ballReleased) {
                         orientBatFromReticle(bat, reticle, batCfg);
                         startSwing(bat);
+                        swungThisPitch = true;
                         hasHit = false;
-                        status = std::string(prof.name) + " swing!";
+                        status = std::string(prof.name) + " swing!  ·  " + countString();
                         statusCol = prof.color;
                     }
                 }
             }
             if (const auto* m = event->getIf<sf::Event::MouseButtonPressed>()) {
-                if (m->button == sf::Mouse::Button::Left && !bat.swinging()) {
+                if (m->button == sf::Mouse::Button::Left && !bat.swinging() && !pitchResolved &&
+                    ballReleased) {
                     orientBatFromReticle(bat, reticle, batCfg);
                     startSwing(bat);
+                    swungThisPitch = true;
                     hasHit = false;
-                    status = std::string(prof.name) + " swing!";
+                    status = std::string(prof.name) + " swing!  ·  " + countString();
                     statusCol = prof.color;
                 }
             }
@@ -1216,27 +1309,57 @@ int main() {
             updateSwing(bat, prof, dt);
         }
 
-        // Flight + bat contact
+        // Flight + bat contact + at-bat resolution
         if (ballReleased) {
             float acc = dt;
             while (acc >= fixedStep) {
+                prevBallZ = baseball.position.z;
                 world.step(fixedStep);
                 HitInfo hit = tryHit(baseball, bat, batCfg, prof, hasHit, fixedStep, practiceMode);
                 if (hit.hit) {
                     lastHit = hit;
                     followBallCam = true;
+                    resolvePitch("HIT");
                     std::ostringstream oss;
                     oss << std::fixed << std::setprecision(0)
-                        << (practiceMode ? "PRACTICE " : "")
                         << prof.name << " HIT  " << lastHit.exitMph << " mph exit  LA "
                         << lastHit.launchDeg << "°  bat " << lastHit.batMph << " mph  sweet "
-                        << (lastHit.sweet * 100.0f) << "%  ·  pitch " << pitchMph << " mph";
+                        << (lastHit.sweet * 100.0f) << "%  ·  " << countString();
                     status = oss.str();
                     statusCol = lastHit.sweet > 0.85f ? sf::Color(120, 255, 160)
                         : (lastHit.sweet > 0.5f ? sf::Color(255, 230, 120) : sf::Color(255, 150, 100));
-                    // Watch the flight before auto-repitch in practice.
-                    practiceRepitchTimer = practiceMode ? 5.5f : -1.0f;
                 }
+
+                // Sample plate-crossing xy for called balls/strikes.
+                if (!pitchResolved && prevBallZ < plateZ && baseball.position.z >= plateZ) {
+                    float seg = baseball.position.z - prevBallZ;
+                    float t = seg <= 1e-6f ? 1.0f : (plateZ - prevBallZ) / seg;
+                    t = clampf(t, 0.0f, 1.0f);
+                    plateCrossPos = baseball.position; // close enough mid-step
+                    plateCrossPos.z = plateZ;
+                    (void)t;
+                }
+                // Past the plate → resolve take / whiff.
+                if (!pitchResolved && baseball.position.z > plateZ + 0.55f) {
+                    if (swungThisPitch || bat.swinging()) {
+                        resolvePitch("SWINGING_STRIKE");
+                    } else {
+                        bool inZone =
+                            std::abs(plateCrossPos.x - strikeZoneCenter.x) <= strikeZoneHalfWidth &&
+                            std::abs(plateCrossPos.y - strikeZoneCenter.y) <= strikeZoneHalfHeight;
+                        resolvePitch(inZone ? "CALLED_STRIKE" : "BALL");
+                    }
+                }
+                // Dirt ball short of a clean hit.
+                if (!pitchResolved && baseball.position.y < 0.12f &&
+                    baseball.position.z > plateZ - 2.0f) {
+                    if (swungThisPitch || bat.swinging()) {
+                        resolvePitch("SWINGING_STRIKE");
+                    } else {
+                        resolvePitch("BALL");
+                    }
+                }
+
                 spinY += 8.0f * fixedStep;
                 acc -= fixedStep;
             }
@@ -1246,22 +1369,9 @@ int main() {
                     trail.erase(trail.begin());
                 }
             }
-            // Practice: auto-rethrow after ball is past / long miss (no hit).
-            if (practiceMode && !hasHit) {
-                if (baseball.position.z > plateZ + 1.2f || baseball.position.y < 0.15f) {
-                    if (practiceRepitchTimer < 0.0f) {
-                        practiceRepitchTimer = 1.1f;
-                    }
-                }
-            }
-            // After a hit, repitch once the ball settles / leaves the park.
-            if (practiceMode && hasHit && practiceRepitchTimer < 0.0f) {
-                if (baseball.position.y < 0.2f || baseball.position.magnitude() > 90.0f) {
-                    practiceRepitchTimer = 1.4f;
-                }
-            }
         }
-        if (practiceMode && practiceRepitchTimer >= 0.0f) {
+        // Auto next pitch after result delay.
+        if (practiceRepitchTimer >= 0.0f) {
             practiceRepitchTimer -= dt;
             if (practiceRepitchTimer <= 0.0f && !bat.swinging()) {
                 beginPitch();
@@ -1364,13 +1474,14 @@ int main() {
             drawText(window, font, status, 15, {22, 42}, statusCol);
             std::ostringstream modes;
             modes << "Z Power  X Contact  C Regular   [" << prof.name << "  pwr "
-                  << std::fixed << std::setprecision(2) << prof.power << "]";
+                  << std::fixed << std::setprecision(2) << prof.power << "]   "
+                  << countString();
             drawText(window, font, modes.str(), 14, {22, 68}, prof.color);
             std::ostringstream hud;
             hud << std::fixed << std::setprecision(0)
                 << "Pitch " << pitchMph << " mph   "
                 << (practiceMode ? "P exit practice" : "P practice")
-                << "   R new   Mouse aim yellow circle   Space/LMB swing";
+                << "   R next pitch   N new at-bat   Space/LMB swing";
             if (!practiceMode) {
                 hud << "   [ ] speed";
             }
