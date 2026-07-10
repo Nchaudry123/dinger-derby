@@ -11,13 +11,20 @@
 #include <array>
 #include <vector>
 
-inline sf::Vector2u rasterSizeForWindow(sf::Vector2u windowSize) {
-    const float renderScale = 0.75f;
+// renderScale: 1.0 = native window resolution. Prefer >= 1.0 when AA is on;
+// values below 1.0 upscale and reintroduce stair-stepping that undoes coverage AA.
+inline sf::Vector2u rasterSizeForWindow(sf::Vector2u windowSize, float renderScale = 1.0f) {
+    renderScale = std::max(renderScale, 0.25f);
 
     return sf::Vector2u(
-        std::max(1u, static_cast<unsigned int>(windowSize.x * renderScale)),
-        std::max(1u, static_cast<unsigned int>(windowSize.y * renderScale))
+        std::max(1u, static_cast<unsigned int>(windowSize.x * renderScale + 0.5f)),
+        std::max(1u, static_cast<unsigned int>(windowSize.y * renderScale + 0.5f))
     );
+}
+
+inline float rasterScaleForAntiAliasing(bool antiAliasingEnabled) {
+    // Light supersample while AA is enabled so silhouette coverage has more pixels to work with.
+    return antiAliasingEnabled ? 1.25f : 1.0f;
 }
 
 struct RasterMeshRenderCache {

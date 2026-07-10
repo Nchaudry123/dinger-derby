@@ -31,17 +31,20 @@ public:
     }
     bool blendPixelFast(int x, int y, sf::Color color, float depth, float coverage) {
         int dIndex = y * width + x;
+        float existingDepth = depthBuffer[dIndex];
 
-        if (depth > depthBuffer[dIndex] + depthEpsilon) {
+        if (depth > existingDepth + depthEpsilon) {
             return false;
         }
 
-        if (coverage >= 1.0f) {
+        if (coverage >= 0.999f) {
             depthBuffer[dIndex] = depth;
             pixels[dIndex] = packColor(color);
             return true;
         }
 
+        // Partial coverage: blend into the existing pixel. Only pull depth forward when
+        // the sample is strictly closer so coplanar neighbors can still fill the edge.
         sf::Color destination = unpackColor(pixels[dIndex]);
         float inverseCoverage = 1.0f - coverage;
 
@@ -52,9 +55,11 @@ public:
             255
         );
 
-        depthBuffer[dIndex] = depth;
-        pixels[dIndex] = packColor(blended);
+        if (depth + depthEpsilon < existingDepth) {
+            depthBuffer[dIndex] = depth;
+        }
 
+        pixels[dIndex] = packColor(blended);
         return true;
     }
 

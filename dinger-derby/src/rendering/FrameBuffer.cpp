@@ -72,9 +72,16 @@ void FrameBuffer::present(sf::RenderWindow& window) {
     sf::Sprite sprite(texture);
 
     sf::Vector2u windowSize = window.getSize();
+    // Smooth only when scaling so native 1:1 blits stay crisp while supersamples
+    // and any residual resize filter cleanly.
+    const bool scaling =
+        windowSize.x != static_cast<unsigned int>(width) ||
+        windowSize.y != static_cast<unsigned int>(height);
+    texture.setSmooth(scaling);
+
     sprite.setScale(sf::Vector2f(
-        static_cast<float>(windowSize.x) / width,
-        static_cast<float>(windowSize.y) / height
+        static_cast<float>(windowSize.x) / static_cast<float>(width),
+        static_cast<float>(windowSize.y) / static_cast<float>(height)
     ));
 
     window.draw(sprite);
