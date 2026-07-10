@@ -23,13 +23,13 @@ namespace {
 
 constexpr float pi = 3.1415926535f;
 constexpr float fixedStep = 1.0f / 180.0f;
-constexpr float baseballRadius = 0.145f;
-constexpr float plateZ = 18.0f;
-constexpr float moundZ = -0.5f;
-const Vector3 releasePoint(-0.28f, 1.88f, moundZ);
+constexpr float baseballRadius = 0.2f;
+constexpr float plateZ = 10.5f;
+constexpr float moundZ = -0.85f;
+const Vector3 releasePoint(-0.22f, 1.72f, moundZ);
 const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
-const Vector3 boundsMinimum(-5.5f, -0.4f, -3.0f);
-const Vector3 boundsMaximum(5.5f, 4.2f, 21.5f);
+const Vector3 boundsMinimum(-3.2f, -0.35f, -2.5f);
+const Vector3 boundsMaximum(3.2f, 3.6f, 13.5f);
 
 struct SeamPoint {
     Vector3 position;
@@ -278,8 +278,8 @@ void drawStrikeZone(
     const Vector3& aimPoint,
     const PitchProfile& pitch
 ) {
-    const float halfWidth = 0.62f;
-    const float halfHeight = 0.82f;
+    const float halfWidth = 0.72f;
+    const float halfHeight = 0.95f;
     std::array<Vector3, 4> corners = {
         Vector3(-halfWidth, -halfHeight, 0.0f) + strikeZoneCenter,
         Vector3(halfWidth, -halfHeight, 0.0f) + strikeZoneCenter,
@@ -293,69 +293,46 @@ void drawStrikeZone(
             camera,
             corners[i],
             corners[(i + 1) % 4],
-            2.4f,
+            3.0f,
             sf::Color(115, 230, 235, 210)
-        );
-    }
-
-    for (int i = 1; i < 3; i++) {
-        float x = -halfWidth + i * (halfWidth * 2.0f / 3.0f);
-        float y = -halfHeight + i * (halfHeight * 2.0f / 3.0f);
-        drawThickProjectedLine(
-            window,
-            camera,
-            Vector3(strikeZoneCenter.x + x, strikeZoneCenter.y - halfHeight, plateZ),
-            Vector3(strikeZoneCenter.x + x, strikeZoneCenter.y + halfHeight, plateZ),
-            1.2f,
-            sf::Color(70, 150, 160, 120)
-        );
-        drawThickProjectedLine(
-            window,
-            camera,
-            Vector3(strikeZoneCenter.x - halfWidth, strikeZoneCenter.y + y, plateZ),
-            Vector3(strikeZoneCenter.x + halfWidth, strikeZoneCenter.y + y, plateZ),
-            1.2f,
-            sf::Color(70, 150, 160, 120)
         );
     }
 
     drawThickProjectedLine(
         window,
         camera,
-        Vector3(aimPoint.x - 0.18f, aimPoint.y, plateZ),
-        Vector3(aimPoint.x + 0.18f, aimPoint.y, plateZ),
-        3.2f,
+        Vector3(aimPoint.x - 0.22f, aimPoint.y, plateZ),
+        Vector3(aimPoint.x + 0.22f, aimPoint.y, plateZ),
+        3.6f,
         pitch.color
     );
     drawThickProjectedLine(
         window,
         camera,
-        Vector3(aimPoint.x, aimPoint.y - 0.18f, plateZ),
-        Vector3(aimPoint.x, aimPoint.y + 0.18f, plateZ),
-        3.2f,
+        Vector3(aimPoint.x, aimPoint.y - 0.22f, plateZ),
+        Vector3(aimPoint.x, aimPoint.y + 0.22f, plateZ),
+        3.6f,
         pitch.color
     );
 }
 
 void drawFieldGuide(sf::RenderWindow& window, const Camera3D& camera) {
-    sf::Color laneColor(70, 145, 145, 95);
-    for (float x : {-1.0f, 0.0f, 1.0f}) {
-        drawThickProjectedLine(
-            window,
-            camera,
-            Vector3(x, 0.0f, 0.0f),
-            Vector3(x, 0.0f, plateZ + 1.0f),
-            1.0f,
-            laneColor
-        );
-    }
+    sf::Color laneColor(70, 145, 145, 70);
+    drawThickProjectedLine(
+        window,
+        camera,
+        Vector3(0.0f, 0.0f, 0.0f),
+        Vector3(0.0f, 0.0f, plateZ + 0.4f),
+        1.0f,
+        laneColor
+    );
 
-    for (int z = 2; z <= 18; z += 2) {
+    for (int z = 2; z <= 10; z += 2) {
         drawThickProjectedLine(
             window,
             camera,
-            Vector3(-1.4f, 0.0f, static_cast<float>(z)),
-            Vector3(1.4f, 0.0f, static_cast<float>(z)),
+            Vector3(-0.65f, 0.0f, static_cast<float>(z)),
+            Vector3(0.65f, 0.0f, static_cast<float>(z)),
             1.0f,
             laneColor
         );
@@ -373,10 +350,10 @@ void drawFieldGuide(sf::RenderWindow& window, const Camera3D& camera) {
 
 std::array<PitchProfile, 4> makePitchProfiles() {
     return {{
-        PitchProfile{'F', "Four-Seam Fastball", 33.5f, 0.12f, Vector3(0.05f, 1.35f, 0.0f), 0.33f, 1.0f, sf::Color(245, 235, 180)},
-        PitchProfile{'C', "Curveball", 26.5f, -0.05f, Vector3(-0.15f, -5.4f, 0.0f), 0.42f, 1.25f, sf::Color(245, 145, 90)},
-        PitchProfile{'S', "Slider", 29.0f, 0.02f, Vector3(4.8f, -1.2f, 0.0f), 0.39f, 1.12f, sf::Color(145, 220, 245)},
-        PitchProfile{'K', "Knuckleball", 23.0f, 0.08f, Vector3(0.0f, 0.0f, 0.0f), 0.55f, 1.45f, sf::Color(190, 245, 160)}
+        PitchProfile{'F', "Fastball", 21.0f, 0.08f, Vector3(0.02f, 0.9f, 0.0f), 0.33f, 1.0f, sf::Color(245, 235, 180)},
+        PitchProfile{'C', "Curve", 16.5f, -0.08f, Vector3(-0.1f, -4.2f, 0.0f), 0.42f, 1.25f, sf::Color(245, 145, 90)},
+        PitchProfile{'S', "Slider", 18.0f, 0.0f, Vector3(3.6f, -0.8f, 0.0f), 0.39f, 1.12f, sf::Color(145, 220, 245)},
+        PitchProfile{'K', "Knuckle", 14.5f, 0.04f, Vector3(0.0f, 0.0f, 0.0f), 0.55f, 1.45f, sf::Color(190, 245, 160)}
     }};
 }
 
@@ -448,8 +425,8 @@ int main() {
     sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
     Camera3D camera;
-    lookAt(camera, Vector3(0.0f, 1.75f, -5.8f), Vector3(0.0f, 1.35f, plateZ));
-    camera.fieldOfView = 68.0f;
+    lookAt(camera, Vector3(0.0f, 1.52f, -3.05f), Vector3(0.0f, 1.28f, plateZ));
+    camera.fieldOfView = 34.0f;
 
     Mesh3D baseballMesh = makeBaseballMesh();
     std::vector<SeamPoint> seamA = makeSeamLoop(false);
@@ -503,19 +480,19 @@ int main() {
                 }
 
                 if (key->code == sf::Keyboard::Key::Left) {
-                    aimPoint.x = std::clamp(aimPoint.x - 0.12f, -0.62f, 0.62f);
+                    aimPoint.x = std::clamp(aimPoint.x - 0.1f, -0.72f, 0.72f);
                 }
 
                 if (key->code == sf::Keyboard::Key::Right) {
-                    aimPoint.x = std::clamp(aimPoint.x + 0.12f, -0.62f, 0.62f);
+                    aimPoint.x = std::clamp(aimPoint.x + 0.1f, -0.72f, 0.72f);
                 }
 
                 if (key->code == sf::Keyboard::Key::Up) {
-                    aimPoint.y = std::clamp(aimPoint.y + 0.12f, strikeZoneCenter.y - 0.82f, strikeZoneCenter.y + 0.82f);
+                    aimPoint.y = std::clamp(aimPoint.y + 0.1f, strikeZoneCenter.y - 0.95f, strikeZoneCenter.y + 0.95f);
                 }
 
                 if (key->code == sf::Keyboard::Key::Down) {
-                    aimPoint.y = std::clamp(aimPoint.y - 0.12f, strikeZoneCenter.y - 0.82f, strikeZoneCenter.y + 0.82f);
+                    aimPoint.y = std::clamp(aimPoint.y - 0.1f, strikeZoneCenter.y - 0.95f, strikeZoneCenter.y + 0.95f);
                 }
 
                 for (int i = 0; i < pitches.size(); i++) {
@@ -550,8 +527,8 @@ int main() {
 
                 if (pitch.hotkey == 'K') {
                     breakAcceleration = Vector3(
-                        std::sin(pitchAge * 19.0f) * 3.2f,
-                        std::sin(pitchAge * 14.5f + 1.1f) * 1.6f,
+                        std::sin(pitchAge * 19.0f) * 2.4f,
+                        std::sin(pitchAge * 14.5f + 1.1f) * 1.2f,
                         0.0f
                     );
                 }
@@ -612,21 +589,19 @@ int main() {
         drawBaseballSeams(window, overlayCamera, baseballTransform, seamA, seamB);
 
         if (fontLoaded) {
-            sf::RectangleShape panel(sf::Vector2f(430.0f, 156.0f));
-            panel.setPosition(sf::Vector2f(22.0f, 20.0f));
-            panel.setFillColor(sf::Color(5, 8, 14, 205));
+            sf::RectangleShape panel(sf::Vector2f(330.0f, 76.0f));
+            panel.setPosition(sf::Vector2f(18.0f, 18.0f));
+            panel.setFillColor(sf::Color(5, 8, 14, 180));
             panel.setOutlineThickness(1.0f);
-            panel.setOutlineColor(sf::Color(85, 185, 190, 170));
+            panel.setOutlineColor(sf::Color(85, 185, 190, 115));
             window.draw(panel);
 
             std::ostringstream aimLabel;
-            aimLabel << "Aim: x " << aimPoint.x << "  y " << aimPoint.y;
+            aimLabel << "Aim " << aimPoint.x << ", " << aimPoint.y;
 
-            drawText(window, font, "Pitching Simulator", 24, sf::Vector2f(42.0f, 34.0f), sf::Color(245, 250, 255));
-            drawText(window, font, "Selected: " + pitches[selectedPitch].name, 17, sf::Vector2f(42.0f, 70.0f), pitches[selectedPitch].color);
-            drawText(window, font, "F Fastball   C Curve   S Slider   K Knuckle", 15, sf::Vector2f(42.0f, 100.0f), sf::Color(190, 225, 225));
-            drawText(window, font, "Arrows aim   R rethrow   P pause   A anti-alias", 15, sf::Vector2f(42.0f, 126.0f), sf::Color(155, 185, 195));
-            drawText(window, font, aimLabel.str(), 14, sf::Vector2f(42.0f, 150.0f), sf::Color(145, 210, 215));
+            drawText(window, font, pitches[selectedPitch].name, 17, sf::Vector2f(34.0f, 28.0f), pitches[selectedPitch].color);
+            drawText(window, font, "F C S K  | arrows aim | R throw", 13, sf::Vector2f(34.0f, 54.0f), sf::Color(180, 215, 220));
+            drawText(window, font, aimLabel.str(), 12, sf::Vector2f(222.0f, 29.0f), sf::Color(135, 195, 200));
         }
 
         fpsCounter.frame(window);
