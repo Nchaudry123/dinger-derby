@@ -37,7 +37,7 @@ const Vector3 releasePoint(-0.22f, 1.72f, moundZ);
 const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
 const Vector3 boundsMinimum(-3.2f, -40.0f, -2.0f);
 const Vector3 boundsMaximum(3.2f, 3.6f, plateZ + 4.0f);
-const sf::FloatRect speedSliderTrack(sf::Vector2f(34.0f, 86.0f), sf::Vector2f(300.0f, 8.0f));
+const sf::FloatRect speedSliderTrack(sf::Vector2f(34.0f, 118.0f), sf::Vector2f(300.0f, 8.0f));
 
 struct SeamPoint {
     Vector3 position;
@@ -617,34 +617,91 @@ void drawPitchResultHistory(
 }
 
 void drawFieldGuide(sf::RenderWindow& window, const Camera3D& camera) {
-    sf::Color laneColor(70, 145, 145, 70);
+    const sf::Color dirt(168, 128, 82, 95);
+    const sf::Color laneColor(70, 145, 145, 78);
+    const sf::Color grassLine(55, 120, 95, 55);
+
+    for (int ring = 1; ring <= 4; ring++) {
+        float radius = 0.18f * static_cast<float>(ring);
+        const int segments = 20;
+        for (int i = 0; i < segments; i++) {
+            float a0 = static_cast<float>(i) / segments * pi * 2.0f;
+            float a1 = static_cast<float>(i + 1) / segments * pi * 2.0f;
+            drawThickProjectedLine(
+                window,
+                camera,
+                Vector3(std::cos(a0) * radius, 0.01f, moundZ + std::sin(a0) * radius * 0.55f),
+                Vector3(std::cos(a1) * radius, 0.01f, moundZ + std::sin(a1) * radius * 0.55f),
+                2.2f,
+                dirt
+            );
+        }
+    }
+
     drawThickProjectedLine(
         window,
         camera,
         Vector3(0.0f, 0.0f, 0.0f),
         Vector3(0.0f, 0.0f, plateZ + 0.4f),
-        1.0f,
+        1.4f,
         laneColor
     );
 
     for (int z = 2; z <= static_cast<int>(plateZ); z += 2) {
+        float width = 0.55f + static_cast<float>(z) * 0.01f;
         drawThickProjectedLine(
             window,
             camera,
-            Vector3(-0.65f, 0.0f, static_cast<float>(z)),
-            Vector3(0.65f, 0.0f, static_cast<float>(z)),
+            Vector3(-width, 0.0f, static_cast<float>(z)),
+            Vector3(width, 0.0f, static_cast<float>(z)),
             1.0f,
-            laneColor
+            z % 4 == 0 ? grassLine : laneColor
         );
     }
 
     drawThickProjectedLine(
         window,
         camera,
-        Vector3(-0.55f, 0.0f, moundZ),
-        Vector3(0.55f, 0.0f, moundZ),
-        4.0f,
-        sf::Color(205, 180, 130, 180)
+        Vector3(-0.62f, 0.02f, moundZ),
+        Vector3(0.62f, 0.02f, moundZ),
+        5.0f,
+        sf::Color(205, 180, 130, 200)
+    );
+
+    drawThickProjectedLine(
+        window,
+        camera,
+        Vector3(-strikeZoneHalfWidth - 0.55f, 0.02f, plateZ - 0.35f),
+        Vector3(-strikeZoneHalfWidth - 0.12f, 0.02f, plateZ - 0.35f),
+        1.5f,
+        sf::Color(210, 205, 180, 100)
+    );
+    drawThickProjectedLine(
+        window,
+        camera,
+        Vector3(strikeZoneHalfWidth + 0.12f, 0.02f, plateZ - 0.35f),
+        Vector3(strikeZoneHalfWidth + 0.55f, 0.02f, plateZ - 0.35f),
+        1.5f,
+        sf::Color(210, 205, 180, 100)
+    );
+}
+
+void drawBallShadow(
+    sf::RenderWindow& window,
+    const Camera3D& camera,
+    const Vector3& ballPosition,
+    float radius
+) {
+    Vector3 shadow(ballPosition.x, 0.03f, ballPosition.z);
+    float height = std::max(0.0f, ballPosition.y);
+    float scale = std::clamp(1.15f - height * 0.18f, 0.35f, 1.1f);
+    float alpha = std::clamp(150.0f - height * 28.0f, 40.0f, 150.0f);
+    drawProjectedDot(
+        window,
+        camera,
+        shadow,
+        radius * 18.0f * scale,
+        sf::Color(8, 12, 18, static_cast<std::uint8_t>(alpha))
     );
 }
 
@@ -950,6 +1007,7 @@ int main() {
     float spinX = 0.0f;
     float spinY = 0.0f;
     float spinZ = 0.0f;
+    float resultBannerTimer = 0.0f;
     bool paused = false;
     bool draggingSpeedSlider = false;
     std::string latestResult = "Ready — press R to throw";
@@ -980,6 +1038,7 @@ int main() {
         phase = PitchPhase::Flying;
         latestResult = pitches[selectedPitch].name + " — in flight";
         latestResultColor = pitches[selectedPitch].color;
+        resultBannerTimer = 0.0f;
     };
 
     while (window.isOpen()) {
@@ -1102,6 +1161,10 @@ int main() {
         }
 
         float dt = std::min(frameClock.restart().asSeconds(), 0.1f);
+        if (resultBannerTimer > 0.0f) {
+            resultBannerTimer = std::max(0.0f, resultBannerTimer - dt);
+        }
+
         if (!paused && phase == PitchPhase::Flying) {
             accumulator += dt;
             while (accumulator >= fixedStep) {
@@ -1131,6 +1194,7 @@ int main() {
                         pitchResults.erase(pitchResults.begin());
                     }
                     phase = PitchPhase::Settled;
+                    resultBannerTimer = 2.4f;
                 }
                 pitchAge += fixedStep;
                 accumulator -= fixedStep;
@@ -1188,12 +1252,13 @@ int main() {
         drawProjectedPolyline(window, overlayCamera, trail, pitches[activePitch].color);
         drawStrikeZone(window, overlayCamera, aimPoint, pitches[selectedPitch]);
         drawPitchResultHistory(window, overlayCamera, pitchResults);
+        drawBallShadow(window, overlayCamera, baseball.position, baseballRadius);
         drawBaseballSeams(window, overlayCamera, baseballTransform, seamA, seamB);
 
         if (fontLoaded) {
-            sf::RectangleShape panel(sf::Vector2f(460.0f, 148.0f));
+            sf::RectangleShape panel(sf::Vector2f(460.0f, 168.0f));
             panel.setPosition(sf::Vector2f(18.0f, 18.0f));
-            panel.setFillColor(sf::Color(5, 8, 14, 180));
+            panel.setFillColor(sf::Color(5, 8, 14, 190));
             panel.setOutlineThickness(1.0f);
             panel.setOutlineColor(sf::Color(85, 185, 190, 115));
             window.draw(panel);
@@ -1219,7 +1284,7 @@ int main() {
             aimLabel << std::fixed << std::setprecision(2) << "Aim " << aimPoint.x << ", " << aimPoint.y;
             std::ostringstream speedLabel;
             speedLabel << std::fixed << std::setprecision(1)
-                << "Next " << currentPitchSpeedMph << " mph  x" << globalSpeedScale;
+                << "Release " << currentPitchSpeedMph << " mph  x" << globalSpeedScale;
 
             std::ostringstream countLabel;
             countLabel << "Count " << count.balls << "-" << count.strikes
@@ -1233,16 +1298,47 @@ int main() {
                 phaseLabel = "Settled";
             }
 
-            drawText(window, font, pitches[selectedPitch].name, 17, sf::Vector2f(34.0f, 28.0f), pitches[selectedPitch].color);
-            drawText(window, font, countLabel.str(), 13, sf::Vector2f(34.0f, 50.0f), sf::Color(235, 230, 190));
+            drawText(window, font, pitches[selectedPitch].name, 18, sf::Vector2f(34.0f, 26.0f), pitches[selectedPitch].color);
+            drawText(window, font, countLabel.str(), 14, sf::Vector2f(34.0f, 50.0f), sf::Color(235, 230, 190));
             drawText(window, font, "F 4S  P SPL  C CB  T CUT  S SL", 12, sf::Vector2f(34.0f, 72.0f), sf::Color(180, 215, 220));
-            drawText(window, font, "Drag speed for next throw", 11, sf::Vector2f(34.0f, 88.0f), sf::Color(120, 175, 185));
-            drawText(window, font, "R throw | Space pause | arrows aim | 1/2/3 camera", 12, sf::Vector2f(34.0f, 112.0f), sf::Color(155, 195, 200));
-            drawText(window, font, aimLabel.str(), 12, sf::Vector2f(286.0f, 30.0f), sf::Color(135, 195, 200));
-            drawText(window, font, speedLabel.str(), 12, sf::Vector2f(238.0f, 100.0f), sf::Color(175, 215, 180));
-            drawText(window, font, phaseLabel, 11, sf::Vector2f(348.0f, 54.0f), sf::Color(150, 210, 220));
-            drawText(window, font, cameraModeName(cameraMode), 11, sf::Vector2f(348.0f, 70.0f), sf::Color(130, 190, 205));
-            drawText(window, font, latestResult, 13, sf::Vector2f(240.0f, 84.0f), latestResultColor);
+            drawText(window, font, "R throw | Space pause | arrows aim | 1/2/3 camera", 12, sf::Vector2f(34.0f, 94.0f), sf::Color(155, 195, 200));
+            drawText(window, font, "Drag speed for next throw", 11, sf::Vector2f(34.0f, 132.0f), sf::Color(120, 175, 185));
+            drawText(window, font, aimLabel.str(), 12, sf::Vector2f(300.0f, 28.0f), sf::Color(135, 195, 200));
+            drawText(window, font, phaseLabel, 12, sf::Vector2f(360.0f, 50.0f), sf::Color(150, 210, 220));
+            drawText(window, font, cameraModeName(cameraMode), 11, sf::Vector2f(360.0f, 72.0f), sf::Color(130, 190, 205));
+            drawText(window, font, speedLabel.str(), 12, sf::Vector2f(230.0f, 146.0f), sf::Color(175, 215, 180));
+            drawText(window, font, latestResult, 13, sf::Vector2f(34.0f, 150.0f), latestResultColor);
+
+            if (resultBannerTimer > 0.0f && phase == PitchPhase::Settled) {
+                float alpha = std::clamp(resultBannerTimer / 2.4f, 0.0f, 1.0f);
+                sf::RectangleShape banner(sf::Vector2f(360.0f, 52.0f));
+                banner.setPosition(sf::Vector2f(
+                    static_cast<float>(window.getSize().x) * 0.5f - 180.0f,
+                    78.0f
+                ));
+                banner.setFillColor(sf::Color(8, 14, 20, static_cast<std::uint8_t>(200 * alpha)));
+                banner.setOutlineThickness(1.5f);
+                banner.setOutlineColor(sf::Color(
+                    latestResultColor.r,
+                    latestResultColor.g,
+                    latestResultColor.b,
+                    static_cast<std::uint8_t>(220 * alpha)
+                ));
+                window.draw(banner);
+                drawText(
+                    window,
+                    font,
+                    latestResult,
+                    22,
+                    sf::Vector2f(static_cast<float>(window.getSize().x) * 0.5f - 150.0f, 90.0f),
+                    sf::Color(
+                        latestResultColor.r,
+                        latestResultColor.g,
+                        latestResultColor.b,
+                        static_cast<std::uint8_t>(255 * alpha)
+                    )
+                );
+            }
         }
 
         fpsCounter.frame(window);
