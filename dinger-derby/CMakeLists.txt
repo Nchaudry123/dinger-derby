@@ -108,3 +108,7 @@ add_test(NAME raster_near_clip_test COMMAND raster_near_clip_test)
 add_executable(physics3d_test tests/physics3d_test.cpp)
 target_link_libraries(physics3d_test PRIVATE dinger_engine)
 add_test(NAME physics3d_test COMMAND physics3d_test)
+
+add_executable(pitching_solver_test tests/pitching_solver_test.cpp)
+target_link_libraries(pitching_solver_test PRIVATE dinger_engine)
+add_test(NAME pitching_solver_test COMMAND pitching_solver_test)

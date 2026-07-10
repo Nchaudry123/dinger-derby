@@ -14,6 +14,7 @@
 #include "RasterDemo3D.h"
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
+#include "../src/physics/AirResistance3D.h"
 #include "../src/physics/Body3D.h"
 #include "../src/physics/PhysicsWorld3D.h"
 #include "../src/rendering/Camera3D.h"
@@ -394,6 +395,81 @@ float mphToWorldUnitsPerSecond(float mph) {
     return mph * 5280.0f / 3600.0f / feetPerWorldUnit;
 }
 
+Vector3 movementAccelerationForPitch(
+    const PitchProfile& pitch,
+    const PitchFlightVariation& variation,
+    const Vector3& position,
+    float pitchAge
+) {
+    float progress = std::clamp(
+        (position.z - releasePoint.z) / (plateZ - releasePoint.z),
+        0.0f,
+        1.0f
+    );
+    float breakRamp = progress <= pitch.breakStartZ
+        ? 0.0f
+        : (progress - pitch.breakStartZ) / (1.0f - pitch.breakStartZ);
+    breakRamp = breakRamp * breakRamp * (3.0f - 2.0f * breakRamp);
+
+    Vector3 acceleration = Vector3(
+        pitch.breakAcceleration.x * variation.breakScale.x,
+        pitch.breakAcceleration.y * variation.breakScale.y,
+        0.0f
+    ) * breakRamp;
+
+    float turbulenceRamp = progress * progress;
+    Vector3 turbulenceForce(
+        std::sin(pitchAge * 18.0f + variation.turbulencePhase),
+        std::sin(pitchAge * 13.0f + variation.turbulencePhase * 0.7f),
+        0.0f
+    );
+
+    return acceleration + turbulenceForce * variation.turbulenceStrength * turbulenceRamp;
+}
+
+Vector3 predictPlatePosition(
+    const PitchProfile& pitch,
+    const PitchFlightVariation& variation,
+    const Vector3& initialVelocity
+) {
+    Body3D simulated(releasePoint + variation.releaseOffset, 0.145f);
+    simulated.setRadius(baseballRadius);
+    simulated.dragCoefficient = pitch.dragCoefficient * variation.dragScale;
+    simulated.airResistanceScale = pitch.airScale;
+    simulated.velocity = initialVelocity;
+
+    float airDensity = 0.18f * variation.dragScale;
+    float pitchAge = 0.0f;
+    Vector3 previousPosition = simulated.position;
+
+    for (int step = 0; step < 720; step++) {
+        previousPosition = simulated.position;
+        Vector3 dragForce = AirResistance3D::calculateDragForce(
+            simulated,
+            variation.airVelocity,
+            airDensity
+        );
+        Vector3 acceleration =
+            Vector3(0.0f, -9.8f, 0.0f) +
+            movementAccelerationForPitch(pitch, variation, simulated.position, pitchAge) +
+            dragForce * simulated.inverseMass();
+
+        simulated.velocity += acceleration * fixedStep;
+        simulated.position += simulated.velocity * fixedStep;
+        pitchAge += fixedStep;
+
+        if (simulated.position.z >= plateZ) {
+            float segmentLength = simulated.position.z - previousPosition.z;
+            float t = segmentLength <= 0.0f
+                ? 1.0f
+                : (plateZ - previousPosition.z) / segmentLength;
+            return previousPosition + (simulated.position - previousPosition) * std::clamp(t, 0.0f, 1.0f);
+        }
+    }
+
+    return simulated.position;
+}
+
 Vector3 calculateLaunchVelocity(
     const PitchProfile& pitch,
     const Vector3& aimPoint,
@@ -404,20 +480,20 @@ Vector3 calculateLaunchVelocity(
     Vector3 actualReleasePoint = releasePoint + variation.releaseOffset;
     float distance = aimPoint.z - actualReleasePoint.z;
     float flightTime = distance / pitchSpeed;
-    float expectedBreakInfluence = std::max(0.0f, 1.0f - pitch.breakStartZ) * 0.36f;
-    float estimatedVerticalAcceleration =
-        -9.8f +
-        pitch.breakAcceleration.y * variation.breakScale.y * expectedBreakInfluence;
-    Vector3 flatVelocity(
+    Vector3 velocity(
         (aimPoint.x - actualReleasePoint.x) / flightTime,
-        (aimPoint.y - actualReleasePoint.y - 0.5f * estimatedVerticalAcceleration * flightTime * flightTime) /
-            flightTime +
-            pitch.liftCompensation +
-            variation.liftOffset,
+        (aimPoint.y - actualReleasePoint.y) / flightTime + pitch.liftCompensation + variation.liftOffset,
         pitchSpeed
     );
 
-    return flatVelocity;
+    for (int i = 0; i < 6; i++) {
+        Vector3 predicted = predictPlatePosition(pitch, variation, velocity);
+        Vector3 error = aimPoint - predicted;
+        velocity.x += error.x / flightTime * 0.85f;
+        velocity.y += error.y / flightTime * 0.85f;
+    }
+
+    return velocity;
 }
 
 float rollPitchSpeed(
@@ -698,29 +774,8 @@ int main() {
             accumulator += dt;
             while (accumulator >= fixedStep) {
                 const PitchProfile& pitch = pitches[selectedPitch];
-                float progress = std::clamp(
-                    (baseball.position.z - releasePoint.z) / (plateZ - releasePoint.z),
-                    0.0f,
-                    1.0f
-                );
-                float breakRamp = progress <= pitch.breakStartZ
-                    ? 0.0f
-                    : (progress - pitch.breakStartZ) / (1.0f - pitch.breakStartZ);
-                breakRamp = breakRamp * breakRamp * (3.0f - 2.0f * breakRamp);
-                Vector3 breakAcceleration = Vector3(
-                    pitch.breakAcceleration.x * currentVariation.breakScale.x,
-                    pitch.breakAcceleration.y * currentVariation.breakScale.y,
-                    0.0f
-                ) * breakRamp;
-
-                float turbulenceRamp = progress * progress;
-                Vector3 turbulenceForce(
-                    std::sin(pitchAge * 18.0f + currentVariation.turbulencePhase),
-                    std::sin(pitchAge * 13.0f + currentVariation.turbulencePhase * 0.7f),
-                    0.0f
-                );
-                breakAcceleration += turbulenceForce * currentVariation.turbulenceStrength * turbulenceRamp;
-
+                Vector3 breakAcceleration =
+                    movementAccelerationForPitch(pitch, currentVariation, baseball.position, pitchAge);
                 baseball.applyForce(breakAcceleration * baseball.mass);
                 world.step(fixedStep);
                 pitchFrozen = freezePitchAtPlate(baseball, trail);
