@@ -1,6 +1,7 @@
 #include <cassert>
 #include <cmath>
 
+#include "rendering/BaseballPlayer3D.h"
 #include "rendering/Mesh3D.h"
 
 namespace {
@@ -62,6 +63,27 @@ void testSphereMeshShape() {
     assert(nearlyEqual(bounds.radius, 1.0f));
 }
 
+void testBoxAndPlayerMeshes() {
+    Mesh3D box = Mesh3D::box(1.0f, 2.0f, 0.5f);
+    assert(box.vertices.size() == 8);
+    assert(box.triangles.size() == 12);
+
+    Mesh3D pitcher = BaseballPlayer3D::pitcher(0);
+    Mesh3D catcher = BaseballPlayer3D::catcher(0);
+    assert(pitcher.triangles.size() > 20);
+    assert(catcher.triangles.size() > 20);
+    assert(pitcher.vertexNormals.size() == pitcher.vertices.size());
+    assert(catcher.vertexNormals.size() == catcher.vertices.size());
+
+    BoundingSphere3D pitcherBounds = pitcher.localBoundingSphere();
+    BoundingSphere3D catcherBounds = catcher.localBoundingSphere();
+    assert(pitcherBounds.radius > 0.5f);
+    assert(catcherBounds.radius > 0.4f);
+    // Standing pitcher should reach higher than crouching catcher.
+    assert(pitcherBounds.center.y + pitcherBounds.radius >
+        catcherBounds.center.y + catcherBounds.radius * 0.5f);
+}
+
 }
 
 int main() {
@@ -69,6 +91,7 @@ int main() {
     testAxesMeshShape();
     testCubeBoundingSphere();
     testSphereMeshShape();
+    testBoxAndPlayerMeshes();
 
     return 0;
 }

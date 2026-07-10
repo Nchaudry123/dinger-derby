@@ -20,6 +20,7 @@ set(ENGINE_SOURCES
     src/rendering/FrameBuffer.cpp
     src/rendering/Mesh3D.cpp
     src/rendering/BaseballVisual3D.cpp
+    src/rendering/BaseballPlayer3D.cpp
     src/rendering/Rasterizer3D.cpp
     src/rendering/SoftwareRenderer3D.cpp
     src/rendering/SpatialGrid3D.cpp
