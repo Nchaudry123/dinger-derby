@@ -19,7 +19,7 @@ CollisionManifold2D findCircleCircleCollision(const Body2D& a, const Body2D& b) 
     if (distance == 0.0f) {
         manifold.normal = Vector2(1.0f, 0.0f);
     } else {
-        manifold.normal = difference * (1.0f / distance);
+        manifold.normal = difference / distance;
     }
 
     return manifold;
@@ -48,13 +48,10 @@ void resolveCircleCollision(
         return;
     }
 
-    float velocityAlongNormal =
-        relativeVelocity.x * normal.x + relativeVelocity.y * normal.y;
-
-    bool movingApart = velocityAlongNormal > 0;
+    float velocityAlongNormal = relativeVelocity.dot(normal);
 
     // Only apply bounce/friction if bodies are moving toward each other
-    if (!movingApart) {
+    if (velocityAlongNormal <= 0.0f) {
         a.wakeUp();
         b.wakeUp();
 
@@ -66,20 +63,17 @@ void resolveCircleCollision(
 
         Vector2 impulse = normal * impulseStrength;
 
-        a.velocity = a.velocity - impulse * inverseMassA;
-        b.velocity = b.velocity + impulse * inverseMassB;
+        a.velocity -= impulse * inverseMassA;
+        b.velocity += impulse * inverseMassB;
 
         // Static and kinetic friction
         Vector2 tangent = relativeVelocity - normal * velocityAlongNormal;
 
-        if (tangent.magnitude() != 0) {
+        if (tangent.magnitude() != 0.0f) {
             tangent = tangent.normalized();
 
-            float tangentVelocity =
-                relativeVelocity.x * tangent.x + relativeVelocity.y * tangent.y;
-
-            float tangentImpulseMagnitude =
-                -tangentVelocity / inverseMassSum;
+            float tangentVelocity = relativeVelocity.dot(tangent);
+            float tangentImpulseMagnitude = -tangentVelocity / inverseMassSum;
 
             float staticFriction = 0.6f;
             float kineticFriction = 0.3f;
@@ -92,8 +86,8 @@ void resolveCircleCollision(
                 frictionImpulse = tangent * (-impulseStrength * kineticFriction);
             }
 
-            a.velocity = a.velocity - frictionImpulse * inverseMassA;
-            b.velocity = b.velocity + frictionImpulse * inverseMassB;
+            a.velocity -= frictionImpulse * inverseMassA;
+            b.velocity += frictionImpulse * inverseMassB;
         }
     }
 
@@ -107,8 +101,8 @@ void resolveCircleCollision(
 
     Vector2 correction = normal * correctionAmount;
 
-    a.position = a.position - correction * inverseMassA;
-    b.position = b.position + correction * inverseMassB;
+    a.position -= correction * inverseMassA;
+    b.position += correction * inverseMassB;
 }
 
 void resolveCircleCollision(Body2D& a, Body2D& b) {

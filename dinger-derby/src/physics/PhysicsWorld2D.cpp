@@ -4,18 +4,13 @@
 void applySurfaceResponse(Body2D* body, const Vector2& normal) {
     Vector2 tangent(-normal.y, normal.x);
 
-    float tangentVelocity =
-        body->velocity.x * tangent.x +
-        body->velocity.y * tangent.y;
-
-    float targetAngularVelocity =
-        tangentVelocity / body->radius;
+    float tangentVelocity = body->velocity.dot(tangent);
+    float targetAngularVelocity = tangentVelocity / body->radius;
 
     body->angularVelocity +=
         (targetAngularVelocity - body->angularVelocity) * 0.1f;
 
-    body->velocity =
-        body->velocity - tangent * tangentVelocity * 0.02f;
+    body->velocity -= tangent * tangentVelocity * 0.02f;
 }
 
 PhysicsWorld2D::PhysicsWorld2D() {
