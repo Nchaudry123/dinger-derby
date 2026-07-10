@@ -186,23 +186,32 @@ std::vector<Vector3> jointRestWorld(const SkinnedModel3D& m) {
 SkinnedModel3D makeHumanoid(bool catcher, int detail) {
     SkinnedModel3D m;
     detail = std::clamp(detail, 0, 2);
-    int rings = detail >= 2 ? 6 : 4;
-    int segs = detail >= 2 ? 10 : 8;
-    int ballR = detail >= 2 ? 8 : 6;
-    int ballS = detail >= 2 ? 12 : 10;
+    // Higher tessellation so skinned limbs stay smooth and continuous.
+    int rings = detail >= 2 ? 11 : (detail >= 1 ? 8 : 5);
+    int segs = detail >= 2 ? 16 : (detail >= 1 ? 12 : 9);
+    int ballR = detail >= 2 ? 12 : (detail >= 1 ? 9 : 7);
+    int ballS = detail >= 2 ? 16 : (detail >= 1 ? 12 : 10);
 
-    // ── skeleton (local offsets parent-relative) ────────────────────────
-    // RHP on the rubber: body faces +Z (home plate). Glove = -X, throw = +X.
-    // Bind pose is already a SET stance (not a T-pose) so idle/camera look right.
-    int root = addJoint(m, "Root", -1, Vector3(0.0f, 0.0f, 0.0f));
+    // ── skeleton ────────────────────────────────────────────────────────
+    // RHP: Root is rotated closed so the body stands SIDEWAYS on the rubber
+    // (profile toward plate). Head turns back toward home (+Z). Glove=-X, throw=+X.
+    const float sideYaw = catcher ? 0.0f : -0.95f; // ~54° closed for pitcher set
+    int root = addJoint(
+        m, "Root", -1, Vector3(0.0f, 0.0f, 0.0f),
+        Quaternion::fromEulerXYZ(0.0f, sideYaw, 0.0f)
+    );
     int hips = addJoint(m, "Hips", root, Vector3(0.0f, 0.90f, 0.0f));
     int spine = addJoint(m, "Spine", hips, Vector3(0.0f, 0.14f, 0.02f));
     int chest = addJoint(m, "Chest", spine, Vector3(0.0f, 0.18f, 0.02f));
     int neck = addJoint(m, "Neck", chest, Vector3(0.0f, 0.14f, 0.01f));
-    int head = addJoint(m, "Head", neck, Vector3(0.0f, 0.12f, 0.03f));
+    // Look toward plate against closed root (undo most of sideYaw on the head).
+    int head = addJoint(
+        m, "Head", neck, Vector3(0.0f, 0.12f, 0.03f),
+        catcher ? Quaternion::identity()
+                : Quaternion::fromEulerXYZ(-0.04f, 0.85f, 0.0f)
+    );
 
-    // Arms hang along -Y in bind space so shoulder/elbow rotations give a clean
-    // throw path (set → high kick hands-together → layback → high 3/4 release).
+    // Arms hang along -Y for clean throw FK.
     int shL = addJoint(m, "Shoulder_L", chest, Vector3(-0.16f, 0.09f, 0.01f));
     int elL = addJoint(m, "Elbow_L", shL, Vector3(0.0f, -0.29f, 0.02f));
     int wrL = addJoint(m, "Wrist_L", elL, Vector3(0.0f, -0.26f, 0.02f));
@@ -213,17 +222,20 @@ SkinnedModel3D makeHumanoid(bool catcher, int detail) {
     int wrR = addJoint(m, "Wrist_R", elR, Vector3(0.0f, -0.26f, 0.02f));
     int palmR = addJoint(m, "Palm_R", wrR, Vector3(0.0f, -0.05f, 0.05f));
 
-    // Plant = right (+X, slightly back on rubber), lead = left (-X).
-    int hipR = addJoint(m, "Hip_R", hips, Vector3(0.11f, -0.02f, -0.03f));
+    // Plant = right (back foot), lead = left (stride foot).
+    int hipR = addJoint(m, "Hip_R", hips, Vector3(0.11f, -0.02f, -0.04f));
     int knR = addJoint(m, "Knee_R", hipR, Vector3(0.0f, -0.41f, 0.02f));
     int anR = addJoint(m, "Ankle_R", knR, Vector3(0.0f, -0.39f, 0.0f));
+    int toeR = addJoint(m, "Toe_R", anR, Vector3(0.0f, -0.02f, 0.08f));
 
-    int hipL = addJoint(m, "Hip_L", hips, Vector3(-0.11f, -0.02f, 0.02f));
+    int hipL = addJoint(m, "Hip_L", hips, Vector3(-0.11f, -0.02f, 0.03f));
     int knL = addJoint(m, "Knee_L", hipL, Vector3(0.0f, -0.41f, 0.02f));
     int anL = addJoint(m, "Ankle_L", knL, Vector3(0.0f, -0.39f, 0.02f));
+    int toeL = addJoint(m, "Toe_L", anL, Vector3(0.0f, -0.02f, 0.08f));
 
     if (catcher) {
-        // Crouch: lower hips, deep knee bend, lean toward plate.
+        m.joints[root].restRotation = Quaternion::identity();
+        m.joints[root].bakeLocalRest();
         m.joints[hips].restTranslation = Vector3(0.0f, 0.48f, 0.0f);
         m.joints[hips].bakeLocalRest();
         m.joints[knL].restTranslation = Vector3(0.04f, -0.22f, 0.08f);
@@ -237,69 +249,92 @@ SkinnedModel3D makeHumanoid(bool catcher, int detail) {
         m.joints[spine].restTranslation = Vector3(0.0f, 0.12f, 0.04f);
         m.joints[spine].restRotation = Quaternion::fromEulerXYZ(0.15f, 0.0f, 0.0f);
         m.joints[spine].bakeLocalRest();
+        m.joints[head].restRotation = Quaternion::identity();
+        m.joints[head].bakeLocalRest();
     }
-    // Pitcher set/closed stance is applied by BaseballAnims (idle + windup t=0),
-    // not baked into bind, so the throw arm has a clean hang FK chain.
 
     m.rebuildInverseBindsFromRest();
     auto W = jointRestWorld(m);
 
-    // ── mesh ────────────────────────────────────────────────────────────
-    // Legs
-    addLimbSegment(m, hipR, knR, W[hipR], W[knR], 0.085f, 0.070f, kPants, rings, segs);
-    addLimbSegment(m, knR, anR, W[knR], W[anR], 0.068f, 0.050f, kPantsDeep, rings, segs);
-    addLimbSegment(m, hipL, knL, W[hipL], W[knL], 0.085f, 0.070f, kPants, rings, segs);
-    addLimbSegment(m, knL, anL, W[knL], W[anL], 0.068f, 0.050f, kPantsDeep, rings, segs);
-    addBall(m, anR, W[anR] + Vector3(0.0f, -0.01f, 0.05f), 0.055f, 0.030f, 0.095f, kCleat, ballR, ballS);
-    addBall(m, anL, W[anL] + Vector3(0.0f, -0.01f, 0.05f), 0.055f, 0.030f, 0.095f, kCleat, ballR, ballS);
-    addBall(m, anR, W[anR] + Vector3(0.0f, 0.03f, 0.0f), 0.042f, 0.028f, 0.042f, kSock, ballR / 2, ballS / 2);
-    addBall(m, anL, W[anL] + Vector3(0.0f, 0.03f, 0.0f), 0.042f, 0.028f, 0.042f, kSock, ballR / 2, ballS / 2);
+    // ── denser continuous mesh ──────────────────────────────────────────
+    auto limb = [&](int ja, int jb, float r0, float r1, sf::Color c) {
+        addLimbSegment(m, ja, jb, W[ja], W[jb], r0, r1, c, rings, segs);
+    };
+    auto jointBall = [&](int j, float r, sf::Color c) {
+        addBall(m, j, W[j], r, r * 0.95f, r, c, ballR, ballS);
+    };
 
-    // Pelvis / belt
-    addBall(m, hips, W[hips], 0.155f, 0.110f, 0.120f, kPants, ballR, ballS);
-    addBall(m, hips, W[hips] + Vector3(0.0f, 0.05f, 0.0f), 0.140f, 0.025f, 0.110f, kBelt, ballR / 2, ballS / 2);
+    // Legs + knee melt balls (keep silhouette intact under big kicks).
+    limb(hipR, knR, 0.090f, 0.074f, kPants);
+    jointBall(knR, 0.078f, kPants);
+    limb(knR, anR, 0.072f, 0.052f, kPantsDeep);
+    limb(hipL, knL, 0.090f, 0.074f, kPants);
+    jointBall(knL, 0.078f, kPants);
+    limb(knL, anL, 0.072f, 0.052f, kPantsDeep);
 
-    // Torso
-    addLimbSegment(m, hips, spine, W[hips], W[spine], 0.140f, 0.130f, kJersey, rings, segs);
-    addLimbSegment(m, spine, chest, W[spine], W[chest], 0.135f, 0.145f, kJersey, rings, segs);
-    addBall(m, chest, W[chest] + Vector3(0.0f, 0.02f, 0.04f), 0.130f, 0.090f, 0.100f, kJerseyDeep, ballR, ballS);
+    // Cleats on toes so feet read during stride.
+    addBall(m, toeR, W[toeR], 0.052f, 0.028f, 0.090f, kCleat, ballR, ballS);
+    addBall(m, toeL, W[toeL], 0.052f, 0.028f, 0.090f, kCleat, ballR, ballS);
+    addBall(m, anR, W[anR] + Vector3(0.0f, -0.012f, 0.02f), 0.058f, 0.014f, 0.070f, kCleat, ballR / 2, ballS / 2);
+    addBall(m, anL, W[anL] + Vector3(0.0f, -0.012f, 0.02f), 0.058f, 0.014f, 0.070f, kCleat, ballR / 2, ballS / 2);
+    jointBall(anR, 0.040f, kSock);
+    jointBall(anL, 0.040f, kSock);
+
+    // Pelvis / belt / waist fill into jersey
+    addBall(m, hips, W[hips], 0.160f, 0.115f, 0.125f, kPants, ballR, ballS);
+    addBall(m, hips, W[hips] + Vector3(0.0f, 0.05f, 0.0f), 0.145f, 0.026f, 0.112f, kBelt, ballR / 2, ballS / 2);
+    jointBall(hipR, 0.092f, kPants);
+    jointBall(hipL, 0.092f, kPants);
+
+    // Torso: multi-layer continuous jersey
+    limb(hips, spine, 0.145f, 0.138f, kJersey);
+    limb(spine, chest, 0.140f, 0.150f, kJersey);
+    addBall(m, chest, W[chest] + Vector3(0.0f, 0.02f, 0.04f), 0.138f, 0.100f, 0.105f, kJerseyDeep, ballR, ballS);
+    addBall(m, spine, W[spine], 0.135f, 0.090f, 0.110f, kJersey, ballR, ballS);
     if (catcher) {
-        addBall(m, chest, W[chest] + Vector3(0.0f, 0.0f, 0.07f), 0.145f, 0.120f, 0.070f, kGear, ballR, ballS);
+        addBall(m, chest, W[chest] + Vector3(0.0f, 0.0f, 0.07f), 0.150f, 0.125f, 0.075f, kGear, ballR, ballS);
     } else {
-        addBall(m, chest, W[chest] + Vector3(0.0f, 0.0f, 0.10f), 0.018f, 0.050f, 0.010f, kAccent, 4, 6);
+        addBall(m, chest, W[chest] + Vector3(0.0f, 0.0f, 0.11f), 0.018f, 0.055f, 0.012f, kAccent, 5, 8);
     }
 
-    // Shoulders
-    addBall(m, shL, W[shL], 0.090f, 0.080f, 0.090f, catcher ? kGear : kJersey, ballR, ballS);
-    addBall(m, shR, W[shR], 0.090f, 0.080f, 0.090f, catcher ? kGear : kJersey, ballR, ballS);
+    // Delts fused into torso
+    sf::Color upper = catcher ? kGear : kJersey;
+    jointBall(shL, 0.095f, upper);
+    jointBall(shR, 0.095f, upper);
+    addBall(m, chest, (W[shL] + W[shR]) * 0.5f + Vector3(0.0f, 0.02f, 0.0f),
+            0.12f, 0.06f, 0.08f, upper, ballR, ballS);
 
-    // Arms
+    // Arms + elbow melt
     sf::Color sleeve = catcher ? kGearDeep : kJerseyDeep;
-    addLimbSegment(m, shL, elL, W[shL], W[elL], 0.058f, 0.050f, sleeve, rings, segs);
-    addLimbSegment(m, elL, wrL, W[elL], W[wrL], 0.048f, 0.040f, kSkin, rings, segs);
-    addLimbSegment(m, shR, elR, W[shR], W[elR], 0.058f, 0.050f, sleeve, rings, segs);
-    addLimbSegment(m, elR, wrR, W[elR], W[wrR], 0.048f, 0.040f, kSkin, rings, segs);
+    limb(shL, elL, 0.060f, 0.052f, sleeve);
+    jointBall(elL, 0.050f, kSkin);
+    limb(elL, wrL, 0.050f, 0.040f, kSkin);
+    limb(shR, elR, 0.060f, 0.052f, sleeve);
+    jointBall(elR, 0.050f, kSkin);
+    limb(elR, wrR, 0.050f, 0.040f, kSkin);
 
     // Hands / mitt
-    addBall(m, palmR, W[palmR], 0.038f, 0.032f, 0.042f, kSkinDeep, ballR / 2, ballS / 2);
-    addBall(m, palmL, W[palmL], 0.072f, 0.080f, 0.048f, kMitt, ballR, ballS);
-    addBall(m, palmL, W[palmL] + Vector3(0.0f, 0.03f, 0.02f), 0.055f, 0.040f, 0.035f, kMittDeep, ballR / 2, ballS / 2);
+    addBall(m, palmR, W[palmR], 0.040f, 0.034f, 0.044f, kSkinDeep, ballR, ballS);
+    addBall(m, palmL, W[palmL], 0.075f, 0.085f, 0.050f, kMitt, ballR, ballS);
+    addBall(m, palmL, W[palmL] + Vector3(0.0f, 0.03f, 0.02f), 0.058f, 0.042f, 0.038f, kMittDeep, ballR / 2, ballS / 2);
 
     // Neck + head
-    addLimbSegment(m, neck, head, W[neck], W[head], 0.042f, 0.040f, kSkin, rings / 2, segs);
-    addBall(m, head, W[head], 0.110f, 0.115f, 0.105f, kSkin, ballR, ballS);
+    limb(neck, head, 0.044f, 0.042f, kSkin);
+    addBall(m, head, W[head], 0.112f, 0.118f, 0.108f, kSkin, ballR, ballS);
     if (catcher) {
-        addBall(m, head, W[head] + Vector3(0.0f, 0.04f, -0.02f), 0.115f, 0.075f, 0.115f, kGear, ballR, ballS);
-        addBall(m, head, W[head] + Vector3(0.0f, 0.0f, 0.12f), 0.070f, 0.065f, 0.018f, kGearDeep, ballR / 2, ballS / 2);
+        addBall(m, head, W[head] + Vector3(0.0f, 0.04f, -0.02f), 0.118f, 0.078f, 0.118f, kGear, ballR, ballS);
+        addBall(m, head, W[head] + Vector3(0.0f, 0.0f, 0.12f), 0.072f, 0.068f, 0.020f, kGearDeep, ballR / 2, ballS / 2);
     } else {
-        // Crown on top; bill strongly toward plate (+Z) so he reads facing home.
-        addBall(m, head, W[head] + Vector3(0.0f, 0.075f, -0.02f), 0.098f, 0.038f, 0.098f, kCap, ballR, ballS);
-        addBall(m, head, W[head] + Vector3(0.0f, 0.045f, 0.095f), 0.058f, 0.014f, 0.042f, kCapDeep, ballR / 2, ballS / 2);
-        addBall(m, head, W[head] + Vector3(0.0f, 0.040f, 0.125f), 0.040f, 0.010f, 0.022f, kCap, 4, 6);
-        addBall(m, head, W[head] + Vector3(0.0f, 0.065f, 0.055f), 0.014f, 0.012f, 0.010f, kAccent, 4, 6);
-        addBall(m, head, W[head] + Vector3(0.0f, -0.01f, 0.09f), 0.055f, 0.050f, 0.040f, kSkinDeep, ballR / 2, ballS / 2);
+        // Cap: crown on top; bill along local +Z of head (toward plate after head yaw).
+        addBall(m, head, W[head] + Vector3(0.0f, 0.075f, -0.02f), 0.100f, 0.040f, 0.100f, kCap, ballR, ballS);
+        addBall(m, head, W[head] + Vector3(0.0f, 0.045f, 0.100f), 0.060f, 0.014f, 0.045f, kCapDeep, ballR / 2, ballS / 2);
+        addBall(m, head, W[head] + Vector3(0.0f, 0.040f, 0.130f), 0.042f, 0.010f, 0.024f, kCap, 5, 8);
+        addBall(m, head, W[head] + Vector3(0.0f, 0.065f, 0.055f), 0.015f, 0.012f, 0.010f, kAccent, 5, 8);
+        addBall(m, head, W[head] + Vector3(0.0f, -0.01f, 0.095f), 0.058f, 0.052f, 0.042f, kSkinDeep, ballR / 2, ballS / 2);
     }
 
+    (void)toeR;
+    (void)toeL;
     return m;
 }
 

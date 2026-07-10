@@ -1272,9 +1272,10 @@ int main() {
             float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
             pitcherAnim.applyClipNormalized(yamamotoClip, deliveryT);
         } else {
-            pitcherAnim.applyClip(pitcherIdleClip, poseClock, true);
+            // Still set pose — no idle arm fidget.
+            pitcherAnim.applyClip(pitcherIdleClip, 0.0f, false);
         }
-        catcherAnim.applyClip(catcherIdleClip, poseClock, true);
+        catcherAnim.applyClip(catcherIdleClip, 0.0f, false);
 
         if (!paused) {
             poseClock += dt;
