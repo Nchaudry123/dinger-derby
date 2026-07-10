@@ -14,7 +14,7 @@ void applySurfaceResponse(Body2D* body, const Vector2& normal) {
 }
 
 PhysicsWorld2D::PhysicsWorld2D() {
-    gravity = Vector2(0, 9.8f);
+    gravity = Vector2(0.0f, 9.8f);
 
     leftWall = 0.0f;
     ceilingY = 0.0f;
@@ -72,7 +72,7 @@ void PhysicsWorld2D::step(float dt) {
     }
 
     // Resolve body-to-body collisions multiple times for stability
-    const int iterations = 5;
+    const int iterations = 6;
 
     for (int k = 0; k < iterations; k++) {
         collectContacts();
