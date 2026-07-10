@@ -62,10 +62,10 @@ constexpr float moundZ = 0.0f;
 constexpr float strikeZoneHalfWidth = 0.46f;
 constexpr float strikeZoneHalfHeight = 0.55f;
 const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
-// Huge open field — no practical wall/ceiling box (ball can fly freely).
-// Ground plane is y = 0 (ball sits on radius when settled).
-const Vector3 boundsMinimum(-80.0f, 0.0f, -120.0f);
-const Vector3 boundsMaximum(80.0f, 80.0f, 80.0f);
+// Open park: ground at y=0 only. No ceiling / side walls so fly balls
+// never bounce off an invisible box and drop straight down.
+const Vector3 boundsMinimum(-400.0f, 0.0f, -500.0f);
+const Vector3 boundsMaximum(400.0f, 2000.0f, 400.0f);
 
 // Same unit conversion as pitching_simulator_demo (1 world unit ≈ 2 feet).
 float mphToWorldUnitsPerSecond(float mph) {
