@@ -79,6 +79,8 @@ inline bool synthesizeBatCrack(sf::SoundBuffer& buffer, float quality) {
     const float fWood2 = 780.0f + quality * 120.0f;
     const float fThump = 95.0f + quality * 40.0f;
 
+    float hpPrevIn = 0.0f;
+    float hpPrevOut = 0.0f;
     for (std::size_t i = 0; i < n; i++) {
         float t = static_cast<float>(i) / static_cast<float>(sampleRate);
 
@@ -91,10 +93,12 @@ inline bool synthesizeBatCrack(sf::SoundBuffer& buffer, float quality) {
 
         // Broadband noise shaped for contact transient
         float noise = frand(rng);
-        // Crude one-pole high emphasis for crack noise
-        static thread_local float hp = 0.0f;
-        hp = noise - hp * 0.65f + hp;
-        float crackNoise = (noise * 0.45f + hp * 0.55f);
+        // One-pole high-pass for bright crack noise
+        constexpr float hpR = 0.92f;
+        float hp = noise - hpPrevIn + hpR * hpPrevOut;
+        hpPrevIn = noise;
+        hpPrevOut = hp;
+        float crackNoise = (noise * 0.35f + hp * 0.65f);
 
         // Frequency chirp down slightly (impact → wood ring)
         float chirp = 1.0f - 0.18f * std::min(t * 40.0f, 1.0f);
