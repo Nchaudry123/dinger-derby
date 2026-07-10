@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(SFML 3 REQUIRED COMPONENTS Graphics Window System)
+find_package(OpenGL REQUIRED)
 
 enable_testing()
 
@@ -26,6 +27,7 @@ set(ENGINE_SOURCES
     src/rendering/SkeletonAnimator.cpp
     src/rendering/BaseballAnims.cpp
     src/rendering/GltfLoader.cpp
+    src/rendering/GlRenderer.cpp
     src/rendering/Rasterizer3D.cpp
     src/rendering/SoftwareRenderer3D.cpp
     src/rendering/SpatialGrid3D.cpp
@@ -44,7 +46,7 @@ add_library(dinger_engine STATIC
 )
 
 target_include_directories(dinger_engine PUBLIC src)
-target_link_libraries(dinger_engine PUBLIC SFML::Graphics)
+target_link_libraries(dinger_engine PUBLIC SFML::Graphics OpenGL::GL)
 
 add_executable(dinger_derby src/main.cpp)
 target_link_libraries(dinger_derby PRIVATE dinger_engine)

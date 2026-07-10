@@ -1,9 +1,12 @@
 #include <SFML/Graphics.hpp>
+#include <SFML/Window/ContextSettings.hpp>
+#include <SFML/Window/WindowEnums.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <filesystem>
 #include <iomanip>
+#include <iostream>
 #include <limits>
 #include <random>
 #include <sstream>
@@ -24,6 +27,7 @@
 #include "rendering/BaseballPlayer3D.h"
 #include "rendering/BaseballAnims.h"
 #include "rendering/GltfLoader.h"
+#include "rendering/GlRenderer.h"
 #include "rendering/SkeletonAnimator.h"
 #include "rendering/SkinnedModel3D.h"
 
@@ -960,12 +964,24 @@ sf::Keyboard::Key pitchKeyForProfile(const PitchProfile& pitch) {
 }
 
 int main() {
+    sf::ContextSettings glSettings;
+    glSettings.depthBits = 24;
+    glSettings.stencilBits = 8;
+    glSettings.antiAliasingLevel = 4;
+    glSettings.majorVersion = 3;
+    glSettings.minorVersion = 2;
+    glSettings.attributeFlags = sf::ContextSettings::Attribute::Core;
+
     sf::RenderWindow window(
         sf::VideoMode(sf::Vector2u(1280, 720)),
-        "Pitching Simulator | F/P/C/T/S select | R throw"
+        "Pitching Simulator | OpenGL | R throw",
+        sf::Style::Default,
+        sf::State::Windowed,
+        glSettings
     );
-    // Cap presentation rate; internal sim/raster still run full quality every frame.
+    // Cap presentation rate; sim runs every frame.
     window.setFramerateLimit(60);
+    window.setVerticalSyncEnabled(true);
 
     bool fullQuality = true;
     bool antiAliasingEnabled = false;
@@ -1032,6 +1048,23 @@ int main() {
     RasterMeshRenderCache catcherCache;
     renderCache.reserveFor(baseballMesh);
 
+    // OpenGL path for characters + ball (software raster kept as optional fallback).
+    GlRenderer gl;
+    bool useOpenGL = gl.initialize(window);
+    if (useOpenGL) {
+        std::cerr << "Rendering: OpenGL (GPU lit meshes)" << std::endl;
+    } else {
+        std::cerr << "Rendering: software raster fallback" << std::endl;
+    }
+    GlMesh glPitcher;
+    GlMesh glCatcher;
+    GlMesh glBall;
+    if (useOpenGL) {
+        glPitcher.upload(pitcherMesh);
+        glCatcher.upload(catcherMesh);
+        glBall.upload(baseballMesh);
+    }
+
     std::array<PitchProfile, 5> pitches = makePitchProfiles();
     int selectedPitch = 0;
     int activePitch = selectedPitch;
@@ -1074,6 +1107,10 @@ int main() {
         catcherModel.skinInto(catcherAnim.skinMatrices(), catcherMesh);
         pitcherCache.reserveFor(pitcherMesh);
         catcherCache.reserveFor(catcherMesh);
+        if (useOpenGL) {
+            glPitcher.updatePositionsNormals(pitcherMesh);
+            glCatcher.updatePositionsNormals(catcherMesh);
+        }
     };
 
     auto throwHandWorldSkinned = [&]() {
@@ -1379,43 +1416,38 @@ int main() {
             Matrix4::translation(Vector3(catcherWorldX, 0.0f, catcherWorldZ)) *
             Matrix4::rotationY(pi);
 
-        frameBuffer.clear(sf::Color(5, 8, 14));
-        frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
-
-        // Figures at native resolution (no full-body supersample) for frame budget.
-        rasterizeMeshTriangles(
-            frameBuffer,
-            camera,
-            pitcherMesh,
-            pitcherTransform,
-            sf::Color(230, 230, 235),
-            pitcherCache
-        );
-        // Hide catcher in catcher-cam so the view is pure plate → mound.
-        if (cameraMode != PitchCameraMode::Catcher) {
-            rasterizeMeshTriangles(
-                frameBuffer,
-                camera,
-                catcherMesh,
-                catcherTransform,
-                sf::Color(40, 50, 70),
-                catcherCache
-            );
-        }
-        rasterizeMeshTrianglesSupersampled(
-            frameBuffer,
-            camera,
-            baseballMesh,
-            baseballTransform,
-            sf::Color(230, 220, 205),
-            renderCache,
-            ballSuperSampleForQuality(fullQuality)
-        );
-
-        window.clear();
-        frameBuffer.present(window);
-
         Camera3D overlayCamera = camera;
+
+        if (useOpenGL) {
+            gl.beginFrame(window, camera, sf::Color(5, 8, 14));
+            gl.drawGround(4.0f, -2.0f, plateZ + 4.0f, sf::Color(20, 28, 24));
+            gl.drawMesh(glPitcher, pitcherTransform);
+            if (cameraMode != PitchCameraMode::Catcher) {
+                gl.drawMesh(glCatcher, catcherTransform);
+            }
+            gl.drawMesh(glBall, baseballTransform);
+            gl.endFrame(window);
+        } else {
+            frameBuffer.clear(sf::Color(5, 8, 14));
+            frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
+            rasterizeMeshTriangles(
+                frameBuffer, camera, pitcherMesh, pitcherTransform,
+                sf::Color(230, 230, 235), pitcherCache
+            );
+            if (cameraMode != PitchCameraMode::Catcher) {
+                rasterizeMeshTriangles(
+                    frameBuffer, camera, catcherMesh, catcherTransform,
+                    sf::Color(40, 50, 70), catcherCache
+                );
+            }
+            rasterizeMeshTrianglesSupersampled(
+                frameBuffer, camera, baseballMesh, baseballTransform,
+                sf::Color(230, 220, 205), renderCache,
+                ballSuperSampleForQuality(fullQuality)
+            );
+            window.clear();
+            frameBuffer.present(window);
+        }
 
         drawFieldGuide(window, overlayCamera);
         drawHomePlate(window, overlayCamera);
