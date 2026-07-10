@@ -21,7 +21,7 @@ const SampleOffset coverageSamples[16] = {
 
 constexpr float sampleCoverage = 1.0f / 16.0f;
 
-bool antiAliasingEnabled = true;
+bool antiAliasingEnabled = false;
 
 sf::Color interpolateColor(
     sf::Color colorA,

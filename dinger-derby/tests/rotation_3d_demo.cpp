@@ -42,10 +42,10 @@ int main() {
     );
     window.setFramerateLimit(60);
 
-    bool antiAliasingEnabled = true;
+    bool antiAliasingEnabled = false;
     bool paused = false;
     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
-    DemoFpsCounter fpsCounter("3D Rotation Demo | drag: orbit | A: AA on | Space: pause");
+    DemoFpsCounter fpsCounter("3D Rotation Demo | drag: orbit | A: AA off | Space: pause");
 
     sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
@@ -76,7 +76,7 @@ int main() {
                     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
                     fpsCounter.setTitle(
                         antiAliasingEnabled
-                            ? "3D Rotation Demo | drag: orbit | A: AA on | Space: pause"
+                            ? "3D Rotation Demo | drag: orbit | A: AA off | Space: pause"
                             : "3D Rotation Demo | drag: orbit | A: AA off | Space: pause"
                     );
                 }

@@ -26,7 +26,7 @@ int main() {
     );
     window.setFramerateLimit(60);
 
-    bool antiAliasingEnabled = true;
+    bool antiAliasingEnabled = false;
     DemoFpsCounter fpsCounter("3D Soft Cube Demo | Space: punch | R: reset | AA: on");
 
     sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());

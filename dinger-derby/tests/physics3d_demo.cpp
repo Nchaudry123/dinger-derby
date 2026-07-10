@@ -150,9 +150,9 @@ int main() {
     );
     window.setFramerateLimit(60);
 
-    bool antiAliasingEnabled = true;
+    bool antiAliasingEnabled = false;
     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
-    DemoFpsCounter fpsCounter("3D Physics Demo | drag: orbit | wheel: zoom | Space: impulse | AA on");
+    DemoFpsCounter fpsCounter("3D Physics Demo | drag: orbit | wheel: zoom | Space: impulse | AA off");
 
     sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
@@ -185,7 +185,7 @@ int main() {
                     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
                     fpsCounter.setTitle(
                         antiAliasingEnabled
-                            ? "3D Physics Demo | drag: orbit | wheel: zoom | Space: impulse | AA on"
+                            ? "3D Physics Demo | drag: orbit | wheel: zoom | Space: impulse | AA off"
                             : "3D Physics Demo | drag: orbit | wheel: zoom | Space: impulse | AA off"
                     );
                 }

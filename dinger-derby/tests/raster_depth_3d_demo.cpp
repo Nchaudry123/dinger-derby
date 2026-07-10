@@ -16,7 +16,7 @@ int main() {
         "3D Raster Depth Demo"
     );
     window.setFramerateLimit(60);
-    bool antiAliasingEnabled = true;
+    bool antiAliasingEnabled = false;
     DemoFpsCounter fpsCounter("3D Raster Depth Demo | AA: on");
 
     sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());

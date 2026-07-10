@@ -28,7 +28,7 @@ inline sf::Vector2u rasterSizeForWindow(sf::Vector2u windowSize, float renderSca
 
 // Main framebuffer stays native. Full quality supersamples the ball pass only
 // (see rasterizeMeshTrianglesSupersampled), not the whole window.
-inline float rasterScaleForQuality(bool fullQuality, bool antiAliasingEnabled = true) {
+inline float rasterScaleForQuality(bool fullQuality, bool antiAliasingEnabled = false) {
     (void)fullQuality;
     (void)antiAliasingEnabled;
     return 1.0f;

@@ -893,9 +893,9 @@ int main() {
     window.setFramerateLimit(60);
 
     bool fullQuality = true;
-    bool antiAliasingEnabled = true;
+    bool antiAliasingEnabled = false;
     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
-    DemoFpsCounter fpsCounter("Pitching Simulator | Q quality | AA on | FULL (ball 2x)");
+    DemoFpsCounter fpsCounter("Pitching Simulator | Q quality | AA off | FULL (ball 2x)");
 
     sf::Font font;
     bool fontLoaded = loadUiFont(font);
@@ -910,12 +910,12 @@ int main() {
     auto qualityTitle = [&]() {
         if (fullQuality) {
             return antiAliasingEnabled
-                ? "Pitching Simulator | Q quality | AA on | FULL ball-2x"
+                ? "Pitching Simulator | Q quality | AA off | FULL ball-2x"
                 : "Pitching Simulator | Q quality | AA off | FULL ball-2x";
         }
 
         return antiAliasingEnabled
-            ? "Pitching Simulator | Q quality | AA on | fast"
+            ? "Pitching Simulator | Q quality | AA off | fast"
             : "Pitching Simulator | Q quality | AA off | fast";
     };
 
@@ -1040,10 +1040,7 @@ int main() {
                     renderCache.reserveFor(baseballMesh);
                     playerRebuildTimer = 1.0f; // force pose rebuild this frame
                     // Full quality always wants coverage AA; fast mode keeps current AA flag.
-                    if (fullQuality) {
-                        antiAliasingEnabled = true;
-                        Rasterizer3D::setAntiAliasingEnabled(true);
-                    }
+                    // AA stays user-controlled via A; full quality only changes mesh/SS.
                     rasterSize = resizeRaster(window.getSize());
                     frameBuffer.resize(rasterSize.x, rasterSize.y);
                     fpsCounter.setTitle(qualityTitle());

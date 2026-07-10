@@ -221,10 +221,10 @@ int main() {
     );
     window.setFramerateLimit(60);
 
-    bool antiAliasingEnabled = true;
+    bool antiAliasingEnabled = false;
     bool paused = false;
     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
-    DemoFpsCounter fpsCounter("Physics Baseball | Space: toss | R: reset | P: pause | AA on");
+    DemoFpsCounter fpsCounter("Physics Baseball | Space: toss | R: reset | P: pause | AA off");
 
     sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
@@ -262,7 +262,7 @@ int main() {
                     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
                     fpsCounter.setTitle(
                         antiAliasingEnabled
-                            ? "Physics Baseball | Space: toss | R: reset | P: pause | AA on"
+                            ? "Physics Baseball | Space: toss | R: reset | P: pause | AA off"
                             : "Physics Baseball | Space: toss | R: reset | P: pause | AA off"
                     );
                 }
