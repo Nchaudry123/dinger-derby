@@ -31,6 +31,8 @@ constexpr float pitchingDistanceFeet = 60.5f;
 constexpr float pitchAirDensity = 0.075f;
 constexpr float plateZ = pitchingDistanceFeet / feetPerWorldUnit;
 constexpr float moundZ = 0.0f;
+constexpr float strikeZoneHalfWidth = 0.36f;
+constexpr float strikeZoneHalfHeight = 0.55f;
 const Vector3 releasePoint(-0.22f, 1.72f, moundZ);
 const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
 const Vector3 boundsMinimum(-3.2f, -40.0f, -2.0f);
@@ -376,13 +378,11 @@ void drawStrikeZone(
     const Vector3& aimPoint,
     const PitchProfile& pitch
 ) {
-    const float halfWidth = 0.72f;
-    const float halfHeight = 0.95f;
     std::array<Vector3, 4> corners = {
-        Vector3(-halfWidth, -halfHeight, 0.0f) + strikeZoneCenter,
-        Vector3(halfWidth, -halfHeight, 0.0f) + strikeZoneCenter,
-        Vector3(halfWidth, halfHeight, 0.0f) + strikeZoneCenter,
-        Vector3(-halfWidth, halfHeight, 0.0f) + strikeZoneCenter
+        Vector3(-strikeZoneHalfWidth, -strikeZoneHalfHeight, 0.0f) + strikeZoneCenter,
+        Vector3(strikeZoneHalfWidth, -strikeZoneHalfHeight, 0.0f) + strikeZoneCenter,
+        Vector3(strikeZoneHalfWidth, strikeZoneHalfHeight, 0.0f) + strikeZoneCenter,
+        Vector3(-strikeZoneHalfWidth, strikeZoneHalfHeight, 0.0f) + strikeZoneCenter
     };
 
     for (int i = 0; i < 4; i++) {
@@ -414,25 +414,64 @@ void drawStrikeZone(
     );
 }
 
+void drawHomePlate(sf::RenderWindow& window, const Camera3D& camera) {
+    const float halfWidth = 0.36f;
+    const float frontZ = plateZ + 0.08f;
+    const float shoulderZ = plateZ - 0.14f;
+    const float pointZ = plateZ - 0.42f;
+    std::array<Vector3, 5> plate = {
+        Vector3(-halfWidth, 0.02f, frontZ),
+        Vector3(halfWidth, 0.02f, frontZ),
+        Vector3(halfWidth, 0.02f, shoulderZ),
+        Vector3(0.0f, 0.02f, pointZ),
+        Vector3(-halfWidth, 0.02f, shoulderZ)
+    };
+
+    for (int i = 0; i < plate.size(); i++) {
+        drawThickProjectedLine(
+            window,
+            camera,
+            plate[i],
+            plate[(i + 1) % plate.size()],
+            2.0f,
+            sf::Color(235, 230, 205, 190)
+        );
+    }
+}
+
+void drawCatcherTarget(
+    sf::RenderWindow& window,
+    const Camera3D& camera,
+    const Vector3& aimPoint,
+    const PitchProfile& pitch
+) {
+    Vector3 target = Vector3(aimPoint.x, aimPoint.y, plateZ + 0.12f);
+    sf::Color ghost = pitch.color;
+    ghost.a = 90;
+    drawProjectedDot(window, camera, target, 10.0f, sf::Color(25, 35, 42, 135));
+    drawThickProjectedLine(window, camera, target + Vector3(-0.18f, 0.0f, 0.0f), target + Vector3(-0.07f, 0.0f, 0.0f), 2.2f, ghost);
+    drawThickProjectedLine(window, camera, target + Vector3(0.07f, 0.0f, 0.0f), target + Vector3(0.18f, 0.0f, 0.0f), 2.2f, ghost);
+    drawThickProjectedLine(window, camera, target + Vector3(0.0f, -0.18f, 0.0f), target + Vector3(0.0f, -0.07f, 0.0f), 2.2f, ghost);
+    drawThickProjectedLine(window, camera, target + Vector3(0.0f, 0.07f, 0.0f), target + Vector3(0.0f, 0.18f, 0.0f), 2.2f, ghost);
+}
+
 PitchResult classifyPitchResult(const Vector3& platePosition) {
-    const float halfWidth = 0.72f;
-    const float halfHeight = 0.95f;
-    bool inHorizontalZone = std::abs(platePosition.x - strikeZoneCenter.x) <= halfWidth;
-    bool inVerticalZone = std::abs(platePosition.y - strikeZoneCenter.y) <= halfHeight;
+    bool inHorizontalZone = std::abs(platePosition.x - strikeZoneCenter.x) <= strikeZoneHalfWidth;
+    bool inVerticalZone = std::abs(platePosition.y - strikeZoneCenter.y) <= strikeZoneHalfHeight;
 
     if (inHorizontalZone && inVerticalZone) {
         return PitchResult{platePosition, "Strike", sf::Color(150, 245, 170)};
     }
 
-    if (platePosition.y > strikeZoneCenter.y + halfHeight) {
+    if (platePosition.y > strikeZoneCenter.y + strikeZoneHalfHeight) {
         return PitchResult{platePosition, "Ball High", sf::Color(245, 210, 120)};
     }
 
-    if (platePosition.y < strikeZoneCenter.y - halfHeight) {
+    if (platePosition.y < strikeZoneCenter.y - strikeZoneHalfHeight) {
         return PitchResult{platePosition, "Ball Low", sf::Color(245, 180, 110)};
     }
 
-    if (platePosition.x < strikeZoneCenter.x - halfWidth) {
+    if (platePosition.x < strikeZoneCenter.x - strikeZoneHalfWidth) {
         return PitchResult{platePosition, "Ball Inside", sf::Color(130, 205, 245)};
     }
 
@@ -517,8 +556,8 @@ float commandRadiusForPitch(const PitchProfile& pitch) {
 
 Vector3 clampAimPoint(const Vector3& point) {
     return Vector3(
-        std::clamp(point.x, -0.95f, 0.95f),
-        std::clamp(point.y, strikeZoneCenter.y - 1.15f, strikeZoneCenter.y + 1.15f),
+        std::clamp(point.x, -0.72f, 0.72f),
+        std::clamp(point.y, strikeZoneCenter.y - 0.85f, strikeZoneCenter.y + 0.85f),
         plateZ
     );
 }
@@ -812,19 +851,19 @@ int main() {
                 }
 
                 if (key->code == sf::Keyboard::Key::Left) {
-                    aimPoint.x = std::clamp(aimPoint.x - 0.1f, -0.72f, 0.72f);
+                    aimPoint.x = std::clamp(aimPoint.x - 0.1f, -strikeZoneHalfWidth * 1.5f, strikeZoneHalfWidth * 1.5f);
                 }
 
                 if (key->code == sf::Keyboard::Key::Right) {
-                    aimPoint.x = std::clamp(aimPoint.x + 0.1f, -0.72f, 0.72f);
+                    aimPoint.x = std::clamp(aimPoint.x + 0.1f, -strikeZoneHalfWidth * 1.5f, strikeZoneHalfWidth * 1.5f);
                 }
 
                 if (key->code == sf::Keyboard::Key::Up) {
-                    aimPoint.y = std::clamp(aimPoint.y + 0.1f, strikeZoneCenter.y - 0.95f, strikeZoneCenter.y + 0.95f);
+                    aimPoint.y = std::clamp(aimPoint.y + 0.1f, strikeZoneCenter.y - strikeZoneHalfHeight * 1.35f, strikeZoneCenter.y + strikeZoneHalfHeight * 1.35f);
                 }
 
                 if (key->code == sf::Keyboard::Key::Down) {
-                    aimPoint.y = std::clamp(aimPoint.y - 0.1f, strikeZoneCenter.y - 0.95f, strikeZoneCenter.y + 0.95f);
+                    aimPoint.y = std::clamp(aimPoint.y - 0.1f, strikeZoneCenter.y - strikeZoneHalfHeight * 1.35f, strikeZoneCenter.y + strikeZoneHalfHeight * 1.35f);
                 }
 
                 for (int i = 0; i < pitches.size(); i++) {
@@ -936,6 +975,8 @@ int main() {
             static_cast<float>(frameBuffer.getWidth());
 
         drawFieldGuide(window, overlayCamera);
+        drawHomePlate(window, overlayCamera);
+        drawCatcherTarget(window, overlayCamera, aimPoint, pitches[selectedPitch]);
         drawProjectedPolyline(window, overlayCamera, trail, pitches[activePitch].color);
         drawStrikeZone(window, overlayCamera, aimPoint, pitches[selectedPitch]);
         drawPitchResultHistory(window, overlayCamera, pitchResults);
