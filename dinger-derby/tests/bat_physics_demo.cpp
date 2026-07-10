@@ -46,6 +46,7 @@
 #include "rendering/Rasterizer3D.h"
 #include "rendering/SkeletonAnimator.h"
 #include "rendering/SkinnedModel3D.h"
+#include "rendering/Stadium3D.h"
 
 namespace {
 
@@ -130,6 +131,7 @@ void applyCatcherCamera(Camera3D& cam) {
     );
     cam.fieldOfView = 700.0f;
     cam.nearPlane = 0.08f;
+    cam.farPlane = Stadium3D::recommendedFarPlane();
 }
 
 // Chase cam: sit behind/above the ball looking along its flight.
@@ -149,6 +151,7 @@ void applyBallFollowCamera(Camera3D& cam, const Vector3& ballPos, const Vector3&
     lookAt(cam, pos, target);
     cam.fieldOfView = 820.0f;
     cam.nearPlane = 0.12f;
+    cam.farPlane = Stadium3D::recommendedFarPlane();
 }
 
 Matrix4 pitcherWorldTransform() {
@@ -1080,10 +1083,20 @@ int main() {
     GlMesh glPitcher;
     GlMesh glBall;
     GlMesh glBat;
+    GlMesh glStadiumField;
+    GlMesh glStadiumWalls;
+    GlMesh glStadiumStands;
+    GlMesh glStadiumLines;
+    Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
+    Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useGL) {
         glPitcher.upload(pitcherMesh);
         glBall.upload(baseballMesh);
         glBat.upload(batMesh);
+        glStadiumField.upload(stadiumMeshes.field);
+        glStadiumWalls.upload(stadiumMeshes.walls);
+        glStadiumStands.upload(stadiumMeshes.stands);
+        glStadiumLines.upload(stadiumMeshes.lines);
     }
 
     FrameBuffer frameBuffer(window.getSize().x, window.getSize().y);
@@ -1554,10 +1567,15 @@ int main() {
         const bool drawBatMesh = bat.swinging();
         Matrix4 batXform = batModelMatrix(bat);
 
+        Matrix4 stadiumXform = Matrix4::identity();
         if (useGL) {
             gl.beginFrame(window, camera, sf::Color(5, 8, 14));
-            // Large open ground so fly balls still have a floor under the chase cam.
-            gl.drawGround(40.0f, -40.0f, 40.0f, sf::Color(20, 28, 24));
+            const float gr = stadiumLayout.wallR() + 80.0f;
+            gl.drawGround(gr, plateZ - gr, plateZ + 40.0f, sf::Color(18, 32, 22));
+            gl.drawMesh(glStadiumField, stadiumXform);
+            gl.drawMesh(glStadiumWalls, stadiumXform);
+            gl.drawMesh(glStadiumStands, stadiumXform);
+            gl.drawMesh(glStadiumLines, stadiumXform);
             if (!followBallCam) {
                 gl.drawMesh(glPitcher, pitcherXform);
             }
@@ -1569,6 +1587,11 @@ int main() {
         } else {
             frameBuffer.clear(sf::Color(5, 8, 14));
             frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
+            RasterMeshRenderCache stadiumCache;
+            rasterizeMeshTriangles(
+                frameBuffer, camera, stadiumMeshes.field, stadiumXform,
+                sf::Color(40, 100, 50), stadiumCache
+            );
             if (!followBallCam) {
                 rasterizeMeshTriangles(
                     frameBuffer, camera, pitcherMesh, pitcherXform, sf::Color(230, 230, 235), pitcherCache
@@ -1587,8 +1610,6 @@ int main() {
         }
 
         if (!followBallCam) {
-            drawFieldGuide(window, camera);
-            drawHomePlate(window, camera);
             drawStrikeZone(window, camera, sf::Color(200, 215, 220, 180));
             // Yellow silhouette reticle — stays put even while the 3D bat swings.
             drawBatReticle(window, camera, reticle, batCfg);

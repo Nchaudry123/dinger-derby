@@ -32,6 +32,7 @@ set(ENGINE_SOURCES
     src/rendering/Rasterizer3D.cpp
     src/rendering/SoftwareRenderer3D.cpp
     src/rendering/SpatialGrid3D.cpp
+    src/rendering/Stadium3D.cpp
     src/physics/Body2D.cpp
     src/physics/Body3D.cpp
     src/physics/AirResistance3D.cpp

@@ -32,6 +32,7 @@
 #include "rendering/GlRenderer.h"
 #include "rendering/SkeletonAnimator.h"
 #include "rendering/SkinnedModel3D.h"
+#include "rendering/Stadium3D.h"
 
 namespace {
 
@@ -217,19 +218,21 @@ void applyDeliveryCamera(
     lookAt(camera, pos, target);
     camera.fieldOfView = 900.0f - u * 40.0f;
     camera.nearPlane = 0.18f;
+    camera.farPlane = Stadium3D::recommendedFarPlane();
 }
 
 void applyCameraMode(Camera3D& camera, PitchCameraMode mode) {
+    camera.farPlane = Stadium3D::recommendedFarPlane();
     switch (mode) {
         case PitchCameraMode::Overview:
-            // Elevated 3/4 from slightly CF-left, plate and mound both in frame.
+            // Elevated 3/4 so mound, plate, and outfield wall read together.
             lookAt(
                 camera,
-                Vector3(0.45f, 1.95f, -3.40f),
-                Vector3(0.0f, 1.15f, plateZ * 0.45f)
+                Vector3(12.0f, 18.0f, plateZ + 22.0f),
+                Vector3(0.0f, 1.2f, plateZ * 0.35f)
             );
-            camera.fieldOfView = 1200.0f;
-            camera.nearPlane = 0.15f;
+            camera.fieldOfView = 1000.0f;
+            camera.nearPlane = 0.2f;
             break;
         case PitchCameraMode::Catcher:
             // POV from the catcher's crouch (matches catcher model placement).
@@ -1310,10 +1313,20 @@ int main() {
     GlMesh glPitcher;
     GlMesh glCatcher;
     GlMesh glBall;
+    GlMesh glStadiumField;
+    GlMesh glStadiumWalls;
+    GlMesh glStadiumStands;
+    GlMesh glStadiumLines;
+    Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
+    Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useOpenGL) {
         glPitcher.upload(pitcherMesh);
         glCatcher.upload(catcherMesh);
         glBall.upload(baseballMesh);
+        glStadiumField.upload(stadiumMeshes.field);
+        glStadiumWalls.upload(stadiumMeshes.walls);
+        glStadiumStands.upload(stadiumMeshes.stands);
+        glStadiumLines.upload(stadiumMeshes.lines);
     }
 
     std::array<PitchProfile, 5> pitches = makePitchProfiles();
@@ -1760,9 +1773,15 @@ int main() {
 
         Camera3D overlayCamera = camera;
 
+        Matrix4 stadiumXform = Matrix4::identity();
         if (useOpenGL) {
             gl.beginFrame(window, camera, sf::Color(5, 8, 14));
-            gl.drawGround(4.0f, -2.0f, plateZ + 4.0f, sf::Color(20, 28, 24));
+            const float gr = stadiumLayout.wallR() + 80.0f;
+            gl.drawGround(gr, plateZ - gr, plateZ + 40.0f, sf::Color(18, 32, 22));
+            gl.drawMesh(glStadiumField, stadiumXform);
+            gl.drawMesh(glStadiumWalls, stadiumXform);
+            gl.drawMesh(glStadiumStands, stadiumXform);
+            gl.drawMesh(glStadiumLines, stadiumXform);
             gl.drawMesh(glPitcher, pitcherTransform);
             if (cameraMode != PitchCameraMode::Catcher) {
                 gl.drawMesh(glCatcher, catcherTransform);
@@ -1772,6 +1791,12 @@ int main() {
         } else {
             frameBuffer.clear(sf::Color(5, 8, 14));
             frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
+            // Software path: stadium is heavy; draw field only for context.
+            RasterMeshRenderCache stadiumCache;
+            rasterizeMeshTriangles(
+                frameBuffer, camera, stadiumMeshes.field, stadiumXform,
+                sf::Color(40, 100, 50), stadiumCache
+            );
             rasterizeMeshTriangles(
                 frameBuffer, camera, pitcherMesh, pitcherTransform,
                 sf::Color(230, 230, 235), pitcherCache
