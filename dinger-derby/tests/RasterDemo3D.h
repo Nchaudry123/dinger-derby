@@ -22,9 +22,17 @@ inline sf::Vector2u rasterSizeForWindow(sf::Vector2u windowSize, float renderSca
     );
 }
 
-inline float rasterScaleForAntiAliasing(bool antiAliasingEnabled) {
-    // Light supersample while AA is enabled so silhouette coverage has more pixels to work with.
+// fullQuality: 2x supersample (best edges). Otherwise native 1x, or 1.25x if only AA is on.
+inline float rasterScaleForQuality(bool fullQuality, bool antiAliasingEnabled = true) {
+    if (fullQuality) {
+        return 2.0f;
+    }
+
     return antiAliasingEnabled ? 1.25f : 1.0f;
+}
+
+inline float rasterScaleForAntiAliasing(bool antiAliasingEnabled) {
+    return rasterScaleForQuality(false, antiAliasingEnabled);
 }
 
 struct RasterMeshRenderCache {

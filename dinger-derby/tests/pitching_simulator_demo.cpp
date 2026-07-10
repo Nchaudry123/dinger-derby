@@ -189,9 +189,11 @@ float horizontalAimDeltaForCamera(PitchCameraMode mode, float screenDirection) {
     return worldDirection * 0.1f;
 }
 
-Mesh3D makeBaseballMesh() {
-    // Tessellation smooths silhouette facets; AA handles remaining edge stair-steps.
-    Mesh3D mesh = Mesh3D::sphere(1.0f, 36, 72);
+Mesh3D makeBaseballMesh(bool fullQuality) {
+    // Higher tessellation reduces faceting; coverage AA + supersample clean remaining edges.
+    const int rings = fullQuality ? 48 : 28;
+    const int segments = fullQuality ? 96 : 48;
+    Mesh3D mesh = Mesh3D::sphere(1.0f, rings, segments);
     mesh.triangleColors.clear();
     mesh.triangleColors.reserve(mesh.triangles.size());
 
@@ -966,21 +968,34 @@ int main() {
         sf::VideoMode(sf::Vector2u(1280, 720)),
         "Pitching Simulator | F/P/C/T/S select | R throw"
     );
+    // Cap presentation rate; internal sim/raster still run full quality every frame.
     window.setFramerateLimit(60);
 
+    bool fullQuality = true;
     bool antiAliasingEnabled = true;
     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
-    DemoFpsCounter fpsCounter("Pitching Simulator | R throws | AA on");
+    DemoFpsCounter fpsCounter("Pitching Simulator | Q quality | AA on | FULL");
 
     sf::Font font;
     bool fontLoaded = loadUiFont(font);
 
     auto resizeRaster = [&](sf::Vector2u windowSize) {
-        sf::Vector2u rasterSize = rasterSizeForWindow(
+        return rasterSizeForWindow(
             windowSize,
-            rasterScaleForAntiAliasing(antiAliasingEnabled)
+            rasterScaleForQuality(fullQuality, antiAliasingEnabled)
         );
-        return rasterSize;
+    };
+
+    auto qualityTitle = [&]() {
+        if (fullQuality) {
+            return antiAliasingEnabled
+                ? "Pitching Simulator | Q quality | AA on | FULL 2x"
+                : "Pitching Simulator | Q quality | AA off | FULL 2x";
+        }
+
+        return antiAliasingEnabled
+            ? "Pitching Simulator | Q quality | AA on | fast"
+            : "Pitching Simulator | Q quality | AA off | fast";
     };
 
     sf::Vector2u rasterSize = resizeRaster(window.getSize());
@@ -989,10 +1004,11 @@ int main() {
     PitchCameraMode cameraMode = PitchCameraMode::Overview;
     applyCameraMode(camera, cameraMode);
 
-    Mesh3D baseballMesh = makeBaseballMesh();
+    Mesh3D baseballMesh = makeBaseballMesh(fullQuality);
     std::vector<SeamPoint> seamA = makeSeamLoop(false);
     std::vector<SeamPoint> seamB = makeSeamLoop(true);
     RasterMeshRenderCache renderCache;
+    renderCache.reserveFor(baseballMesh);
 
     std::array<PitchProfile, 5> pitches = makePitchProfiles();
     int selectedPitch = 0;
@@ -1062,11 +1078,21 @@ int main() {
                     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
                     rasterSize = resizeRaster(window.getSize());
                     frameBuffer.resize(rasterSize.x, rasterSize.y);
-                    fpsCounter.setTitle(
-                        antiAliasingEnabled
-                            ? "Pitching Simulator | R throws | AA on"
-                            : "Pitching Simulator | R throws | AA off"
-                    );
+                    fpsCounter.setTitle(qualityTitle());
+                }
+
+                if (key->code == sf::Keyboard::Key::Q) {
+                    fullQuality = !fullQuality;
+                    baseballMesh = makeBaseballMesh(fullQuality);
+                    renderCache.reserveFor(baseballMesh);
+                    // Full quality always wants coverage AA; fast mode keeps current AA flag.
+                    if (fullQuality) {
+                        antiAliasingEnabled = true;
+                        Rasterizer3D::setAntiAliasingEnabled(true);
+                    }
+                    rasterSize = resizeRaster(window.getSize());
+                    frameBuffer.resize(rasterSize.x, rasterSize.y);
+                    fpsCounter.setTitle(qualityTitle());
                 }
 
                 if (key->code == sf::Keyboard::Key::Space) {
