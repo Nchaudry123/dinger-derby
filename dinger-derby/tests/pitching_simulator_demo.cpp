@@ -33,7 +33,8 @@ float smoothstep(float edge0, float edge1, float x) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-constexpr float baseballRadius = 0.2f;
+// ~3" baseball diameter in world units (1 unit ≈ 2 feet).
+constexpr float baseballRadius = 0.065f;
 constexpr float feetPerWorldUnit = 2.0f;
 constexpr float pitchingDistanceFeet = 60.5f;
 constexpr float pitchAirDensity = 0.075f;
@@ -837,24 +838,45 @@ void launchPitch(
     const Vector3& aimPoint,
     std::vector<Vector3>& trail,
     float pitchSpeedMph,
-    const PitchFlightVariation& variation
+    const PitchFlightVariation& variation,
+    const Vector3& startPosition
 ) {
     world = PhysicsWorld3D();
     world.setBounds(boundsMinimum, boundsMaximum);
     world.gravity = Vector3(0.0f, -9.8f, 0.0f);
     world.setAtmosphere(pitchAirDensity * variation.dragScale, variation.airVelocity);
 
-    baseball = Body3D(releasePoint + variation.releaseOffset, 0.145f);
+    baseball = Body3D(startPosition, 0.145f);
     baseball.setRadius(baseballRadius);
     baseball.restitution = 0.3f;
     baseball.dragCoefficient = pitch.dragCoefficient * variation.dragScale;
     baseball.airResistanceScale = pitch.airScale;
     Vector3 commandedAimPoint = clampAimPoint(aimPoint + variation.commandOffset);
+    // Aim solver still uses mound release semantics; hand position is the actual spawn.
     baseball.velocity = calculateLaunchVelocity(pitch, commandedAimPoint, pitchSpeedMph, variation);
+    // Nudge aim slightly from true hand so velocity points toward plate.
+    Vector3 toPlate = commandedAimPoint - startPosition;
+    float toPlateLen = toPlate.magnitude();
+    if (toPlateLen > 0.5f) {
+        float speed = baseball.velocity.magnitude();
+        Vector3 desiredDir = toPlate * (1.0f / toPlateLen);
+        // Blend physics aim direction with hand→plate direction for a real throw path.
+        Vector3 blended = (baseball.velocity.normalized() * 0.55f + desiredDir * 0.45f).normalized();
+        baseball.velocity = blended * speed;
+    }
     world.addBody(&baseball);
 
     trail.clear();
     trail.push_back(baseball.position);
+}
+
+// Pitcher root transform in the scene (must match draw).
+Matrix4 pitcherWorldTransform() {
+    return Matrix4::translation(Vector3(0.0f, 0.0f, moundZ + 0.15f));
+}
+
+Vector3 throwHandWorld(const PitcherPose& pose) {
+    return pitcherWorldTransform().transformPoint(BaseballPlayer3D::throwHandLocal(pose));
 }
 
 bool freezePitchAtPlate(
@@ -1031,8 +1053,18 @@ int main() {
         resultBannerTimer = 0.0f;
     };
 
-    auto releasePitch = [&]() {
-        launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph, currentVariation);
+    auto releasePitch = [&](const PitcherPose& poseAtRelease) {
+        Vector3 hand = throwHandWorld(poseAtRelease);
+        launchPitch(
+            baseball,
+            world,
+            pitches[selectedPitch],
+            aimPoint,
+            trail,
+            currentPitchSpeedMph,
+            currentVariation,
+            hand
+        );
         ballReleased = true;
         phase = PitchPhase::Flying;
         latestResult = pitches[selectedPitch].name + " — in flight";
@@ -1176,36 +1208,15 @@ int main() {
             resultBannerTimer = std::max(0.0f, resultBannerTimer - dt);
         }
 
-        if (!paused) {
-            poseClock += dt;
-
-            if (deliveryAge >= 0.0f) {
-                deliveryAge += dt;
-                float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
-                if (!ballReleased && deliveryT >= releaseNormalized) {
-                    releasePitch();
-                }
-                // After follow-through and pitch result, return to idle set.
-                if (phase == PitchPhase::Settled && deliveryAge >= deliveryDuration + 0.55f) {
-                    deliveryAge = -1.0f;
-                }
-            }
-        }
-
-        // Pose sampling + mesh rebuild (~48 Hz) for smoother delivery.
+        // Pose first so release can spawn the ball from the throw hand.
         PitcherPose pitcherPose;
         CatcherPose catcherPose;
         PitcherPose idlePitcher = BaseballPlayer3D::pitcherIdlePose(poseClock);
         if (deliveryAge >= 0.0f) {
             float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
             PitcherPose delivery = BaseballPlayer3D::pitcherDeliveryPose(deliveryT);
-            // Ease out of idle into the delivery for the first 12% of the clip.
             float enter = smoothstep(0.0f, 0.12f, deliveryT);
             pitcherPose = BaseballPlayer3D::blend(idlePitcher, delivery, enter);
-            // Force release-frame ball hide from delivery sample once past release.
-            if (deliveryT >= releaseNormalized) {
-                pitcherPose.ballInHand = 0.0f;
-            }
         } else {
             pitcherPose = idlePitcher;
         }
@@ -1233,8 +1244,36 @@ int main() {
             catcherPose.freeArmBrace = 0.4f;
             catcherPose.torsoLean += 0.06f;
         } else {
-            // Blend idle breathing with aim tracking so mitt eases toward target.
             catcherPose = BaseballPlayer3D::blend(idleCatcher, trackCatcher, 0.65f);
+        }
+
+        if (!paused) {
+            poseClock += dt;
+
+            if (deliveryAge >= 0.0f) {
+                deliveryAge += dt;
+                float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
+
+                // Keep the live ball glued to the throw hand until release.
+                if (!ballReleased) {
+                    baseball.position = throwHandWorld(pitcherPose);
+                    baseball.velocity = Vector3();
+                    baseball.acceleration = Vector3();
+                }
+
+                if (!ballReleased && deliveryT >= releaseNormalized) {
+                    releasePitch(pitcherPose);
+                }
+
+                if (phase == PitchPhase::Settled && deliveryAge >= deliveryDuration + 0.55f) {
+                    deliveryAge = -1.0f;
+                }
+            } else if (phase == PitchPhase::Ready) {
+                // Ready: ball rests in the throwing hand (set pose).
+                baseball.position = throwHandWorld(pitcherPose);
+                baseball.velocity = Vector3();
+                baseball.acceleration = Vector3();
+            }
         }
 
         playerRebuildTimer += dt;
@@ -1303,10 +1342,7 @@ int main() {
             Matrix4::rotationX(spinX) *
             Matrix4::scale(Vector3(baseballRadius, baseballRadius, baseballRadius));
 
-        // Pitcher on the mound, facing the plate (+Z). Slight rubber offset.
-        Matrix4 pitcherTransform =
-            Matrix4::translation(Vector3(0.0f, 0.0f, moundZ + 0.15f)) *
-            Matrix4::rotationY(0.0f);
+        Matrix4 pitcherTransform = pitcherWorldTransform();
 
         // Catcher crouch behind plate, model faces -Z toward mound so rotate 180°.
         Matrix4 catcherTransform =

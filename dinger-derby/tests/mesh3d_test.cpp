@@ -97,7 +97,9 @@ void testBoxAndPlayerMeshes() {
     assert(blended.stride <= std::max(idle.stride, delivery.stride));
 
     PitcherPose atRelease = BaseballPlayer3D::pitcherDeliveryPose(0.6f);
-    assert(atRelease.ballInHand < 0.5f);
+    Vector3 hand = BaseballPlayer3D::throwHandLocal(atRelease);
+    assert(hand.y > 0.8f);
+    assert(hand.magnitude() > 0.5f);
 }
 
 }
