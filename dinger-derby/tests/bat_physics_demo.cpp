@@ -2238,6 +2238,14 @@ int main() {
             gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::groundClearColor());
             gl.drawMesh(glStadiumCity, stadiumXform);
             gl.drawMesh(glStadiumField, stadiumXform);
+            // Contact shadows (ball + pitcher feet) for outdoor depth.
+            {
+                float ballShadowR = 0.28f + baseball.position.y * 0.04f;
+                ballShadowR = clampf(ballShadowR, 0.22f, 0.85f);
+                float ballAlpha = clampf(0.42f - baseball.position.y * 0.03f, 0.12f, 0.42f);
+                gl.drawGroundShadow(baseball.position, ballShadowR, ballAlpha);
+                gl.drawGroundShadow(Vector3(0.0f, 0.0f, moundZ), 0.55f, 0.28f);
+            }
             gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);
             gl.drawMesh(glStadiumLines, stadiumXform);

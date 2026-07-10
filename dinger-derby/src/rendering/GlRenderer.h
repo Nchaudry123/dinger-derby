@@ -62,6 +62,8 @@ public:
     void beginFrame(sf::RenderWindow& window, const Camera3D& camera, sf::Color clearColor);
     void drawMesh(const GlMesh& mesh, const Matrix4& model, float alpha = 1.0f);
     void drawGround(float halfWidth, float zNear, float zFar, sf::Color color);
+    // Soft elliptical contact shadow on the ground (y≈0). radius in world units.
+    void drawGroundShadow(const Vector3& worldPos, float radius, float alpha = 0.35f);
 
     // Leave depth off and restore SFML GL states for 2D overlay drawing.
     // Preserves the color buffer (does not clear).
@@ -75,6 +77,7 @@ private:
     unsigned int program_ = 0;
     unsigned int groundVao_ = 0;
     unsigned int groundVbo_ = 0;
+    unsigned int shadowVbo_ = 0;
 
     int locMvp_ = -1;
     int locModel_ = -1;

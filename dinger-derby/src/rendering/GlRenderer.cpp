@@ -10,9 +10,11 @@
 #include <SFML/OpenGL.hpp>
 #endif
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -48,13 +50,21 @@ uniform vec3 uViewPos;
 uniform float uAlpha;
 void main() {
     vec3 n = normalize(vNormal);
-    float ndotl = abs(dot(n, normalize(uLightDir)));
-    float ambient = 0.42;
-    float diffuse = 0.58 * ndotl;
+    vec3 L = normalize(uLightDir);
+    // Two-sided soft sun fill for outdoor stadium (no hard black undersides).
+    float ndotl = max(dot(n, L), 0.0);
+    float wrap = max(dot(n, L) * 0.5 + 0.5, 0.0);
+    float ambient = 0.36;
+    float diffuse = 0.52 * ndotl + 0.14 * wrap;
     vec3 viewDir = normalize(uViewPos - vWorldPos);
-    vec3 halfV = normalize(normalize(uLightDir) + viewDir);
-    float spec = pow(max(dot(n, halfV), 0.0), 28.0) * 0.15 * ndotl;
-    vec3 lit = vColor * (ambient + diffuse) + vec3(spec);
+    vec3 halfV = normalize(L + viewDir);
+    float spec = pow(max(dot(n, halfV), 0.0), 36.0) * 0.18 * ndotl;
+    // Warm afternoon sunlight tint.
+    vec3 sun = vec3(1.06, 1.02, 0.96);
+    vec3 lit = vColor * (ambient + diffuse) * sun + vec3(spec) * vec3(1.0, 0.98, 0.92);
+    // Subtle height haze so distant city softens.
+    float haze = clamp((vWorldPos.y - 2.0) * 0.004 + length(vWorldPos.xz) * 0.00015, 0.0, 0.18);
+    lit = mix(lit, vec3(0.62, 0.72, 0.85), haze);
     gl_FragColor = vec4(clamp(lit, 0.0, 1.0), uAlpha);
 }
 )GLSL";
@@ -390,6 +400,7 @@ bool GlRenderer::initialize(sf::RenderWindow& window) {
         -6.0f, 0.0f, 40.0f,  0,1,0,  0.09f,0.13f,0.09f,
     };
     glGenBuffers(1, &groundVbo_);
+    glGenBuffers(1, &shadowVbo_);
     glBindBuffer(GL_ARRAY_BUFFER, groundVbo_);
     glBufferData(GL_ARRAY_BUFFER, sizeof(ground), ground, GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -403,6 +414,10 @@ bool GlRenderer::initialize(sf::RenderWindow& window) {
 }
 
 void GlRenderer::shutdown() {
+    if (shadowVbo_) {
+        glDeleteBuffers(1, &shadowVbo_);
+        shadowVbo_ = 0;
+    }
     if (groundVbo_) {
         glDeleteBuffers(1, &groundVbo_);
         groundVbo_ = 0;
@@ -480,7 +495,8 @@ void GlRenderer::beginFrame(sf::RenderWindow& window, const Camera3D& camera, sf
 
     glUseProgram(program_);
     if (locLightDir_ >= 0) {
-        Vector3 light = Vector3(-0.35f, 0.85f, -0.40f).normalized();
+        // High sun from RF/CF quarter — matches day sky + warm stadium fill.
+        Vector3 light = Vector3(0.28f, 0.90f, -0.32f).normalized();
         glUniform3f(locLightDir_, light.x, light.y, light.z);
     }
     if (locViewPos_ >= 0) {
@@ -532,6 +548,68 @@ void GlRenderer::drawGround(float halfWidth, float zNear, float zFar, sf::Color 
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(6 * sizeof(float)));
     glDrawArrays(GL_TRIANGLES, 0, 6);
     unbindMeshAttribs();
+}
+
+void GlRenderer::drawGroundShadow(const Vector3& worldPos, float radius, float alpha) {
+    if (!ready_ || !shadowVbo_ || radius <= 1e-4f) {
+        return;
+    }
+    constexpr int segs = 20;
+    // Interleaved pos/normal/color — dark disc just above y=0.
+    std::vector<float> verts;
+    verts.reserve(static_cast<std::size_t>((segs + 2) * 9));
+    const float y = 0.04f;
+    const float cx = worldPos.x;
+    const float cz = worldPos.z;
+    auto pushV = [&](float x, float yy, float z, float cr, float cg, float cb) {
+        verts.push_back(x);
+        verts.push_back(yy);
+        verts.push_back(z);
+        verts.push_back(0.0f);
+        verts.push_back(1.0f);
+        verts.push_back(0.0f);
+        verts.push_back(cr);
+        verts.push_back(cg);
+        verts.push_back(cb);
+    };
+    // Center
+    pushV(cx, y, cz, 0.02f, 0.03f, 0.02f);
+    for (int i = 0; i <= segs; i++) {
+        float a = (static_cast<float>(i) / segs) * 6.2831853f;
+        // Slight sun skew: longer along light's horizontal projection.
+        float rx = radius * 1.15f;
+        float rz = radius * 0.85f;
+        pushV(cx + std::cos(a) * rx, y, cz + std::sin(a) * rz, 0.02f, 0.03f, 0.02f);
+    }
+
+    Matrix4 model = Matrix4::identity();
+    Matrix4 mvp = proj_ * view_ * model;
+    uploadMat4(locMvp_, mvp);
+    uploadMat4(locModel_, model);
+    float nrm[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    uploadMat3(locNormalMat_, nrm);
+    if (locAlpha_ >= 0) {
+        glUniform1f(locAlpha_, std::clamp(alpha, 0.0f, 1.0f));
+    }
+
+    glDepthMask(GL_FALSE);
+    glBindBuffer(GL_ARRAY_BUFFER, shadowVbo_);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(verts.size() * sizeof(float)),
+        verts.data(),
+        GL_STREAM_DRAW
+    );
+    const GLsizei stride = 9 * static_cast<GLsizei>(sizeof(float));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(6 * sizeof(float)));
+    glDrawArrays(GL_TRIANGLE_FAN, 0, segs + 2);
+    unbindMeshAttribs();
+    glDepthMask(GL_TRUE);
 }
 
 void GlRenderer::endFrame(sf::RenderWindow& window) {
