@@ -171,6 +171,52 @@ void applyBallFollowCamera(Camera3D& cam, const Vector3& ballPos, const Vector3&
     cam.farPlane = Stadium3D::recommendedFarPlane();
 }
 
+// Broadcast hold: elevated 1B-side angle on the landing / wall spot.
+void applyLandingHoldCamera(Camera3D& cam, const Vector3& landPos) {
+    Vector3 toHome = Vector3(0.0f, 0.0f, plateZ) - landPos;
+    toHome.y = 0.0f;
+    Vector3 fromHome = landPos - Vector3(0.0f, 0.0f, plateZ);
+    fromHome.y = 0.0f;
+    Vector3 radial = safeNorm(fromHome, Vector3(0, 0, -1));
+    Vector3 right = safeNorm(Vector3(0, 1, 0).cross(radial), Vector3(1, 0, 0));
+    Vector3 pos = landPos - radial * 14.0f + right * 9.0f + Vector3(0.0f, 9.5f, 0.0f);
+    pos.y = std::max(pos.y, 6.0f);
+    lookAt(cam, pos, landPos + Vector3(0.0f, 1.2f, 0.0f));
+    cam.fieldOfView = 780.0f;
+    cam.nearPlane = 0.2f;
+    cam.farPlane = Stadium3D::recommendedFarPlane();
+    (void)toHome;
+}
+
+// Smooth blend from landing hold back to the plate / catcher view.
+void applyReturnToPlateCamera(Camera3D& cam, const Vector3& landPos, float t01) {
+    t01 = smooth01(t01);
+    Camera3D holdCam = cam;
+    Camera3D plateCam = cam;
+    applyLandingHoldCamera(holdCam, landPos);
+    applyCatcherCamera(plateCam);
+    cam.position = holdCam.position * (1.0f - t01) + plateCam.position * t01;
+    // Slerp-ish look: blend targets via lookAt on blended eye
+    Vector3 holdT = landPos + Vector3(0.0f, 1.2f, 0.0f);
+    Vector3 plateT(0.0f, 1.55f, plateZ - 14.0f);
+    Vector3 target = holdT * (1.0f - t01) + plateT * t01;
+    lookAt(cam, cam.position, target);
+    cam.fieldOfView = lerp(780.0f, 760.0f, t01);
+    cam.nearPlane = 0.12f;
+    cam.farPlane = Stadium3D::recommendedFarPlane();
+}
+
+void applyCameraShake(Camera3D& cam, float shakeTimer, float intensity) {
+    if (shakeTimer <= 0.0f || intensity <= 0.0f) {
+        return;
+    }
+    float a = shakeTimer * 55.0f;
+    float amp = intensity * shakeTimer;
+    cam.position.x += std::sin(a * 1.7f) * amp * 0.12f;
+    cam.position.y += std::sin(a * 2.3f) * amp * 0.08f;
+    cam.position.z += std::cos(a * 1.9f) * amp * 0.10f;
+}
+
 Matrix4 pitcherWorldTransform() {
     // Match pitching sim: centered on the rubber, facing +Z toward home.
     return Matrix4::translation(Vector3(0.0f, 0.0f, moundZ));
@@ -1186,6 +1232,15 @@ int main() {
     Camera3D camera;
     applyCatcherCamera(camera);
     bool followBallCam = false;
+    // Broadcast package: plate → chase → hold land → return to plate.
+    enum class BroadcastCam { Plate = 0, Chase, HoldLand, ReturnPlate };
+    BroadcastCam broadcastCam = BroadcastCam::Plate;
+    float holdLandTimer = 0.0f;
+    float returnPlateTimer = 0.0f;
+    float returnPlateDuration = 0.85f;
+    Vector3 holdLandPos(0.0f, 0.5f, plateZ - 20.0f);
+    float camShakeTimer = 0.0f;
+    float camShakeIntensity = 0.0f;
 
     // Same assets as pitching sim
     Mesh3D baseballMesh = BaseballVisual3D::makeMesh(48, 96);
@@ -1603,6 +1658,11 @@ int main() {
         prevBallR = 0.0f;
         plateCrossPos = strikeZoneCenter;
         followBallCam = false;
+        broadcastCam = BroadcastCam::Plate;
+        holdLandTimer = 0.0f;
+        returnPlateTimer = 0.0f;
+        camShakeTimer = 0.0f;
+        camShakeIntensity = 0.0f;
         applyCatcherCamera(camera);
         practiceRepitchTimer = -1.0f;
         trail.clear();
@@ -2007,6 +2067,14 @@ int main() {
                     baseball.magnusScale = 0.0f; // no weird post-contact rise from residual spin
                     // Bat crack / thud on contact; crowd waits for confirmed HR call.
                     sfx.playContact(lastHit.sweet, isDingerQuality(lastHit.quality));
+                    // Broadcast: leave plate, chase the ball; shake on solid wood.
+                    broadcastCam = BroadcastCam::Chase;
+                    followBallCam = true;
+                    camShakeTimer = 0.16f + lastHit.sweet * 0.12f;
+                    camShakeIntensity = 0.45f + lastHit.sweet * 0.85f;
+                    if (isDingerQuality(lastHit.quality)) {
+                        camShakeIntensity += 0.35f;
+                    }
                     resolvePitch("HIT");
                     float zErr = baseball.position.z - plateZ;
                     const char* timing = "On time";
@@ -2080,10 +2148,22 @@ int main() {
                 }
             }
         }
-        // Auto next pitch after result delay — never cut off a batted ball mid-air.
+        // Enter broadcast hold the frame the batted ball settles.
+        if (hasHit && ballSettled && broadcastCam == BroadcastCam::Chase) {
+            holdLandPos = baseball.position;
+            bool dinger = isDingerQuality(lastHit.quality);
+            holdLandTimer = dinger ? 1.85f : (lastHit.hitsWallFace ? 1.35f : 1.15f);
+            broadcastCam = BroadcastCam::HoldLand;
+        }
+
+        // Auto next pitch after result delay — never cut flight or the hold/return package.
         if (practiceRepitchTimer >= 0.0f) {
-            if (hasHit && !ballSettled) {
-                // Freeze countdown until the ball hits the ground (or wall).
+            bool packageBusy =
+                hasHit && (broadcastCam == BroadcastCam::Chase ||
+                           broadcastCam == BroadcastCam::HoldLand ||
+                           broadcastCam == BroadcastCam::ReturnPlate);
+            if (packageBusy) {
+                // Freeze countdown until full broadcast package finishes.
             } else {
                 practiceRepitchTimer -= dt;
                 if (practiceRepitchTimer <= 0.0f && !bat.swinging()) {
@@ -2092,9 +2172,33 @@ int main() {
             }
         }
 
-        // Camera: higher catcher for toss/swing; elevated chase through full drop.
-        if (followBallCam && hasHit) {
+        // Broadcast camera package: plate → chase → hold land → return.
+        if (camShakeTimer > 0.0f) {
+            camShakeTimer = std::max(0.0f, camShakeTimer - dt);
+        }
+        if (broadcastCam == BroadcastCam::Chase && hasHit && !ballSettled) {
             applyBallFollowCamera(camera, baseball.position, baseball.velocity);
+            applyCameraShake(camera, camShakeTimer, camShakeIntensity);
+        } else if (broadcastCam == BroadcastCam::HoldLand) {
+            holdLandTimer -= dt;
+            applyLandingHoldCamera(camera, holdLandPos);
+            applyCameraShake(camera, camShakeTimer, camShakeIntensity * 0.35f);
+            if (holdLandTimer <= 0.0f) {
+                broadcastCam = BroadcastCam::ReturnPlate;
+                returnPlateTimer = returnPlateDuration;
+            }
+        } else if (broadcastCam == BroadcastCam::ReturnPlate) {
+            returnPlateTimer -= dt;
+            float t01 = 1.0f - clampf(returnPlateTimer / returnPlateDuration, 0.0f, 1.0f);
+            applyReturnToPlateCamera(camera, holdLandPos, t01);
+            if (returnPlateTimer <= 0.0f) {
+                broadcastCam = BroadcastCam::Plate;
+                followBallCam = false;
+                applyCatcherCamera(camera);
+            }
+        } else if (!followBallCam) {
+            // Stay on plate cam during pitch / aim.
+            // (beginPitch already snaps catcher view)
         }
 
         // Skin pitcher
