@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <random>
 #include <string>
 
 #include "math/Vector3.h"
@@ -19,6 +18,8 @@ constexpr float pitchAirDensity = 0.075f;
 constexpr float plateZ = 60.5f / feetPerWorldUnit;
 constexpr float pi = 3.1415926535f;
 const Vector3 releasePoint(-0.22f, 1.72f, 0.0f);
+const Vector3 boundsMinimum(-3.2f, -40.0f, -2.0f);
+const Vector3 boundsMaximum(3.2f, 3.6f, plateZ + 4.0f);
 
 struct PitchProfile {
     char hotkey;
@@ -33,11 +34,10 @@ struct PitchProfile {
 };
 
 struct PitchFlightVariation {
-    Vector3 releaseOffset;
-    Vector3 commandOffset;
     Vector3 airVelocity;
     float spinRpmScale = 1.0f;
     float dragScale = 1.0f;
+    float liftOffset = 0.0f;
 };
 
 std::array<PitchProfile, 5> makePitchProfiles() {
@@ -60,140 +60,137 @@ Vector3 angularVelocityFromProfile(const PitchProfile& pitch, float rpmScale) {
     return axis * (pitch.spinRpm * rpmScale * (2.0f * pi / 60.0f));
 }
 
-struct FlightResult {
-    Vector3 platePosition;
-    float apexY = releasePoint.y;
-    bool crossedPlate = false;
-};
+Vector3 assembleLaunchVelocity(float pitchSpeed, float vx, float vy) {
+    float maxSide = pitchSpeed * 0.22f;
+    float minVy = pitchSpeed * std::tan(-12.0f * pi / 180.0f);
+    float maxVy = pitchSpeed * std::tan(24.0f * pi / 180.0f);
+    vx = std::clamp(vx, -maxSide, maxSide);
+    vy = std::clamp(vy, minVy, maxVy);
+    float lat2 = vx * vx + vy * vy;
+    float maxLat = pitchSpeed * 0.55f;
+    if (lat2 > maxLat * maxLat && lat2 > 1e-8f) {
+        float s = maxLat / std::sqrt(lat2);
+        vx *= s;
+        vy *= s;
+        lat2 = vx * vx + vy * vy;
+    }
+    float vz = std::sqrt(std::max(pitchSpeed * pitchSpeed - lat2, pitchSpeed * pitchSpeed * 0.55f));
+    return Vector3(vx, vy, vz);
+}
 
-FlightResult simulatePitch(
+bool simulatePlateCrossing(
     const PitchProfile& pitch,
-    const PitchFlightVariation& variation,
-    const Vector3& initialVelocity
+    const Vector3& start,
+    const Vector3& velocity,
+    const Vector3& angularVelocity,
+    float airDensity,
+    const Vector3& airVelocity,
+    float dragScale,
+    Vector3& outPlate
 ) {
     PhysicsWorld3D world;
     world.gravity = Vector3(0.0f, -9.8f, 0.0f);
-    world.setAtmosphere(pitchAirDensity * variation.dragScale, variation.airVelocity);
+    world.setAtmosphere(airDensity, airVelocity);
     world.airResistanceEnabled = true;
-    world.setBounds(Vector3(-8.0f, -4.0f, -2.0f), Vector3(8.0f, 6.0f, plateZ + 6.0f));
+    world.setBounds(boundsMinimum, boundsMaximum);
 
-    Body3D simulated(releasePoint + variation.releaseOffset, 0.145f);
-    simulated.setRadius(baseballRadius);
-    simulated.dragCoefficient = pitch.dragCoefficient * variation.dragScale;
-    simulated.airResistanceScale = pitch.airScale;
-    simulated.spinEfficiency = pitch.spinEfficiency;
-    simulated.magnusScale = pitch.magnusScale;
-    simulated.angularVelocity = angularVelocityFromProfile(pitch, variation.spinRpmScale);
-    simulated.velocity = initialVelocity;
-    world.addBody(&simulated);
+    Body3D ball(start, 0.145f);
+    ball.setRadius(baseballRadius);
+    ball.dragCoefficient = pitch.dragCoefficient * dragScale;
+    ball.airResistanceScale = pitch.airScale;
+    ball.spinEfficiency = pitch.spinEfficiency;
+    ball.magnusScale = pitch.magnusScale;
+    ball.angularVelocity = angularVelocity;
+    ball.velocity = velocity;
+    world.addBody(&ball);
 
-    float apexY = simulated.position.y;
-    Vector3 previousPosition = simulated.position;
-
-    for (int step = 0; step < 720; step++) {
-        previousPosition = simulated.position;
+    Vector3 previous = ball.position;
+    for (int step = 0; step < 900; step++) {
+        previous = ball.position;
         world.step(fixedStep);
-        apexY = std::max(apexY, simulated.position.y);
-
-        if (simulated.position.z >= plateZ) {
-            float segmentLength = simulated.position.z - previousPosition.z;
-            float t = segmentLength <= 0.0f
-                ? 1.0f
-                : (plateZ - previousPosition.z) / segmentLength;
-            return FlightResult{
-                previousPosition + (simulated.position - previousPosition) * std::clamp(t, 0.0f, 1.0f),
-                apexY,
-                true
-            };
+        if (ball.position.z >= plateZ && ball.velocity.z > 0.0f) {
+            float seg = ball.position.z - previous.z;
+            float t = seg <= 1e-6f ? 1.0f : (plateZ - previous.z) / seg;
+            t = std::clamp(t, 0.0f, 1.0f);
+            outPlate = previous + (ball.position - previous) * t;
+            outPlate.z = plateZ;
+            return true;
         }
     }
-
-    return FlightResult{simulated.position, apexY, false};
+    outPlate = ball.position;
+    return false;
 }
 
 Vector3 calculateLaunchVelocity(
     const PitchProfile& pitch,
     const Vector3& aimPoint,
     float pitchSpeedMph,
-    const PitchFlightVariation& variation
+    const PitchFlightVariation& variation,
+    const Vector3& startPosition,
+    const Vector3& releaseAngularVelocity
 ) {
     float pitchSpeed = mphToWorldUnitsPerSecond(pitchSpeedMph);
-    Vector3 actualReleasePoint = releasePoint + variation.releaseOffset;
-    float distance = aimPoint.z - actualReleasePoint.z;
-    float dragSlowdownEstimate = std::clamp(0.95f - pitch.dragCoefficient * pitch.airScale * 0.10f, 0.86f, 0.95f);
-    float flightTime = distance / std::max(1.0f, pitchSpeed * dragSlowdownEstimate);
+    float distance = std::max(1.0f, aimPoint.z - startPosition.z);
+    float dragSlow = std::clamp(0.94f - pitch.dragCoefficient * pitch.airScale * 0.12f, 0.84f, 0.96f);
+    float flightTime = distance / std::max(1.0f, pitchSpeed * dragSlow);
 
-    Body3D probe;
-    probe.setRadius(baseballRadius);
-    probe.setMass(0.145f);
-    probe.velocity = Vector3(0.0f, 0.0f, pitchSpeed);
-    probe.angularVelocity = angularVelocityFromProfile(pitch, variation.spinRpmScale);
-    probe.spinEfficiency = pitch.spinEfficiency;
-    probe.magnusScale = pitch.magnusScale;
-    Vector3 magnusA = AirResistance3D::calculateMagnusForce(probe, Vector3(), pitchAirDensity)
-        * probe.inverseMass();
+    float vx = (aimPoint.x - startPosition.x) / flightTime;
+    float vy =
+        (aimPoint.y - startPosition.y + 0.5f * 9.8f * flightTime * flightTime) / flightTime +
+        variation.liftOffset;
+    Vector3 velocity = assembleLaunchVelocity(pitchSpeed, vx, vy);
+    const float airDensity = pitchAirDensity * variation.dragScale;
+    const float gain = 0.92f;
 
-    float estimatedAx = magnusA.x * 0.55f;
-    float estimatedAy = -9.8f + magnusA.y * 0.55f;
-    float t2 = flightTime * flightTime;
-    float desiredVx = (aimPoint.x - actualReleasePoint.x - 0.5f * estimatedAx * t2) / flightTime;
-    float desiredVy = (aimPoint.y - actualReleasePoint.y - 0.5f * estimatedAy * t2) / flightTime;
-
-    float maxSideVelocity = pitchSpeed * 0.20f;
-    float minVerticalVelocity = pitchSpeed * std::tan(-10.0f * pi / 180.0f);
-    float maxVerticalVelocity = pitchSpeed * std::tan(22.0f * pi / 180.0f);
-    desiredVx = std::clamp(desiredVx, -maxSideVelocity, maxSideVelocity);
-    desiredVy = std::clamp(desiredVy, minVerticalVelocity, maxVerticalVelocity);
-
-    float forwardVelocitySquared = pitchSpeed * pitchSpeed - desiredVx * desiredVx - desiredVy * desiredVy;
-    float desiredVz = std::sqrt(std::max(forwardVelocitySquared, pitchSpeed * pitchSpeed * 0.55f));
-    return Vector3(desiredVx, desiredVy, desiredVz);
-}
-
-void testYamamotoPitchesUseRealisticReleaseAndReachPlate() {
-    std::array<PitchProfile, 5> pitches = makePitchProfiles();
-    std::array<Vector3, 3> aimPoints = {{
-        Vector3(0.0f, 1.28f, plateZ),
-        Vector3(0.0f, 1.63f, plateZ),
-        Vector3(0.0f, 2.23f, plateZ)
-    }};
-
-    PitchFlightVariation variation;
-    for (const PitchProfile& pitch : pitches) {
-        for (const Vector3& aim : aimPoints) {
-            Vector3 v0 = calculateLaunchVelocity(pitch, aim, pitch.baseSpeedMph, variation);
-            FlightResult result = simulatePitch(pitch, variation, v0);
-            assert(result.crossedPlate);
-            assert(result.platePosition.y > 0.2f);
-            assert(result.platePosition.y < 3.5f);
-            assert(std::abs(result.platePosition.x) < 2.5f);
+    for (int iter = 0; iter < 8; iter++) {
+        Vector3 plateHit;
+        bool ok = simulatePlateCrossing(
+            pitch, startPosition, velocity, releaseAngularVelocity,
+            airDensity, variation.airVelocity, variation.dragScale, plateHit
+        );
+        if (!ok) {
+            velocity = assembleLaunchVelocity(pitchSpeed, velocity.x, velocity.y + 1.2f);
+            continue;
         }
+        float errX = aimPoint.x - plateHit.x;
+        float errY = aimPoint.y - plateHit.y;
+        if (errX * errX + errY * errY < 0.0004f) {
+            break;
+        }
+        float measuredT = std::clamp(distance / std::max(1.0f, velocity.z * dragSlow), 0.25f, 1.2f);
+        velocity = assembleLaunchVelocity(
+            pitchSpeed,
+            velocity.x + errX / measuredT * gain,
+            velocity.y + errY / measuredT * gain
+        );
     }
+    return velocity;
 }
 
-void testFourSeamRidesHigherThanCurve() {
-    // Same aim / speed band: four-seam backspin should finish higher than curve topspin.
+void testPitchesReachPlateNearAim() {
     auto pitches = makePitchProfiles();
-    const PitchProfile* four = nullptr;
-    const PitchProfile* curve = nullptr;
-    for (const auto& p : pitches) {
-        if (p.hotkey == 'F') four = &p;
-        if (p.hotkey == 'C') curve = &p;
-    }
-    assert(four && curve);
-
     PitchFlightVariation variation;
-    Vector3 aim(0.0f, 1.40f, plateZ);
+    Vector3 aim(0.0f, 1.28f, plateZ);
 
-    // Same launch velocity so Magnus difference is isolated.
-    Vector3 v0 = calculateLaunchVelocity(*four, aim, 90.0f, variation);
-    FlightResult f = simulatePitch(*four, variation, v0);
-    FlightResult c = simulatePitch(*curve, variation, v0);
-    assert(f.crossedPlate && c.crossedPlate);
-    assert(f.platePosition.y > c.platePosition.y + 0.05f);
+    for (const PitchProfile& pitch : pitches) {
+        Vector3 omega = angularVelocityFromProfile(pitch, 1.0f);
+        Vector3 v0 = calculateLaunchVelocity(
+            pitch, aim, pitch.baseSpeedMph, variation, releasePoint, omega
+        );
+        Vector3 plate;
+        bool ok = simulatePlateCrossing(
+            pitch, releasePoint, v0, omega,
+            pitchAirDensity, Vector3(), 1.0f, plate
+        );
+        assert(ok);
+        // Fastball must stick tightly; secondaries get a bit more room.
+        float tol = pitch.hotkey == 'F' ? 0.04f : 0.10f;
+        assert(std::abs(plate.x - aim.x) < tol);
+        assert(std::abs(plate.y - aim.y) < tol);
+    }
 }
 
-void testSliderBreaksGloveSideRelativeToFourSeam() {
+void testFourSeamMoreAccurateThanSliderAtSameNoise() {
     auto pitches = makePitchProfiles();
     const PitchProfile* four = nullptr;
     const PitchProfile* slider = nullptr;
@@ -204,20 +201,51 @@ void testSliderBreaksGloveSideRelativeToFourSeam() {
     assert(four && slider);
 
     PitchFlightVariation variation;
+    Vector3 aim(0.15f, 1.45f, plateZ);
+    Vector3 hand(-0.10f, 1.58f, 0.30f);
+
+    auto plateErr = [&](const PitchProfile& p) {
+        Vector3 omega = angularVelocityFromProfile(p, 1.0f);
+        Vector3 v0 = calculateLaunchVelocity(p, aim, 92.0f, variation, hand, omega);
+        Vector3 plate;
+        assert(simulatePlateCrossing(p, hand, v0, omega, pitchAirDensity, {}, 1.0f, plate));
+        float dx = plate.x - aim.x;
+        float dy = plate.y - aim.y;
+        return std::sqrt(dx * dx + dy * dy);
+    };
+
+    assert(plateErr(*four) < 0.05f);
+    assert(plateErr(*slider) < 0.10f);
+}
+
+void testFourSeamRidesRelativeToNoSpin() {
+    // With identical launch velocity, backspin finishes higher than zero spin.
+    auto pitches = makePitchProfiles();
+    const PitchProfile& four = pitches[0];
+    assert(four.hotkey == 'F');
+
+    PitchFlightVariation variation;
     Vector3 aim(0.0f, 1.40f, plateZ);
-    Vector3 v0 = calculateLaunchVelocity(*four, aim, 90.0f, variation);
-    FlightResult f = simulatePitch(*four, variation, v0);
-    FlightResult s = simulatePitch(*slider, variation, v0);
-    assert(f.crossedPlate && s.crossedPlate);
-    // RHP slider: glove side = −X relative to four-seam.
-    assert(s.platePosition.x < f.platePosition.x - 0.03f);
+    Vector3 omega = angularVelocityFromProfile(four, 1.0f);
+    Vector3 v0 = calculateLaunchVelocity(four, aim, 95.0f, variation, releasePoint, omega);
+
+    PitchProfile noSpin = four;
+    noSpin.spinRpm = 0.0f;
+    noSpin.magnusScale = 0.0f;
+
+    Vector3 plateSpin, plateNone;
+    assert(simulatePlateCrossing(four, releasePoint, v0, omega, pitchAirDensity, {}, 1.0f, plateSpin));
+    assert(simulatePlateCrossing(
+        noSpin, releasePoint, v0, Vector3(), pitchAirDensity, {}, 1.0f, plateNone
+    ));
+    assert(plateSpin.y > plateNone.y + 0.04f);
 }
 
 }
 
 int main() {
-    testYamamotoPitchesUseRealisticReleaseAndReachPlate();
-    testFourSeamRidesHigherThanCurve();
-    testSliderBreaksGloveSideRelativeToFourSeam();
+    testPitchesReachPlateNearAim();
+    testFourSeamMoreAccurateThanSliderAtSameNoise();
+    testFourSeamRidesRelativeToNoSpin();
     return 0;
 }

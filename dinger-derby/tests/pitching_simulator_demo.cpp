@@ -720,20 +720,21 @@ float mphToWorldUnitsPerSecond(float mph) {
     return mph * 5280.0f / 3600.0f / feetPerWorldUnit;
 }
 
+// Command scatter at the plate (world units). Four-seam is the "accuracy" pitch.
 float commandRadiusForPitch(const PitchProfile& pitch) {
     switch (pitch.hotkey) {
         case 'F':
-            return 0.11f;
+            return 0.045f; // ~1.1" radius — sticks near the target
         case 'T':
-            return 0.14f;
+            return 0.085f;
         case 'P':
-            return 0.18f;
+            return 0.12f;
         case 'S':
-            return 0.21f;
+            return 0.13f;
         case 'C':
-            return 0.24f;
+            return 0.15f;
         default:
-            return 0.16f;
+            return 0.10f;
     }
 }
 
@@ -743,23 +744,6 @@ Vector3 clampAimPoint(const Vector3& point) {
         std::clamp(point.y, strikeZoneCenter.y - 0.85f, strikeZoneCenter.y + 0.85f),
         plateZ
     );
-}
-
-// Estimate constant Magnus accel from release spin for aim compensation.
-Vector3 estimateMagnusAccel(
-    const PitchProfile& pitch,
-    float pitchSpeedMph,
-    float rpmScale
-) {
-    Body3D probe;
-    probe.setRadius(baseballRadius);
-    probe.setMass(0.145f);
-    probe.velocity = Vector3(0.0f, 0.0f, mphToWorldUnitsPerSecond(pitchSpeedMph));
-    probe.angularVelocity = angularVelocityFromProfile(pitch, rpmScale);
-    probe.spinEfficiency = pitch.spinEfficiency;
-    probe.magnusScale = pitch.magnusScale;
-    Vector3 force = AirResistance3D::calculateMagnusForce(probe, Vector3(), pitchAirDensity);
-    return force * probe.inverseMass();
 }
 
 // Tiny residual wake noise only — real movement is Magnus on the body.
@@ -781,62 +765,139 @@ Vector3 residualTurbulence(
     ) * (variation.turbulenceStrength * ramp * 0.35f);
 }
 
-// Ballistic launch from the true hand position so aim height stays accurate.
-// Compensates gravity + estimated Magnus so the commanded aim is meaningful.
+// Clamp lateral components and rebuild vz so |v| ≈ pitchSpeed.
+Vector3 assembleLaunchVelocity(float pitchSpeed, float vx, float vy) {
+    float maxSideVelocity = pitchSpeed * 0.22f;
+    float minVerticalVelocity = pitchSpeed * std::tan(-12.0f * pi / 180.0f);
+    float maxVerticalVelocity = pitchSpeed * std::tan(24.0f * pi / 180.0f);
+    vx = std::clamp(vx, -maxSideVelocity, maxSideVelocity);
+    vy = std::clamp(vy, minVerticalVelocity, maxVerticalVelocity);
+
+    float lateralSquared = vx * vx + vy * vy;
+    float maxLat = pitchSpeed * 0.55f;
+    if (lateralSquared > maxLat * maxLat && lateralSquared > 1e-8f) {
+        float scale = maxLat / std::sqrt(lateralSquared);
+        vx *= scale;
+        vy *= scale;
+        lateralSquared = vx * vx + vy * vy;
+    }
+    float vz = std::sqrt(std::max(pitchSpeed * pitchSpeed - lateralSquared, pitchSpeed * pitchSpeed * 0.55f));
+    return Vector3(vx, vy, vz);
+}
+
+// Deterministic plate crossing with the same physics as live flight (no wake noise).
+bool simulatePlateCrossing(
+    const PitchProfile& pitch,
+    const Vector3& startPosition,
+    const Vector3& initialVelocity,
+    const Vector3& angularVelocity,
+    float airDensity,
+    const Vector3& airVelocity,
+    float dragScale,
+    Vector3& outPlate
+) {
+    PhysicsWorld3D world;
+    world.gravity = Vector3(0.0f, -9.8f, 0.0f);
+    world.setAtmosphere(airDensity, airVelocity);
+    world.airResistanceEnabled = true;
+    world.setBounds(boundsMinimum, boundsMaximum);
+
+    Body3D ball(startPosition, 0.145f);
+    ball.setRadius(baseballRadius);
+    ball.restitution = 0.3f;
+    ball.dragCoefficient = pitch.dragCoefficient * dragScale;
+    ball.airResistanceScale = pitch.airScale;
+    ball.spinEfficiency = pitch.spinEfficiency;
+    ball.magnusScale = pitch.magnusScale;
+    ball.angularVelocity = angularVelocity;
+    ball.velocity = initialVelocity;
+    world.addBody(&ball);
+
+    Vector3 previous = ball.position;
+    for (int step = 0; step < 900; step++) {
+        previous = ball.position;
+        world.step(fixedStep);
+        if (ball.position.z >= plateZ && ball.velocity.z > 0.0f) {
+            float seg = ball.position.z - previous.z;
+            float t = seg <= 1e-6f ? 1.0f : (plateZ - previous.z) / seg;
+            t = std::clamp(t, 0.0f, 1.0f);
+            outPlate = previous + (ball.position - previous) * t;
+            outPlate.z = plateZ;
+            return true;
+        }
+        if (ball.position.y < -1.0f || ball.position.z > plateZ + 8.0f) {
+            break;
+        }
+    }
+    outPlate = ball.position;
+    return false;
+}
+
+// Iterative "shooting" aim: correct vx/vy until the simulated plate hit matches
+// the target. Uses the exact release spin that will be on the live ball so
+// four-seam ride / curve drop are compensated correctly.
 Vector3 calculateLaunchVelocity(
     const PitchProfile& pitch,
     const Vector3& aimPoint,
     float pitchSpeedMph,
     const PitchFlightVariation& variation,
-    const Vector3& startPosition
+    const Vector3& startPosition,
+    const Vector3& releaseAngularVelocity
 ) {
     float pitchSpeed = mphToWorldUnitsPerSecond(pitchSpeedMph);
     float distance = std::max(1.0f, aimPoint.z - startPosition.z);
     float dragSlowdownEstimate = std::clamp(
-        0.95f - pitch.dragCoefficient * pitch.airScale * 0.10f,
-        0.86f,
-        0.95f
+        0.94f - pitch.dragCoefficient * pitch.airScale * 0.12f,
+        0.84f,
+        0.96f
     );
     float flightTime = distance / std::max(1.0f, pitchSpeed * dragSlowdownEstimate);
 
-    Vector3 magnusA = estimateMagnusAccel(pitch, pitchSpeedMph, variation.spinRpmScale);
-    // Magnuseffect is ~constant direction for short flights; use ~half as average.
-    float estimatedAx = magnusA.x * 0.55f;
-    float estimatedAy = -9.8f + magnusA.y * 0.55f;
-
-    float t2 = flightTime * flightTime;
-    float desiredVx =
-        (aimPoint.x - startPosition.x - 0.5f * estimatedAx * t2) / flightTime;
-    float desiredVy =
-        (aimPoint.y - startPosition.y - 0.5f * estimatedAy * t2) / flightTime +
+    // Initial ballistic guess (gravity only) — iteration absorbs Magnus/drag.
+    float vx = (aimPoint.x - startPosition.x) / flightTime;
+    float vy =
+        (aimPoint.y - startPosition.y + 0.5f * 9.8f * flightTime * flightTime) / flightTime +
         variation.liftOffset;
+    Vector3 velocity = assembleLaunchVelocity(pitchSpeed, vx, vy);
 
-    float maxSideVelocity = pitchSpeed * 0.20f;
-    float minVerticalVelocity = pitchSpeed * std::tan(-10.0f * pi / 180.0f);
-    float maxVerticalVelocity = pitchSpeed * std::tan(22.0f * pi / 180.0f);
-    desiredVx = std::clamp(desiredVx, -maxSideVelocity, maxSideVelocity);
-    desiredVy = std::clamp(desiredVy, minVerticalVelocity, maxVerticalVelocity);
+    const float airDensity = pitchAirDensity * variation.dragScale;
+    const float gain = 0.92f; // under-relax for stability
 
-    float lateralSquared = desiredVx * desiredVx + desiredVy * desiredVy;
-    float forwardVelocitySquared = pitchSpeed * pitchSpeed - lateralSquared;
-    float desiredVz = 0.0f;
-    if (forwardVelocitySquared > pitchSpeed * pitchSpeed * 0.55f) {
-        desiredVz = std::sqrt(forwardVelocitySquared);
-    } else {
-        float maxLateral = pitchSpeed * 0.55f;
-        float lateral = std::sqrt(lateralSquared);
-        if (lateral > maxLateral && lateral > 0.0001f) {
-            float scale = maxLateral / lateral;
-            desiredVx *= scale;
-            desiredVy *= scale;
+    for (int iter = 0; iter < 8; iter++) {
+        Vector3 plateHit;
+        bool ok = simulatePlateCrossing(
+            pitch,
+            startPosition,
+            velocity,
+            releaseAngularVelocity,
+            airDensity,
+            variation.airVelocity,
+            variation.dragScale,
+            plateHit
+        );
+        if (!ok) {
+            // Fell short / went wild — add loft and retry.
+            velocity = assembleLaunchVelocity(pitchSpeed, velocity.x, velocity.y + 1.2f);
+            continue;
         }
-        desiredVz = std::sqrt(std::max(
-            pitchSpeed * pitchSpeed - desiredVx * desiredVx - desiredVy * desiredVy,
-            pitchSpeed * pitchSpeed * 0.55f
-        ));
+
+        float errX = aimPoint.x - plateHit.x;
+        float errY = aimPoint.y - plateHit.y;
+        if (errX * errX + errY * errY < 0.0004f) { // ~0.02 m / ~0.8"
+            break;
+        }
+
+        // Convert plate error into velocity correction using measured flight time.
+        float measuredT = distance / std::max(1.0f, velocity.z * dragSlowdownEstimate);
+        measuredT = std::clamp(measuredT, 0.25f, 1.2f);
+        velocity = assembleLaunchVelocity(
+            pitchSpeed,
+            velocity.x + errX / measuredT * gain,
+            velocity.y + errY / measuredT * gain
+        );
     }
 
-    return Vector3(desiredVx, desiredVy, desiredVz);
+    return velocity;
 }
 
 float rollPitchSpeed(
@@ -852,10 +913,12 @@ PitchFlightVariation rollPitchVariation(
     const PitchProfile& pitch,
     std::mt19937& randomGenerator
 ) {
-    float rpmNoise = pitch.hotkey == 'F' ? 0.04f : 0.08f;
-    float turbulence = pitch.hotkey == 'P' ? 0.18f : 0.10f;
+    // Fastball: tight RPM / axis / command so the ball tracks the aim point.
+    const bool isFastball = pitch.hotkey == 'F';
+    float rpmNoise = isFastball ? 0.015f : 0.07f;
+    float turbulence = pitch.hotkey == 'P' ? 0.12f : (isFastball ? 0.03f : 0.08f);
     if (pitch.hotkey == 'C') {
-        turbulence = 0.08f;
+        turbulence = 0.06f;
     }
 
     float commandRadius = commandRadiusForPitch(pitch);
@@ -864,8 +927,8 @@ PitchFlightVariation rollPitchVariation(
 
     return PitchFlightVariation{
         Vector3(
-            randomRange(randomGenerator, -0.045f, 0.045f),
-            randomRange(randomGenerator, -0.035f, 0.035f),
+            randomRange(randomGenerator, isFastball ? -0.015f : -0.04f, isFastball ? 0.015f : 0.04f),
+            randomRange(randomGenerator, isFastball ? -0.012f : -0.03f, isFastball ? 0.012f : 0.03f),
             0.0f
         ),
         Vector3(
@@ -874,16 +937,16 @@ PitchFlightVariation rollPitchVariation(
             0.0f
         ),
         Vector3(
-            randomRange(randomGenerator, -0.18f, 0.18f),
-            randomRange(randomGenerator, -0.03f, 0.03f),
-            randomRange(randomGenerator, -0.10f, 0.06f)
+            randomRange(randomGenerator, isFastball ? -0.06f : -0.16f, isFastball ? 0.06f : 0.16f),
+            randomRange(randomGenerator, -0.02f, 0.02f),
+            randomRange(randomGenerator, -0.06f, 0.04f)
         ),
         randomRange(randomGenerator, 1.0f - rpmNoise, 1.0f + rpmNoise),
-        randomRange(randomGenerator, 0.02f, pitch.hotkey == 'F' ? 0.05f : 0.10f),
-        randomRange(randomGenerator, 0.94f, 1.08f),
-        randomRange(randomGenerator, -0.025f, 0.025f),
+        randomRange(randomGenerator, isFastball ? 0.005f : 0.02f, isFastball ? 0.02f : 0.09f),
+        randomRange(randomGenerator, isFastball ? 0.98f : 0.94f, isFastball ? 1.02f : 1.08f),
+        randomRange(randomGenerator, isFastball ? -0.008f : -0.02f, isFastball ? 0.008f : 0.02f),
         randomRange(randomGenerator, 0.0f, pi * 2.0f),
-        randomRange(randomGenerator, turbulence * 0.35f, turbulence)
+        randomRange(randomGenerator, turbulence * 0.3f, turbulence)
     };
 }
 
@@ -939,6 +1002,7 @@ void launchPitch(
     baseball.spinEfficiency = pitch.spinEfficiency;
     baseball.magnusScale = pitch.magnusScale;
 
+    // Finalize spin first, then aim with THAT exact ω so Magnus is compensated.
     Vector3 axis = jitterSpinAxis(pitch.spinAxis, variation.spinAxisJitter, randomGenerator);
     float omega = pitch.spinRpm * variation.spinRpmScale * (2.0f * pi / 60.0f);
     baseball.angularVelocity = axis * omega;
@@ -949,7 +1013,8 @@ void launchPitch(
         commandedAimPoint,
         pitchSpeedMph,
         variation,
-        startPosition
+        startPosition,
+        baseball.angularVelocity
     );
     world.addBody(&baseball);
 
