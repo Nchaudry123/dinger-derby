@@ -8,7 +8,7 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(SFML 3 REQUIRED COMPONENTS Graphics Window System)
+find_package(SFML 3 REQUIRED COMPONENTS Graphics Window System Audio)
 find_package(OpenGL REQUIRED)
 
 enable_testing()
@@ -61,6 +61,7 @@ function(add_dinger_demo target source)
             SFML::Graphics
             SFML::Window
             SFML::System
+            SFML::Audio
     )
 endfunction()
 

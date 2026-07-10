@@ -35,6 +35,7 @@
 
 #include "DemoFpsCounter.h"
 #include "RasterDemo3D.h"
+#include "audio/ProceduralSfx.h"
 #include "math/Matrix4.h"
 #include "math/Vector3.h"
 #include "physics/Body3D.h"
@@ -1256,6 +1257,9 @@ int main() {
         }
     }
     float stadiumCheerTime = 0.0f;
+    float crowdCheerBoost = 1.15f; // visual crowd surge after SFX events
+    float crowdCheerTimer = 0.0f;
+    ProceduralSfx::BatParkSfx sfx;
 
     FrameBuffer frameBuffer(window.getSize().x, window.getSize().y);
     RasterMeshRenderCache pitcherCache;
@@ -1408,6 +1412,12 @@ int main() {
         }
     };
 
+    auto playHrAtmosphere = [&](bool jawOrMoon) {
+        sfx.playCrowdPop(true);
+        crowdCheerBoost = jawOrMoon ? 2.4f : 2.1f;
+        crowdCheerTimer = jawOrMoon ? 3.2f : 2.6f;
+    };
+
     auto noteDerbyDinger = [&]() {
         if (playMode != PlayMode::Derby || !lastHit.fair || !isDingerQuality(lastHit.quality)) {
             return;
@@ -1418,6 +1428,8 @@ int main() {
         }
         noteDerbyExit();
         hrBannerTimer = 2.8f;
+        std::string q = lastHit.quality ? lastHit.quality : "";
+        playHrAtmosphere(q == "Jaw Dropper" || q == "Moonball");
     };
 
     auto setDerbyLastResult = [&](const std::string& call) {
@@ -1511,6 +1523,8 @@ int main() {
                 if (isDingerQuality(lastHit.quality)) {
                     hrBannerTimer = 2.8f;
                     statusCol = sf::Color(255, 220, 80);
+                    std::string q = lastHit.quality ? lastHit.quality : "";
+                    playHrAtmosphere(q == "Jaw Dropper" || q == "Moonball");
                 }
                 // Post-land pause only — full drop always plays out first.
                 scheduleNextPitch(playMode == PlayMode::Practice ? 1.5f : 1.25f);
@@ -1789,6 +1803,12 @@ int main() {
         if (hrBannerTimer > 0.0f) {
             hrBannerTimer = std::max(0.0f, hrBannerTimer - dt);
         }
+        if (crowdCheerTimer > 0.0f) {
+            crowdCheerTimer = std::max(0.0f, crowdCheerTimer - dt);
+            if (crowdCheerTimer <= 0.0f) {
+                crowdCheerBoost = 1.15f;
+            }
+        }
         if (derby.roundOverTimer > 0.0f) {
             derby.roundOverTimer = std::max(0.0f, derby.roundOverTimer - dt);
         }
@@ -1933,6 +1953,11 @@ int main() {
                                     if (isDinger && !wasDinger) {
                                         derby.hrCount += 1;
                                         hrBannerTimer = 2.8f;
+                                        playHrAtmosphere(
+                                            lastHit.quality &&
+                                            (std::string(lastHit.quality) == "Jaw Dropper" ||
+                                             std::string(lastHit.quality) == "Moonball")
+                                        );
                                     } else if (!isDinger && wasDinger && derby.hrCount > 0) {
                                         derby.hrCount -= 1;
                                     }
@@ -1980,6 +2005,8 @@ int main() {
                     baseball.airResistanceScale = 0.95f;
                     baseball.restitution = 0.0f;
                     baseball.magnusScale = 0.0f; // no weird post-contact rise from residual spin
+                    // Bat crack / thud on contact; crowd waits for confirmed HR call.
+                    sfx.playContact(lastHit.sweet, isDingerQuality(lastHit.quality));
                     resolvePitch("HIT");
                     float zErr = baseball.position.z - plateZ;
                     const char* timing = "On time";
@@ -2118,9 +2145,12 @@ int main() {
             float boardA = Stadium3D::scoreboardPulse(stadiumCheerTime, excitement);
             gl.drawMesh(glStadiumBoard, stadiumXform, 0.55f + 0.45f * boardA);
             // Crowd cheer wave (stronger after a big hit / round end)
-            float cheerBoost = (hrBannerTimer > 0.0f) ? 1.85f : 1.15f;
+            float cheerBoost = crowdCheerBoost;
+            if (hrBannerTimer > 0.0f) {
+                cheerBoost = std::max(cheerBoost, 1.95f);
+            }
             if (derby.roundOver && derby.roundOverTimer > 0.0f) {
-                cheerBoost = std::max(cheerBoost, 2.1f);
+                cheerBoost = std::max(cheerBoost, 2.2f);
             }
             for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
                 if (!glStadiumFans[i].valid()) {
