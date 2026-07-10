@@ -15,6 +15,14 @@ float AirResistance3D::crossSectionArea(const Body3D& body) {
     return pi * radius * radius;
 }
 
+float AirResistance3D::effectiveDragCoefficient(const Body3D& body, float speed) {
+    float baseCoefficient = std::max(body.dragCoefficient, 0.0f);
+    float speedResponse = std::clamp((speed - 24.0f) / 52.0f, 0.0f, 1.0f);
+    float dragCrisisReduction = 1.0f - 0.18f * speedResponse;
+
+    return baseCoefficient * dragCrisisReduction;
+}
+
 Vector3 AirResistance3D::calculateDragForce(
     const Body3D& body,
     const Vector3& airVelocity,
@@ -34,7 +42,7 @@ Vector3 AirResistance3D::calculateDragForce(
     float dragMagnitude =
         0.5f *
         airDensity *
-        std::max(body.dragCoefficient, 0.0f) *
+        effectiveDragCoefficient(body, speed) *
         crossSectionArea(body) *
         speed *
         speed *

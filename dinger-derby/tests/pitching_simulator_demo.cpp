@@ -54,6 +54,16 @@ struct PitchProfile {
     sf::Color color;
 };
 
+struct PitchFlightVariation {
+    Vector3 releaseOffset;
+    Vector3 airVelocity;
+    Vector3 breakScale;
+    float dragScale = 1.0f;
+    float liftOffset = 0.0f;
+    float turbulencePhase = 0.0f;
+    float turbulenceStrength = 0.0f;
+};
+
 bool loadUiFont(sf::Font& font) {
     const std::vector<std::filesystem::path> candidates = {
         "/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -69,6 +79,11 @@ bool loadUiFont(sf::Font& font) {
     }
 
     return false;
+}
+
+float randomRange(std::mt19937& randomGenerator, float minimum, float maximum) {
+    std::uniform_real_distribution<float> distribution(minimum, maximum);
+    return distribution(randomGenerator);
 }
 
 void drawText(
@@ -379,13 +394,19 @@ float mphToWorldUnitsPerSecond(float mph) {
     return mph * 5280.0f / 3600.0f / feetPerWorldUnit;
 }
 
-Vector3 calculateLaunchVelocity(const PitchProfile& pitch, const Vector3& aimPoint, float pitchSpeedMph) {
+Vector3 calculateLaunchVelocity(
+    const PitchProfile& pitch,
+    const Vector3& aimPoint,
+    float pitchSpeedMph,
+    const PitchFlightVariation& variation
+) {
     float pitchSpeed = mphToWorldUnitsPerSecond(pitchSpeedMph);
-    float distance = aimPoint.z - releasePoint.z;
+    Vector3 actualReleasePoint = releasePoint + variation.releaseOffset;
+    float distance = aimPoint.z - actualReleasePoint.z;
     float flightTime = distance / pitchSpeed;
     Vector3 flatVelocity(
-        (aimPoint.x - releasePoint.x) / flightTime,
-        (aimPoint.y - releasePoint.y) / flightTime + pitch.liftCompensation,
+        (aimPoint.x - actualReleasePoint.x) / flightTime,
+        (aimPoint.y - actualReleasePoint.y) / flightTime + pitch.liftCompensation + variation.liftOffset,
         pitchSpeed
     );
 
@@ -401,25 +422,60 @@ float rollPitchSpeed(
     return std::max(1.0f, (pitch.baseSpeedMph + speedOffset(randomGenerator)) * globalSpeedScale);
 }
 
+PitchFlightVariation rollPitchVariation(
+    const PitchProfile& pitch,
+    std::mt19937& randomGenerator
+) {
+    float movementNoise = pitch.hotkey == 'F' ? 0.08f : 0.16f;
+    float turbulence = pitch.hotkey == 'P' ? 0.52f : 0.26f;
+
+    if (pitch.hotkey == 'C') {
+        turbulence = 0.18f;
+    }
+
+    return PitchFlightVariation{
+        Vector3(
+            randomRange(randomGenerator, -0.045f, 0.045f),
+            randomRange(randomGenerator, -0.035f, 0.035f),
+            0.0f
+        ),
+        Vector3(
+            randomRange(randomGenerator, -0.22f, 0.22f),
+            randomRange(randomGenerator, -0.04f, 0.04f),
+            randomRange(randomGenerator, -0.12f, 0.08f)
+        ),
+        Vector3(
+            randomRange(randomGenerator, 1.0f - movementNoise, 1.0f + movementNoise),
+            randomRange(randomGenerator, 1.0f - movementNoise, 1.0f + movementNoise),
+            1.0f
+        ),
+        randomRange(randomGenerator, 0.94f, 1.08f),
+        randomRange(randomGenerator, -0.08f, 0.08f),
+        randomRange(randomGenerator, 0.0f, pi * 2.0f),
+        randomRange(randomGenerator, turbulence * 0.45f, turbulence)
+    };
+}
+
 void launchPitch(
     Body3D& baseball,
     PhysicsWorld3D& world,
     const PitchProfile& pitch,
     const Vector3& aimPoint,
     std::vector<Vector3>& trail,
-    float pitchSpeedMph
+    float pitchSpeedMph,
+    const PitchFlightVariation& variation
 ) {
     world = PhysicsWorld3D();
     world.setBounds(boundsMinimum, boundsMaximum);
     world.gravity = Vector3(0.0f, -9.8f, 0.0f);
-    world.setAtmosphere(0.18f, Vector3(0.4f, 0.0f, -0.12f));
+    world.setAtmosphere(0.18f * variation.dragScale, variation.airVelocity);
 
-    baseball = Body3D(releasePoint, 0.145f);
+    baseball = Body3D(releasePoint + variation.releaseOffset, 0.145f);
     baseball.setRadius(baseballRadius);
     baseball.restitution = 0.3f;
-    baseball.dragCoefficient = pitch.dragCoefficient;
+    baseball.dragCoefficient = pitch.dragCoefficient * variation.dragScale;
     baseball.airResistanceScale = pitch.airScale;
-    baseball.velocity = calculateLaunchVelocity(pitch, aimPoint, pitchSpeedMph);
+    baseball.velocity = calculateLaunchVelocity(pitch, aimPoint, pitchSpeedMph, variation);
     world.addBody(&baseball);
 
     trail.clear();
@@ -513,7 +569,8 @@ int main() {
     std::mt19937 randomGenerator(std::random_device{}());
     float globalSpeedScale = 1.0f;
     float currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
-    launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph);
+    PitchFlightVariation currentVariation = rollPitchVariation(pitches[selectedPitch], randomGenerator);
+    launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph, currentVariation);
 
     sf::Clock frameClock;
     float accumulator = 0.0f;
@@ -527,7 +584,8 @@ int main() {
 
     auto relaunchCurrentPitch = [&]() {
         currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
-        launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph);
+        currentVariation = rollPitchVariation(pitches[selectedPitch], randomGenerator);
+        launchPitch(baseball, world, pitches[selectedPitch], aimPoint, trail, currentPitchSpeedMph, currentVariation);
         accumulator = 0.0f;
         pitchAge = 0.0f;
         spinX = 0.0f;
@@ -642,7 +700,19 @@ int main() {
                     ? 0.0f
                     : (progress - pitch.breakStartZ) / (1.0f - pitch.breakStartZ);
                 breakRamp = breakRamp * breakRamp * (3.0f - 2.0f * breakRamp);
-                Vector3 breakAcceleration = pitch.breakAcceleration * breakRamp;
+                Vector3 breakAcceleration = Vector3(
+                    pitch.breakAcceleration.x * currentVariation.breakScale.x,
+                    pitch.breakAcceleration.y * currentVariation.breakScale.y,
+                    0.0f
+                ) * breakRamp;
+
+                float turbulenceRamp = progress * progress;
+                Vector3 turbulenceForce(
+                    std::sin(pitchAge * 18.0f + currentVariation.turbulencePhase),
+                    std::sin(pitchAge * 13.0f + currentVariation.turbulencePhase * 0.7f),
+                    0.0f
+                );
+                breakAcceleration += turbulenceForce * currentVariation.turbulenceStrength * turbulenceRamp;
 
                 baseball.applyForce(breakAcceleration * baseball.mass);
                 world.step(fixedStep);

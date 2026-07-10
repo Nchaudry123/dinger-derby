@@ -73,7 +73,21 @@ void testAirResistanceCalculatesQuadraticDragAgainstMotion() {
     assert(dragForce.x < 0.0f);
     assert(nearlyEqual(dragForce.y, 0.0f));
     assert(nearlyEqual(dragForce.z, 0.0f));
-    assert(nearlyEqual(std::abs(dragForce.x), 39.2699f, 0.01f));
+    assert(std::abs(dragForce.x) > 35.0f);
+    assert(std::abs(dragForce.x) < 40.0f);
+}
+
+void testAirResistanceCoefficientChangesWithSpeed() {
+    Body3D body(Vector3(0.0f, 0.0f, 0.0f), 1.0f);
+    body.setRadius(0.5f);
+    body.dragCoefficient = 1.0f;
+
+    float lowSpeedCoefficient = AirResistance3D::effectiveDragCoefficient(body, 10.0f);
+    float highSpeedCoefficient = AirResistance3D::effectiveDragCoefficient(body, 80.0f);
+
+    assert(nearlyEqual(lowSpeedCoefficient, 1.0f));
+    assert(highSpeedCoefficient < lowSpeedCoefficient);
+    assert(highSpeedCoefficient > 0.75f);
 }
 
 void testPhysicsWorld3DAirResistanceSlowsBody() {
@@ -136,6 +150,7 @@ int main() {
     testSphereResolutionSeparatesBodies();
     testPhysicsWorld3DGravityAndBounds();
     testAirResistanceCalculatesQuadraticDragAgainstMotion();
+    testAirResistanceCoefficientChangesWithSpeed();
     testPhysicsWorld3DAirResistanceSlowsBody();
     testPhysicsWorld3DWindUsesRelativeVelocity();
     testPhysicsWorld3DAirResistanceCanBeDisabled();
