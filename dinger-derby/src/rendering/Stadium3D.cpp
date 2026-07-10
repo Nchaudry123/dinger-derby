@@ -255,6 +255,79 @@ void addDisk(Mesh3D& m, const Vector3& center, float radius, float y, int n, sf:
     }
 }
 
+// Ring / annulus on the ground (for textured dirt circles).
+void addDiskRing(
+    Mesh3D& m,
+    const Vector3& center,
+    float rInner,
+    float rOuter,
+    float y,
+    int n,
+    sf::Color col
+) {
+    Vector3 c(center.x, y, center.z);
+    for (int i = 0; i < n; i++) {
+        float a0 = (static_cast<float>(i) / n) * pi * 2.0f;
+        float a1 = (static_cast<float>(i + 1) / n) * pi * 2.0f;
+        Vector3 i0 = c + Vector3(std::cos(a0) * rInner, 0.0f, std::sin(a0) * rInner);
+        Vector3 i1 = c + Vector3(std::cos(a1) * rInner, 0.0f, std::sin(a1) * rInner);
+        Vector3 o0 = c + Vector3(std::cos(a0) * rOuter, 0.0f, std::sin(a0) * rOuter);
+        Vector3 o1 = c + Vector3(std::cos(a1) * rOuter, 0.0f, std::sin(a1) * rOuter);
+        addQuad(m, i0, i1, o1, o0, col);
+    }
+}
+
+// Arc sector of a disk (e.g. home-plate dirt arc toward the mound).
+void addDiskSector(
+    Mesh3D& m,
+    const Vector3& center,
+    float radius,
+    float y,
+    float ang0,
+    float ang1,
+    int n,
+    sf::Color col
+) {
+    Vector3 c(center.x, y, center.z);
+    for (int i = 0; i < n; i++) {
+        float t0 = static_cast<float>(i) / n;
+        float t1 = static_cast<float>(i + 1) / n;
+        float a0 = ang0 + (ang1 - ang0) * t0;
+        float a1 = ang0 + (ang1 - ang0) * t1;
+        Vector3 p0 = c + Vector3(std::cos(a0) * radius, 0.0f, std::sin(a0) * radius);
+        Vector3 p1 = c + Vector3(std::cos(a1) * radius, 0.0f, std::sin(a1) * radius);
+        addTri(m, c, p0, p1, col);
+    }
+}
+
+// Dirt with subtle radial banding (fake texture without image maps).
+void addTexturedDirtDisk(
+    Mesh3D& m,
+    const Vector3& center,
+    float radius,
+    float y,
+    int rings,
+    int segs,
+    sf::Color base
+) {
+    for (int r = 0; r < rings; r++) {
+        float u0 = static_cast<float>(r) / rings;
+        float u1 = static_cast<float>(r + 1) / rings;
+        float r0 = radius * u0;
+        float r1 = radius * u1;
+        float mul = 0.90f + 0.12f * static_cast<float>((r + (r % 2)) % 3) / 2.0f;
+        if (r % 2 == 0) {
+            mul *= 0.94f;
+        }
+        sf::Color col = shadeColor(base, mul);
+        if (r0 < 1e-4f) {
+            addDisk(m, center, r1, y, segs, col);
+        } else {
+            addDiskRing(m, center, r0, r1, y, segs, col);
+        }
+    }
+}
+
 Mesh3D buildField(const Layout& L) {
     Mesh3D m;
     const float aL = -L.foulAngleRad();
@@ -366,7 +439,9 @@ Mesh3D buildField(const Layout& L) {
     (void)aL;
     (void)aR;
 
-    // ── Skinned dirt diamond (square home–1B–2B–3B) ───────────────────
+    // ── Classic skinned infield ────────────────────────────────────────
+    // Dirt = paths + circles + thin diamond lip (not a giant brown slab).
+    // Grass skin fills the interior so the catcher view reads green + chalk.
     auto expandDiamond = [&](float scale) {
         Vector3 c = (home + b1 + b2 + b3) * 0.25f;
         auto push = [&](const Vector3& p) {
@@ -376,65 +451,160 @@ Mesh3D buildField(const Layout& L) {
         };
         return std::array<Vector3, 4>{push(home), push(b1), push(b2), push(b3)};
     };
-    {
-        auto d = expandDiamond(1.08f);
-        addFlatQuad(m, d[0], d[1], d[2], d[3], 0.022f, dirt);
-    }
-    {
-        auto g = expandDiamond(0.70f);
-        addFlatQuad(m, g[0], g[1], g[2], g[3], 0.032f, grassInfield);
-    }
 
-    const float pathHw = 1.85f;
-    addDirtPath(m, home, b1, pathHw, 0.038f, dirtPath);
-    addDirtPath(m, b1, b2, pathHw, 0.038f, dirtPath);
-    addDirtPath(m, b2, b3, pathHw, 0.038f, dirtPath);
-    addDirtPath(m, b3, home, pathHw, 0.038f, dirtPath);
-    addDirtPath(m, L.mound(), b2, pathHw * 0.6f, 0.038f, dirtPath);
-
-    addDisk(m, L.mound(), 6.5f, 0.042f, 40, dirt);
-    addDisk(m, home, 7.5f, 0.042f, 40, dirt);
-    addDisk(m, b1, 3.0f, 0.046f, 24, dirt);
-    addDisk(m, b2, 3.0f, 0.046f, 24, dirt);
-    addDisk(m, b3, 3.0f, 0.046f, 24, dirt);
-
-    // Raised mound
+    // Outer dirt lip only (skinny frame around the diamond).
     {
-        Vector3 c(0.0f, 0.12f, L.moundZ());
-        const int n = 20;
-        float mr = 4.2f;
-        for (int i = 0; i < n; i++) {
-            float a0 = (static_cast<float>(i) / n) * pi * 2.0f;
-            float a1 = (static_cast<float>(i + 1) / n) * pi * 2.0f;
-            Vector3 p0 = c + Vector3(std::cos(a0) * mr, -0.08f, std::sin(a0) * mr * 0.55f);
-            Vector3 p1 = c + Vector3(std::cos(a1) * mr, -0.08f, std::sin(a1) * mr * 0.55f);
-            addTri(m, c, p0, p1, dirtDark);
+        auto outer = expandDiamond(1.04f);
+        auto inner = expandDiamond(0.92f);
+        // Four trapezoid lips home→1B→2B→3B
+        for (int e = 0; e < 4; e++) {
+            int n = (e + 1) % 4;
+            addFlatQuad(
+                m,
+                outer[e],
+                outer[n],
+                inner[n],
+                inner[e],
+                0.020f,
+                shadeColor(dirt, (e % 2) ? 0.96f : 1.0f)
+            );
         }
-        addBox(m, Vector3(0.0f, 0.18f, L.moundZ()), 1.0f, 0.06f, 0.3f, sf::Color(230, 225, 210));
+    }
+    // Infield grass skin (main visual mass of the diamond interior)
+    {
+        auto g = expandDiamond(0.91f);
+        addFlatQuad(m, g[0], g[1], g[2], g[3], 0.018f, grassInfield);
+        // Subtle checker mow on the skin
+        auto g2 = expandDiamond(0.78f);
+        addFlatQuad(m, g2[0], g2[1], g2[2], g2[3], 0.019f, shadeColor(grassInfield, 0.92f));
+        auto g3 = expandDiamond(0.62f);
+        addFlatQuad(m, g3[0], g3[1], g3[2], g3[3], 0.020f, shadeColor(grassInfield, 1.04f));
     }
 
-    // Home plate
+    // Base paths — realistic ~6 ft wide (3 world units ≈ 6 ft at 2 ft/unit… use ~1.5)
+    const float pathHw = 1.45f;
+    const float pathY = 0.028f;
+    addDirtPath(m, home, b1, pathHw, pathY, dirtPath);
+    addDirtPath(m, b1, b2, pathHw, pathY, dirtPath);
+    addDirtPath(m, b2, b3, pathHw, pathY, dirtPath);
+    addDirtPath(m, b3, home, pathHw, pathY, dirtPath);
+    // Slightly darker edge strips on paths
+    addDirtPath(m, home, b1, pathHw * 0.22f, pathY + 0.002f, dirtDark);
+    addDirtPath(m, b1, b2, pathHw * 0.22f, pathY + 0.002f, dirtDark);
+    addDirtPath(m, b2, b3, pathHw * 0.22f, pathY + 0.002f, dirtDark);
+    addDirtPath(m, b3, home, pathHw * 0.22f, pathY + 0.002f, dirtDark);
+    // Pitcher → 2B cut (narrower)
+    addDirtPath(m, L.mound(), b2, pathHw * 0.55f, pathY, shadeColor(dirtPath, 0.97f));
+
+    // Mound circle (textured) + raised mound
+    addTexturedDirtDisk(m, L.mound(), 6.8f, 0.026f, 6, 36, dirt);
+    {
+        Vector3 c(0.0f, 0.10f, L.moundZ());
+        const int n = 28;
+        float mr = 4.0f;
+        for (int ring = 0; ring < 3; ring++) {
+            float r0 = mr * (static_cast<float>(ring) / 3.0f);
+            float r1 = mr * (static_cast<float>(ring + 1) / 3.0f);
+            float y0 = 0.04f + ring * 0.045f;
+            float y1 = 0.04f + (ring + 1) * 0.045f;
+            sf::Color col = shadeColor(dirtDark, 0.92f + ring * 0.04f);
+            for (int i = 0; i < n; i++) {
+                float a0 = (static_cast<float>(i) / n) * pi * 2.0f;
+                float a1 = (static_cast<float>(i + 1) / n) * pi * 2.0f;
+                // Slight oval along pitch axis
+                auto pt = [&](float a, float r, float y) {
+                    return Vector3(std::cos(a) * r, y, L.moundZ() + std::sin(a) * r * 0.72f);
+                };
+                if (ring == 0 && r0 < 1e-3f) {
+                    addTri(
+                        m,
+                        Vector3(0, y1, L.moundZ()),
+                        pt(a0, r1, y1),
+                        pt(a1, r1, y1),
+                        col
+                    );
+                } else {
+                    addQuad(m, pt(a0, r0, y0), pt(a1, r0, y0), pt(a1, r1, y1), pt(a0, r1, y1), col);
+                }
+            }
+        }
+        // Rubber
+        addBox(m, Vector3(0.0f, 0.20f, L.moundZ()), 1.05f, 0.05f, 0.28f, sf::Color(235, 230, 215));
+    }
+
+    // Home plate dirt circle (full) + darker batter's path
+    addTexturedDirtDisk(m, home, 7.2f, 0.026f, 5, 36, dirt);
+    // Dirt arc from plate toward mound (−Z = angle −π/2 in disk coords)
+    addDiskSector(
+        m,
+        home,
+        9.5f,
+        0.027f,
+        -pi * 0.5f - 0.85f,
+        -pi * 0.5f + 0.85f,
+        28,
+        shadeColor(dirt, 0.97f)
+    );
+
+    // Base cutouts (textured)
+    addTexturedDirtDisk(m, b1, 3.4f, 0.029f, 4, 24, dirt);
+    addTexturedDirtDisk(m, b2, 3.4f, 0.029f, 4, 24, dirt);
+    addTexturedDirtDisk(m, b3, 3.4f, 0.029f, 4, 24, dirt);
+
+    // Home plate (regulation-ish silhouette, tip to catcher +Z)
     {
         float z = plateZ;
-        Vector3 tip(0.0f, 0.06f, z + 0.55f);
-        Vector3 bl(-0.55f, 0.06f, z - 0.15f);
-        Vector3 br(0.55f, 0.06f, z - 0.15f);
-        Vector3 fl(-0.35f, 0.06f, z - 0.55f);
-        Vector3 fr(0.35f, 0.06f, z - 0.55f);
-        sf::Color plate(240, 235, 220);
+        Vector3 tip(0.0f, 0.055f, z + 0.52f);
+        Vector3 bl(-0.52f, 0.055f, z - 0.12f);
+        Vector3 br(0.52f, 0.055f, z - 0.12f);
+        Vector3 fl(-0.32f, 0.055f, z - 0.52f);
+        Vector3 fr(0.32f, 0.055f, z - 0.52f);
+        sf::Color plate(245, 242, 230);
         addTri(m, tip, br, bl, plate);
         addQuad(m, bl, br, fr, fl, plate);
     }
 
-    auto placeBase = [&](const Vector3& p) {
-        addBox(m, Vector3(p.x, 0.08f, p.z), 1.15f, 0.08f, 1.15f, sf::Color(245, 240, 225));
+    // Base bags — rotated diamond squares (point toward next base)
+    auto placeBaseBag = [&](const Vector3& p, float yaw) {
+        float s = 0.55f; // half-diagonal-ish
+        float c = std::cos(yaw);
+        float sn = std::sin(yaw);
+        auto rot = [&](float x, float z) {
+            return Vector3(p.x + c * x - sn * z, 0.065f, p.z + sn * x + c * z);
+        };
+        // Diamond outline (rotated square)
+        Vector3 v0 = rot(0.0f, s);
+        Vector3 v1 = rot(s, 0.0f);
+        Vector3 v2 = rot(0.0f, -s);
+        Vector3 v3 = rot(-s, 0.0f);
+        addFlatQuad(m, v0, v1, v2, v3, 0.065f, sf::Color(250, 248, 235));
+        // Slight raised top
+        addBox(m, Vector3(p.x, 0.09f, p.z), 0.85f, 0.04f, 0.85f, sf::Color(248, 245, 230));
     };
-    placeBase(b1);
-    placeBase(b2);
-    placeBase(b3);
+    // 1B bag aligned along 1B line; 2B faces home; 3B along 3B line
+    placeBaseBag(b1, L.foulAngleRad() * 0.5f);
+    placeBaseBag(b2, 0.0f);
+    placeBaseBag(b3, -L.foulAngleRad() * 0.5f);
 
-    addBox(m, Vector3(-1.5f, 0.04f, plateZ - 0.2f), 1.4f, 0.04f, 2.2f, dirtDark);
-    addBox(m, Vector3(1.5f, 0.04f, plateZ - 0.2f), 1.4f, 0.04f, 2.2f, dirtDark);
+    // Batter's boxes (left + right) — flat dirt rectangles, chalk rim via lines mesh
+    {
+        sf::Color box = shadeColor(dirtDark, 1.05f);
+        // RHB box (−X), LHB box (+X)
+        addBox(m, Vector3(-1.55f, 0.035f, plateZ - 0.15f), 1.35f, 0.03f, 2.35f, box);
+        addBox(m, Vector3(1.55f, 0.035f, plateZ - 0.15f), 1.35f, 0.03f, 2.35f, box);
+        // Catcher's box hint
+        addBox(m, Vector3(0.0f, 0.032f, plateZ + 1.15f), 1.6f, 0.02f, 1.1f, shadeColor(dirt, 0.93f));
+    }
+
+    // On-deck circles (foul territory near dugouts)
+    {
+        Vector3 od1 = home + Vector3(8.5f, 0.0f, 2.5f);
+        Vector3 od3 = home + Vector3(-8.5f, 0.0f, 2.5f);
+        addDiskRing(m, od1, 1.5f, 1.75f, 0.03f, 20, sf::Color(240, 235, 220));
+        addDiskRing(m, od3, 1.5f, 1.75f, 0.03f, 20, sf::Color(240, 235, 220));
+        addDisk(m, od1, 1.45f, 0.025f, 16, shadeColor(grass, 0.95f));
+        addDisk(m, od3, 1.45f, 0.025f, 16, shadeColor(grass, 0.95f));
+    }
 
     // Dugouts on foul side of baselines
     {
@@ -997,15 +1167,30 @@ Mesh3D buildLines(const Layout& L) {
     // Foul lines home → poles
     auto foulLine = [&](float ang) {
         float len = L.wallRAtAngle(ang) + 1.0f;
-        thickLine(L.home(), L.fromHome(len, ang, 0.0f), 0.18f, 0.07f);
+        thickLine(L.home(), L.fromHome(len, ang, 0.0f), 0.16f, 0.072f);
     };
     foulLine(-L.foulAngleRad());
     foulLine(L.foulAngleRad());
-    // Diamond chalk: base paths
-    thickLine(L.home(), L.firstBase(), 0.12f, 0.075f);
-    thickLine(L.firstBase(), L.secondBase(), 0.12f, 0.075f);
-    thickLine(L.secondBase(), L.thirdBase(), 0.12f, 0.075f);
-    thickLine(L.thirdBase(), L.home(), 0.12f, 0.075f);
+    // Diamond chalk: base paths (inside edge of dirt)
+    thickLine(L.home(), L.firstBase(), 0.10f, 0.078f);
+    thickLine(L.firstBase(), L.secondBase(), 0.10f, 0.078f);
+    thickLine(L.secondBase(), L.thirdBase(), 0.10f, 0.078f);
+    thickLine(L.thirdBase(), L.home(), 0.10f, 0.078f);
+    // Batter's box chalk outlines
+    {
+        auto boxOutline = [&](float cx) {
+            Vector3 a(cx - 0.67f, 0, L.plateZ() + 0.95f);
+            Vector3 b(cx + 0.67f, 0, L.plateZ() + 0.95f);
+            Vector3 c(cx + 0.67f, 0, L.plateZ() - 1.25f);
+            Vector3 d(cx - 0.67f, 0, L.plateZ() - 1.25f);
+            thickLine(a, b, 0.06f, 0.076f);
+            thickLine(b, c, 0.06f, 0.076f);
+            thickLine(c, d, 0.06f, 0.076f);
+            thickLine(d, a, 0.06f, 0.076f);
+        };
+        boxOutline(-1.55f);
+        boxOutline(1.55f);
+    }
     m.rebuildNormals();
     return m;
 }
