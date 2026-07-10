@@ -21,6 +21,7 @@
 #include "rendering/Mesh3D.h"
 #include "rendering/Rasterizer3D.h"
 #include "rendering/BaseballVisual3D.h"
+#include "rendering/BaseballPlayer3D.h"
 
 namespace {
 
@@ -417,23 +418,7 @@ void drawCatcherTarget(
     drawThickProjectedLine(window, camera, target + Vector3(0.0f, 0.07f, 0.0f), target + Vector3(0.0f, 0.18f, 0.0f), 2.2f, ghost);
 }
 
-void drawCatcherSilhouette(sf::RenderWindow& window, const Camera3D& camera) {
-    const float z = plateZ + 0.82f;
-    const sf::Color gear(25, 43, 55, 190);
-    const sf::Color outline(95, 185, 190, 105);
-    const sf::Color mitt(150, 110, 65, 215);
 
-    drawProjectedDot(window, camera, Vector3(0.0f, 2.02f, z), 15.0f, gear);
-    drawThickProjectedLine(window, camera, Vector3(-0.19f, 1.88f, z), Vector3(0.19f, 1.88f, z), 4.0f, outline);
-    drawThickProjectedLine(window, camera, Vector3(-0.24f, 1.66f, z), Vector3(0.24f, 1.66f, z), 20.0f, gear);
-    drawThickProjectedLine(window, camera, Vector3(-0.18f, 1.85f, z), Vector3(-0.32f, 1.47f, z), 5.0f, outline);
-    drawThickProjectedLine(window, camera, Vector3(0.18f, 1.85f, z), Vector3(0.32f, 1.47f, z), 5.0f, outline);
-    drawThickProjectedLine(window, camera, Vector3(-0.32f, 1.45f, z), Vector3(-0.56f, 1.12f, z + 0.06f), 7.0f, gear);
-    drawThickProjectedLine(window, camera, Vector3(0.32f, 1.45f, z), Vector3(0.56f, 1.12f, z + 0.06f), 7.0f, gear);
-    drawThickProjectedLine(window, camera, Vector3(-0.16f, 1.30f, z), Vector3(-0.42f, 0.70f, z + 0.10f), 8.0f, gear);
-    drawThickProjectedLine(window, camera, Vector3(0.16f, 1.30f, z), Vector3(0.42f, 0.70f, z + 0.10f), 8.0f, gear);
-    drawProjectedDot(window, camera, Vector3(-0.58f, 1.26f, z - 0.08f), 13.0f, mitt);
-}
 
 PitchResult classifyPitchResult(const Vector3& platePosition) {
     bool inHorizontalZone = std::abs(platePosition.x - strikeZoneCenter.x) <= strikeZoneHalfWidth;
@@ -943,7 +928,12 @@ int main() {
     Mesh3D baseballMesh = BaseballVisual3D::makeMesh(fullQuality ? 48 : 28, fullQuality ? 96 : 48);
     std::vector<SeamPoint3D> seamA = BaseballVisual3D::makeSeamLoop(false);
     std::vector<SeamPoint3D> seamB = BaseballVisual3D::makeSeamLoop(true);
+    // detail 1 = balanced poly count for software raster with two full figures.
+    Mesh3D pitcherMesh = BaseballPlayer3D::pitcher(fullQuality ? 1 : 0);
+    Mesh3D catcherMesh = BaseballPlayer3D::catcher(fullQuality ? 1 : 0);
     RasterMeshRenderCache renderCache;
+    RasterMeshRenderCache pitcherCache;
+    RasterMeshRenderCache catcherCache;
     renderCache.reserveFor(baseballMesh);
 
     std::array<PitchProfile, 5> pitches = makePitchProfiles();
@@ -1020,7 +1010,11 @@ int main() {
                 if (key->code == sf::Keyboard::Key::Q) {
                     fullQuality = !fullQuality;
                     baseballMesh = BaseballVisual3D::makeMesh(fullQuality ? 48 : 28, fullQuality ? 96 : 48);
+                    pitcherMesh = BaseballPlayer3D::pitcher(fullQuality ? 1 : 0);
+                    catcherMesh = BaseballPlayer3D::catcher(fullQuality ? 1 : 0);
                     renderCache.reserveFor(baseballMesh);
+                    pitcherCache.reserveFor(pitcherMesh);
+                    catcherCache.reserveFor(catcherMesh);
                     // Full quality always wants coverage AA; fast mode keeps current AA flag.
                     if (fullQuality) {
                         antiAliasingEnabled = true;
@@ -1198,8 +1192,36 @@ int main() {
             Matrix4::rotationX(spinX) *
             Matrix4::scale(Vector3(baseballRadius, baseballRadius, baseballRadius));
 
+        // Pitcher on the mound, facing the plate (+Z). Slight rubber offset.
+        Matrix4 pitcherTransform =
+            Matrix4::translation(Vector3(0.0f, 0.0f, moundZ + 0.15f)) *
+            Matrix4::rotationY(0.0f);
+
+        // Catcher crouch behind plate, model faces -Z toward mound so rotate 180°.
+        Matrix4 catcherTransform =
+            Matrix4::translation(Vector3(0.05f, 0.0f, plateZ + 0.95f)) *
+            Matrix4::rotationY(pi);
+
         frameBuffer.clear(sf::Color(5, 8, 14));
         frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
+
+        // Figures at native resolution (no full-body supersample) for frame budget.
+        rasterizeMeshTriangles(
+            frameBuffer,
+            camera,
+            pitcherMesh,
+            pitcherTransform,
+            sf::Color(230, 230, 235),
+            pitcherCache
+        );
+        rasterizeMeshTriangles(
+            frameBuffer,
+            camera,
+            catcherMesh,
+            catcherTransform,
+            sf::Color(40, 50, 70),
+            catcherCache
+        );
         rasterizeMeshTrianglesSupersampled(
             frameBuffer,
             camera,
@@ -1217,7 +1239,6 @@ int main() {
 
         drawFieldGuide(window, overlayCamera);
         drawHomePlate(window, overlayCamera);
-        drawCatcherSilhouette(window, overlayCamera);
         drawCatcherTarget(window, overlayCamera, aimPoint, pitches[selectedPitch]);
         drawProjectedPolyline(window, overlayCamera, trail, pitches[activePitch].color);
         drawStrikeZone(window, overlayCamera, aimPoint, pitches[selectedPitch]);
