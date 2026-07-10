@@ -20,6 +20,7 @@
 #include "rendering/FrameBuffer.h"
 #include "rendering/Mesh3D.h"
 #include "rendering/Rasterizer3D.h"
+#include "rendering/BaseballVisual3D.h"
 
 namespace {
 
@@ -38,11 +39,6 @@ const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
 const Vector3 boundsMinimum(-3.2f, -40.0f, -2.0f);
 const Vector3 boundsMaximum(3.2f, 3.6f, plateZ + 4.0f);
 const sf::FloatRect speedSliderTrack(sf::Vector2f(34.0f, 118.0f), sf::Vector2f(300.0f, 8.0f));
-
-struct SeamPoint {
-    Vector3 position;
-    Vector3 side;
-};
 
 struct PitchProfile {
     char hotkey;
@@ -189,66 +185,6 @@ float horizontalAimDeltaForCamera(PitchCameraMode mode, float screenDirection) {
     return worldDirection * 0.1f;
 }
 
-Mesh3D makeBaseballMesh(bool fullQuality) {
-    // Higher tessellation reduces faceting; coverage AA + supersample clean remaining edges.
-    const int rings = fullQuality ? 48 : 28;
-    const int segments = fullQuality ? 96 : 48;
-    Mesh3D mesh = Mesh3D::sphere(1.0f, rings, segments);
-    mesh.triangleColors.clear();
-    mesh.triangleColors.reserve(mesh.triangles.size());
-
-    Vector3 light = Vector3(-0.35f, 0.75f, -0.55f).normalized();
-
-    for (int i = 0; i < mesh.triangles.size(); i++) {
-        Vector3 normal = mesh.triangleNormals[i].normalized();
-        float lightAmount = std::max(0.0f, normal.dot(light));
-        float shade = 0.65f + lightAmount * 0.32f;
-        float warmPanel = 0.5f + 0.5f * std::sin(normal.x * 11.0f + normal.y * 7.0f);
-
-        int red = static_cast<int>((224.0f + warmPanel * 14.0f) * shade);
-        int green = static_cast<int>((216.0f + warmPanel * 12.0f) * shade);
-        int blue = static_cast<int>((200.0f + warmPanel * 10.0f) * shade);
-
-        mesh.triangleColors.push_back(sf::Color(
-            static_cast<std::uint8_t>(std::clamp(red, 0, 255)),
-            static_cast<std::uint8_t>(std::clamp(green, 0, 255)),
-            static_cast<std::uint8_t>(std::clamp(blue, 0, 255))
-        ));
-    }
-
-    return mesh;
-}
-
-std::vector<SeamPoint> makeSeamLoop(bool mirrored) {
-    const int pointCount = 180;
-    std::vector<Vector3> positions;
-    positions.reserve(pointCount);
-    std::vector<SeamPoint> points;
-    points.reserve(pointCount);
-
-    for (int i = 0; i < pointCount; i++) {
-        float t = static_cast<float>(i) / pointCount * pi * 2.0f;
-        float wave = 0.42f * std::sin(t * 2.0f);
-
-        if (mirrored) {
-            wave = -wave;
-        }
-
-        positions.push_back(Vector3(std::cos(t), wave, std::sin(t)).normalized());
-    }
-
-    for (int i = 0; i < pointCount; i++) {
-        Vector3 previous = positions[(i + pointCount - 1) % pointCount];
-        Vector3 next = positions[(i + 1) % pointCount];
-        Vector3 tangent = (next - previous).normalized();
-        Vector3 normal = positions[i].normalized();
-        Vector3 side = normal.cross(tangent).normalized();
-        points.push_back(SeamPoint{normal * 1.018f, side});
-    }
-
-    return points;
-}
-
 ProjectedPoint3D project(
     const Camera3D& camera,
     const sf::RenderWindow& window,
@@ -333,13 +269,13 @@ void drawBaseballSeams(
     sf::RenderWindow& window,
     const Camera3D& camera,
     const Matrix4& transform,
-    const std::vector<SeamPoint>& seamA,
-    const std::vector<SeamPoint>& seamB
+    const std::vector<SeamPoint3D>& seamA,
+    const std::vector<SeamPoint3D>& seamB
 ) {
-    auto drawSeam = [&](const std::vector<SeamPoint>& seam) {
+    auto drawSeam = [&](const std::vector<SeamPoint3D>& seam) {
         for (int i = 0; i < seam.size(); i++) {
-            const SeamPoint& current = seam[i];
-            const SeamPoint& next = seam[(i + 1) % seam.size()];
+            const SeamPoint3D& current = seam[i];
+            const SeamPoint3D& next = seam[(i + 1) % seam.size()];
             Vector3 midpoint = (current.position + next.position).normalized();
 
             if (!surfaceFacesCamera(camera, transform, midpoint)) {
@@ -357,7 +293,7 @@ void drawBaseballSeams(
         }
 
         for (int i = 0; i < seam.size(); i += 9) {
-            const SeamPoint& point = seam[i];
+            const SeamPoint3D& point = seam[i];
 
             if (!surfaceFacesCamera(camera, transform, point.position.normalized())) {
                 continue;
@@ -974,7 +910,7 @@ int main() {
     bool fullQuality = true;
     bool antiAliasingEnabled = true;
     Rasterizer3D::setAntiAliasingEnabled(antiAliasingEnabled);
-    DemoFpsCounter fpsCounter("Pitching Simulator | Q quality | AA on | FULL");
+    DemoFpsCounter fpsCounter("Pitching Simulator | Q quality | AA on | FULL (ball 2x)");
 
     sf::Font font;
     bool fontLoaded = loadUiFont(font);
@@ -989,8 +925,8 @@ int main() {
     auto qualityTitle = [&]() {
         if (fullQuality) {
             return antiAliasingEnabled
-                ? "Pitching Simulator | Q quality | AA on | FULL 2x"
-                : "Pitching Simulator | Q quality | AA off | FULL 2x";
+                ? "Pitching Simulator | Q quality | AA on | FULL ball-2x"
+                : "Pitching Simulator | Q quality | AA off | FULL ball-2x";
         }
 
         return antiAliasingEnabled
@@ -1004,9 +940,9 @@ int main() {
     PitchCameraMode cameraMode = PitchCameraMode::Overview;
     applyCameraMode(camera, cameraMode);
 
-    Mesh3D baseballMesh = makeBaseballMesh(fullQuality);
-    std::vector<SeamPoint> seamA = makeSeamLoop(false);
-    std::vector<SeamPoint> seamB = makeSeamLoop(true);
+    Mesh3D baseballMesh = BaseballVisual3D::makeMesh(fullQuality ? 48 : 28, fullQuality ? 96 : 48);
+    std::vector<SeamPoint3D> seamA = BaseballVisual3D::makeSeamLoop(false);
+    std::vector<SeamPoint3D> seamB = BaseballVisual3D::makeSeamLoop(true);
     RasterMeshRenderCache renderCache;
     renderCache.reserveFor(baseballMesh);
 
@@ -1083,7 +1019,7 @@ int main() {
 
                 if (key->code == sf::Keyboard::Key::Q) {
                     fullQuality = !fullQuality;
-                    baseballMesh = makeBaseballMesh(fullQuality);
+                    baseballMesh = BaseballVisual3D::makeMesh(fullQuality ? 48 : 28, fullQuality ? 96 : 48);
                     renderCache.reserveFor(baseballMesh);
                     // Full quality always wants coverage AA; fast mode keeps current AA flag.
                     if (fullQuality) {
@@ -1264,23 +1200,20 @@ int main() {
 
         frameBuffer.clear(sf::Color(5, 8, 14));
         frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
-        rasterizeMeshTriangles(
+        rasterizeMeshTrianglesSupersampled(
             frameBuffer,
             camera,
             baseballMesh,
             baseballTransform,
             sf::Color(230, 220, 205),
-            renderCache
+            renderCache,
+            ballSuperSampleForQuality(fullQuality)
         );
 
         window.clear();
         frameBuffer.present(window);
 
         Camera3D overlayCamera = camera;
-        overlayCamera.fieldOfView =
-            camera.fieldOfView *
-            static_cast<float>(window.getSize().x) /
-            static_cast<float>(frameBuffer.getWidth());
 
         drawFieldGuide(window, overlayCamera);
         drawHomePlate(window, overlayCamera);

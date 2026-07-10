@@ -70,6 +70,16 @@ public:
     float getDepth(int x, int y) const;
     void present(sf::RenderWindow& window);
 
+    // Box-filter downsample from this buffer into dest at (destX, destY).
+    // src covers a region that maps 1:1 in aspect to destW x destH after scale.
+    void blitDownsampleTo(
+        FrameBuffer& dest,
+        int destX,
+        int destY,
+        int destW,
+        int destH
+    ) const;
+
 private:
     int width = 0;
     int height = 0;

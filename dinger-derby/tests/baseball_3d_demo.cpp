@@ -15,6 +15,7 @@
 #include "rendering/FrameBuffer.h"
 #include "rendering/Mesh3D.h"
 #include "rendering/Rasterizer3D.h"
+#include "rendering/BaseballVisual3D.h"
 
 namespace {
 
@@ -24,11 +25,6 @@ constexpr float baseballRadius = 0.42f;
 const Vector3 boxMinimum(-3.2f, -2.2f, -2.0f);
 const Vector3 boxMaximum(3.2f, 2.2f, 4.0f);
 const Vector3 boxCenter(0.0f, 0.0f, 1.0f);
-
-struct SeamPoint {
-    Vector3 position;
-    Vector3 side;
-};
 
 void resetBaseball(Body3D& baseball, PhysicsWorld3D& world) {
     world = PhysicsWorld3D();
@@ -61,71 +57,6 @@ void updateOrbitCamera(Camera3D& camera, float yaw, float pitch, float distance)
     camera.rotation.y = std::atan2(toTarget.x, toTarget.z);
     camera.rotation.x = -std::atan2(toTarget.y, horizontal);
     camera.rotation.z = 0.0f;
-}
-
-Mesh3D makeBaseballMesh() {
-    Mesh3D mesh = Mesh3D::sphere(1.0f, 36, 72);
-    mesh.triangleColors.clear();
-    mesh.triangleColors.reserve(mesh.triangles.size());
-
-    Vector3 light = Vector3(-0.35f, 0.75f, -0.55f).normalized();
-
-    for (int i = 0; i < mesh.triangles.size(); i++) {
-        Vector3 normal = mesh.triangleNormals[i].normalized();
-        float lightAmount = std::max(0.0f, normal.dot(light));
-        float shade = 0.62f + lightAmount * 0.34f;
-        float warmPanel = 0.5f + 0.5f * std::sin(normal.x * 11.0f + normal.y * 7.0f);
-
-        int red = static_cast<int>((222.0f + warmPanel * 16.0f) * shade);
-        int green = static_cast<int>((214.0f + warmPanel * 14.0f) * shade);
-        int blue = static_cast<int>((198.0f + warmPanel * 10.0f) * shade);
-
-        mesh.triangleColors.push_back(sf::Color(
-            static_cast<std::uint8_t>(std::clamp(red, 0, 255)),
-            static_cast<std::uint8_t>(std::clamp(green, 0, 255)),
-            static_cast<std::uint8_t>(std::clamp(blue, 0, 255))
-        ));
-    }
-
-    return mesh;
-}
-
-std::vector<SeamPoint> makeSeamLoop(bool mirrored) {
-    const int pointCount = 220;
-    std::vector<SeamPoint> points;
-    points.reserve(pointCount);
-    std::vector<Vector3> positions;
-    positions.reserve(pointCount);
-
-    for (int i = 0; i < pointCount; i++) {
-        float t = static_cast<float>(i) / pointCount * pi * 2.0f;
-        float wave = 0.42f * std::sin(t * 2.0f);
-
-        if (mirrored) {
-            wave = -wave;
-        }
-
-        positions.push_back(Vector3(
-            std::cos(t),
-            wave,
-            std::sin(t)
-        ).normalized());
-    }
-
-    for (int i = 0; i < pointCount; i++) {
-        Vector3 previous = positions[(i + pointCount - 1) % pointCount];
-        Vector3 next = positions[(i + 1) % pointCount];
-        Vector3 tangent = (next - previous).normalized();
-        Vector3 normal = positions[i].normalized();
-        Vector3 side = normal.cross(tangent).normalized();
-
-        points.push_back(SeamPoint{
-            normal * 1.018f,
-            side
-        });
-    }
-
-    return points;
 }
 
 void drawThickProjectedLine(
@@ -231,16 +162,16 @@ void drawBaseballSeams(
     sf::RenderWindow& window,
     const Camera3D& camera,
     const Matrix4& transform,
-    const std::vector<SeamPoint>& seamA,
-    const std::vector<SeamPoint>& seamB
+    const std::vector<SeamPoint3D>& seamA,
+    const std::vector<SeamPoint3D>& seamB
 ) {
-    auto drawSeam = [&](const std::vector<SeamPoint>& seam) {
+    auto drawSeam = [&](const std::vector<SeamPoint3D>& seam) {
         sf::Color seamColor(170, 32, 38, 230);
         sf::Color stitchColor(130, 18, 26, 240);
 
         for (int i = 0; i < seam.size(); i++) {
-            const SeamPoint& current = seam[i];
-            const SeamPoint& next = seam[(i + 1) % seam.size()];
+            const SeamPoint3D& current = seam[i];
+            const SeamPoint3D& next = seam[(i + 1) % seam.size()];
             Vector3 midpoint = (current.position + next.position).normalized();
 
             if (!surfaceFacesCamera(camera, transform, midpoint)) {
@@ -258,7 +189,7 @@ void drawBaseballSeams(
         }
 
         for (int i = 0; i < seam.size(); i += 7) {
-            const SeamPoint& point = seam[i];
+            const SeamPoint3D& point = seam[i];
             if (!surfaceFacesCamera(camera, transform, point.position.normalized())) {
                 continue;
             }
@@ -305,9 +236,9 @@ int main() {
     sf::Vector2i previousMousePosition;
     updateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
 
-    Mesh3D baseball = makeBaseballMesh();
-    std::vector<SeamPoint> seamA = makeSeamLoop(false);
-    std::vector<SeamPoint> seamB = makeSeamLoop(true);
+    Mesh3D baseball = BaseballVisual3D::makeMesh(40, 80);
+    std::vector<SeamPoint3D> seamA = BaseballVisual3D::makeSeamLoop(false);
+    std::vector<SeamPoint3D> seamB = BaseballVisual3D::makeSeamLoop(true);
     RasterMeshRenderCache renderCache;
     PhysicsWorld3D world;
     Body3D baseballBody;
@@ -417,13 +348,14 @@ int main() {
         frameBuffer.clear(sf::Color(5, 8, 14));
         frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
 
-        rasterizeMeshTriangles(
+        rasterizeMeshTrianglesSupersampled(
             frameBuffer,
             camera,
             baseball,
             baseballTransform,
             sf::Color(230, 220, 205),
-            renderCache
+            renderCache,
+            2.0f
         );
 
         window.clear();

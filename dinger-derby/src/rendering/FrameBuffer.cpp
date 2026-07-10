@@ -2,6 +2,7 @@
 
 #include <SFML/Graphics/Sprite.hpp>
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 
 FrameBuffer::FrameBuffer() = default;
@@ -85,6 +86,74 @@ void FrameBuffer::present(sf::RenderWindow& window) {
     ));
 
     window.draw(sprite);
+}
+
+void FrameBuffer::blitDownsampleTo(
+    FrameBuffer& dest,
+    int destX,
+    int destY,
+    int destW,
+    int destH
+) const {
+    if (destW <= 0 || destH <= 0 || width <= 0 || height <= 0) {
+        return;
+    }
+
+    for (int dy = 0; dy < destH; dy++) {
+        int outY = destY + dy;
+        if (outY < 0 || outY >= dest.getHeight()) {
+            continue;
+        }
+
+        int srcY0 = dy * height / destH;
+        int srcY1 = std::max(srcY0 + 1, (dy + 1) * height / destH);
+        srcY1 = std::min(srcY1, height);
+
+        for (int dx = 0; dx < destW; dx++) {
+            int outX = destX + dx;
+            if (outX < 0 || outX >= dest.getWidth()) {
+                continue;
+            }
+
+            int srcX0 = dx * width / destW;
+            int srcX1 = std::max(srcX0 + 1, (dx + 1) * width / destW);
+            srcX1 = std::min(srcX1, width);
+
+            int count = 0;
+            int red = 0;
+            int green = 0;
+            int blue = 0;
+            float nearestDepth = std::numeric_limits<float>::infinity();
+
+            for (int sy = srcY0; sy < srcY1; sy++) {
+                for (int sx = srcX0; sx < srcX1; sx++) {
+                    int index = sy * width + sx;
+                    float depth = depthBuffer[index];
+                    if (depth >= std::numeric_limits<float>::infinity() * 0.5f) {
+                        continue;
+                    }
+
+                    sf::Color color = unpackColor(pixels[index]);
+                    red += color.r;
+                    green += color.g;
+                    blue += color.b;
+                    nearestDepth = std::min(nearestDepth, depth);
+                    count++;
+                }
+            }
+
+            if (count == 0) {
+                continue;
+            }
+
+            sf::Color averaged(
+                static_cast<std::uint8_t>(red / count),
+                static_cast<std::uint8_t>(green / count),
+                static_cast<std::uint8_t>(blue / count)
+            );
+            dest.setPixelFast(outX, outY, averaged, nearestDepth);
+        }
+    }
 }
 
 int FrameBuffer::pixelIndex(int x, int y) const {
