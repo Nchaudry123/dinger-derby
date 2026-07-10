@@ -1,7 +1,7 @@
 #include <cassert>
 
-#include "../src/rendering/FrameBuffer.h"
-#include "../src/rendering/Rasterizer3D.h"
+#include "rendering/FrameBuffer.h"
+#include "rendering/Rasterizer3D.h"
 
 namespace {
 

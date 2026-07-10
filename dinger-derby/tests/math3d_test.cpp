@@ -1,8 +1,8 @@
 #include <cassert>
 #include <cmath>
 
-#include "../src/math/Matrix4.h"
-#include "../src/math/Vector3.h"
+#include "math/Matrix4.h"
+#include "math/Vector3.h"
 
 namespace {
 

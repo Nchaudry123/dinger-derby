@@ -1,7 +1,7 @@
 #include <cassert>
 #include <cmath>
 
-#include "../src/rendering/Camera3D.h"
+#include "rendering/Camera3D.h"
 
 namespace {
 

@@ -12,14 +12,14 @@
 
 #include "DemoFpsCounter.h"
 #include "RasterDemo3D.h"
-#include "../src/math/Matrix4.h"
-#include "../src/math/Vector3.h"
-#include "../src/physics/Body3D.h"
-#include "../src/physics/PhysicsWorld3D.h"
-#include "../src/rendering/Camera3D.h"
-#include "../src/rendering/FrameBuffer.h"
-#include "../src/rendering/Mesh3D.h"
-#include "../src/rendering/Rasterizer3D.h"
+#include "math/Matrix4.h"
+#include "math/Vector3.h"
+#include "physics/Body3D.h"
+#include "physics/PhysicsWorld3D.h"
+#include "rendering/Camera3D.h"
+#include "rendering/FrameBuffer.h"
+#include "rendering/Mesh3D.h"
+#include "rendering/Rasterizer3D.h"
 
 namespace {
 

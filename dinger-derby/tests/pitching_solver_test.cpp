@@ -5,9 +5,9 @@
 #include <random>
 #include <string>
 
-#include "../src/math/Vector3.h"
-#include "../src/physics/AirResistance3D.h"
-#include "../src/physics/Body3D.h"
+#include "math/Vector3.h"
+#include "physics/AirResistance3D.h"
+#include "physics/Body3D.h"
 
 namespace {
 

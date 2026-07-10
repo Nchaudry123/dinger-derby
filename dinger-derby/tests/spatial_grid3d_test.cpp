@@ -1,7 +1,7 @@
 #include <cassert>
 #include <vector>
 
-#include "../src/rendering/SpatialGrid3D.h"
+#include "rendering/SpatialGrid3D.h"
 
 namespace {
 

@@ -1,9 +1,9 @@
 #include <cassert>
 
 #include "RasterDemo3D.h"
-#include "../src/rendering/Camera3D.h"
-#include "../src/rendering/FrameBuffer.h"
-#include "../src/rendering/Mesh3D.h"
+#include "rendering/Camera3D.h"
+#include "rendering/FrameBuffer.h"
+#include "rendering/Mesh3D.h"
 
 namespace {
 

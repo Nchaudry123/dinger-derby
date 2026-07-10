@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "../src/physics/SoftBodyMesh3D.h"
+#include "physics/SoftBodyMesh3D.h"
 
 namespace {
 

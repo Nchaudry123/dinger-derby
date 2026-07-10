@@ -7,13 +7,13 @@
 
 #include "DemoFpsCounter.h"
 #include "RasterDemo3D.h"
-#include "../src/math/Matrix4.h"
-#include "../src/math/Vector3.h"
-#include "../src/rendering/Camera3D.h"
-#include "../src/rendering/FrameBuffer.h"
-#include "../src/rendering/Mesh3D.h"
-#include "../src/rendering/Rasterizer3D.h"
-#include "../src/rendering/SpatialGrid3D.h"
+#include "math/Matrix4.h"
+#include "math/Vector3.h"
+#include "rendering/Camera3D.h"
+#include "rendering/FrameBuffer.h"
+#include "rendering/Mesh3D.h"
+#include "rendering/Rasterizer3D.h"
+#include "rendering/SpatialGrid3D.h"
 
 namespace {
 

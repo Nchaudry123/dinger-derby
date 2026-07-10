@@ -3,8 +3,8 @@
 #include <cmath>
 
 #include "DemoFpsCounter.h"
-#include "../src/physics/Body2D.h"
-#include "../src/physics/PhysicsWorld2D.h"
+#include "physics/Body2D.h"
+#include "physics/PhysicsWorld2D.h"
 
 namespace {
 

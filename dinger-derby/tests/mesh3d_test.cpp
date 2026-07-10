@@ -1,7 +1,7 @@
 #include <cassert>
 #include <cmath>
 
-#include "../src/rendering/Mesh3D.h"
+#include "rendering/Mesh3D.h"
 
 namespace {
 

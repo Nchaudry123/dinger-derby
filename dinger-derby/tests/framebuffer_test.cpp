@@ -1,7 +1,7 @@
 #include <cassert>
 #include <cmath>
 
-#include "../src/rendering/FrameBuffer.h"
+#include "rendering/FrameBuffer.h"
 
 namespace {
 

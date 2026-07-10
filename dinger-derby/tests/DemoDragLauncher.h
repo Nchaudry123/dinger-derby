@@ -2,7 +2,7 @@
 
 #include <SFML/Graphics.hpp>
 
-#include "../src/physics/Body2D.h"
+#include "physics/Body2D.h"
 
 class DemoDragLauncher {
 public:

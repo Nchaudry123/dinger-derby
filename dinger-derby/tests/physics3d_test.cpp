@@ -1,9 +1,9 @@
 #include <cassert>
 #include <cmath>
 
-#include "../src/collision/Collision3D.h"
-#include "../src/physics/AirResistance3D.h"
-#include "../src/physics/PhysicsWorld3D.h"
+#include "collision/Collision3D.h"
+#include "physics/AirResistance3D.h"
+#include "physics/PhysicsWorld3D.h"
 
 namespace {
 

@@ -2,10 +2,10 @@
 
 #include <SFML/Graphics.hpp>
 
-#include "../src/math/Matrix4.h"
-#include "../src/math/Vector3.h"
-#include "../src/rendering/Mesh3D.h"
-#include "../src/rendering/SoftwareRenderer3D.h"
+#include "math/Matrix4.h"
+#include "math/Vector3.h"
+#include "rendering/Mesh3D.h"
+#include "rendering/SoftwareRenderer3D.h"
 
 inline void drawLine3D(
     sf::RenderWindow& window,
