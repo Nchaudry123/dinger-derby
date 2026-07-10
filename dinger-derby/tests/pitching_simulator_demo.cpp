@@ -1346,6 +1346,7 @@ int main() {
     Vector3 lastPlateHit = strikeZoneCenter;
     bool showLastResultMarkers = false;
     bool lastPitchWasStrike = false;
+    float lastThrownMph = 0.0f;
 
     auto rebuildSkinnedPlayers = [&]() {
         pitcherModel.skinInto(pitcherAnim.skinMatrices(), pitcherMesh);
@@ -1422,6 +1423,7 @@ int main() {
             randomGenerator
         );
         showLastResultMarkers = false;
+        lastThrownMph = currentPitchSpeedMph;
         // Small whip assist — capped so it doesn't blow aim on four-seams.
         float whip = handVelocity.magnitude();
         float whipCap = pitches[selectedPitch].hotkey == 'F' ? 1.2f : 2.2f;
@@ -1432,9 +1434,14 @@ int main() {
         ballReleased = true;
         phase = PitchPhase::Flying;
         const PitchProfile& p = pitches[selectedPitch];
-        latestResult = p.name + "  " +
-            std::to_string(static_cast<int>(p.spinRpm * currentVariation.spinRpmScale + 0.5f)) +
-            " rpm";
+        {
+            std::ostringstream flightHud;
+            flightHud << std::fixed << std::setprecision(1)
+                      << p.name << "  " << lastThrownMph << " mph  "
+                      << static_cast<int>(p.spinRpm * currentVariation.spinRpmScale + 0.5f)
+                      << " rpm";
+            latestResult = flightHud.str();
+        }
         latestResultColor = p.color;
     };
 
@@ -1665,7 +1672,13 @@ int main() {
                     lastPlateHit = baseball.position;
                     showLastResultMarkers = true;
                     lastPitchWasStrike = result.isStrike;
-                    latestResult = applyCount(count, result);
+                    {
+                        std::ostringstream call;
+                        call << std::fixed << std::setprecision(1)
+                             << applyCount(count, result)
+                             << "  ·  " << lastThrownMph << " mph";
+                        latestResult = call.str();
+                    }
                     latestResultColor = count.lastOutcome.empty() ? result.color : sf::Color(255, 220, 120);
                     if (!count.lastOutcome.empty()) {
                         latestResultColor = count.lastOutcome == "Strikeout"
@@ -1798,13 +1811,7 @@ int main() {
         drawBaseballSeams(window, overlayCamera, baseballTransform, seamA, seamB);
 
         if (fontLoaded) {
-            sf::RectangleShape panel(sf::Vector2f(460.0f, 168.0f));
-            panel.setPosition(sf::Vector2f(18.0f, 18.0f));
-            panel.setFillColor(sf::Color(5, 8, 14, 190));
-            panel.setOutlineThickness(1.0f);
-            panel.setOutlineColor(sf::Color(85, 185, 190, 115));
-            window.draw(panel);
-
+            // HUD is text-only (no background panels).
             sf::RectangleShape sliderTrack(speedSliderTrack.size);
             sliderTrack.setPosition(speedSliderTrack.position);
             sliderTrack.setFillColor(sf::Color(45, 80, 88, 210));
@@ -1861,34 +1868,21 @@ int main() {
 
             if (resultBannerTimer > 0.0f && phase == PitchPhase::Settled) {
                 float alpha = std::clamp(resultBannerTimer / 2.6f, 0.0f, 1.0f);
-                sf::RectangleShape banner(sf::Vector2f(420.0f, 64.0f));
-                banner.setPosition(sf::Vector2f(
-                    static_cast<float>(window.getSize().x) * 0.5f - 210.0f,
-                    72.0f
-                ));
-                banner.setFillColor(sf::Color(8, 14, 20, static_cast<std::uint8_t>(210 * alpha)));
-                banner.setOutlineThickness(1.5f);
-                banner.setOutlineColor(sf::Color(
-                    latestResultColor.r,
-                    latestResultColor.g,
-                    latestResultColor.b,
-                    static_cast<std::uint8_t>(220 * alpha)
-                ));
-                window.draw(banner);
-                // Split "Strike · heart · 0.9\" off target" across two lines if long.
+                // Centered result text only — no box.
                 std::string line1 = latestResult;
                 std::string line2;
                 auto sep = latestResult.find(" · ");
-                if (sep != std::string::npos && latestResult.size() > 28) {
+                if (sep != std::string::npos && latestResult.size() > 32) {
                     line1 = latestResult.substr(0, sep);
                     line2 = latestResult.substr(sep + 3);
                 }
+                const float cx = static_cast<float>(window.getSize().x) * 0.5f;
                 drawText(
                     window,
                     font,
                     line1,
                     22,
-                    sf::Vector2f(static_cast<float>(window.getSize().x) * 0.5f - 190.0f, 80.0f),
+                    sf::Vector2f(cx - 200.0f, 80.0f),
                     sf::Color(
                         latestResultColor.r,
                         latestResultColor.g,
@@ -1902,7 +1896,7 @@ int main() {
                         font,
                         line2,
                         15,
-                        sf::Vector2f(static_cast<float>(window.getSize().x) * 0.5f - 190.0f, 106.0f),
+                        sf::Vector2f(cx - 200.0f, 106.0f),
                         sf::Color(210, 220, 200, static_cast<std::uint8_t>(240 * alpha))
                     );
                 }
