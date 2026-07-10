@@ -14,7 +14,6 @@
 #include "RasterDemo3D.h"
 #include "../src/math/Matrix4.h"
 #include "../src/math/Vector3.h"
-#include "../src/physics/AirResistance3D.h"
 #include "../src/physics/Body3D.h"
 #include "../src/physics/PhysicsWorld3D.h"
 #include "../src/rendering/Camera3D.h"
@@ -383,11 +382,11 @@ void drawFieldGuide(sf::RenderWindow& window, const Camera3D& camera) {
 
 std::array<PitchProfile, 5> makePitchProfiles() {
     return {{
-        PitchProfile{'F', "Four-Seam", 96.1f, 2.0f, 0.08f, Vector3(0.02f, 0.45f, 0.0f), 0.33f, 0.15f, 1.0f, sf::Color(245, 235, 180)},
-        PitchProfile{'P', "Splitter", 91.5f, 1.8f, 0.06f, Vector3(0.08f, -3.2f, 0.0f), 0.42f, 0.68f, 1.16f, sf::Color(190, 245, 160)},
-        PitchProfile{'C', "Curve", 77.1f, 2.2f, 0.16f, Vector3(-0.18f, -2.15f, 0.0f), 0.46f, 0.46f, 1.24f, sf::Color(245, 145, 90)},
-        PitchProfile{'T', "Cutter", 91.4f, 1.9f, 0.05f, Vector3(1.2f, -0.05f, 0.0f), 0.36f, 0.45f, 1.05f, sf::Color(145, 220, 245)},
-        PitchProfile{'S', "Slider", 87.2f, 1.7f, 0.04f, Vector3(2.4f, -0.55f, 0.0f), 0.39f, 0.46f, 1.1f, sf::Color(190, 160, 245)}
+        PitchProfile{'F', "Four-Seam", 96.1f, 2.0f, 0.06f, Vector3(0.02f, 0.24f, 0.0f), 0.34f, 0.15f, 1.0f, sf::Color(245, 235, 180)},
+        PitchProfile{'P', "Splitter", 91.5f, 1.8f, 0.02f, Vector3(0.10f, -1.45f, 0.0f), 0.60f, 0.60f, 1.08f, sf::Color(190, 245, 160)},
+        PitchProfile{'C', "Curve", 77.1f, 2.2f, 0.08f, Vector3(-0.14f, -1.55f, 0.0f), 0.48f, 0.42f, 1.14f, sf::Color(245, 145, 90)},
+        PitchProfile{'T', "Cutter", 91.4f, 1.9f, 0.03f, Vector3(0.78f, -0.08f, 0.0f), 0.42f, 0.40f, 1.02f, sf::Color(145, 220, 245)},
+        PitchProfile{'S', "Slider", 87.2f, 1.7f, 0.03f, Vector3(1.65f, -0.34f, 0.0f), 0.46f, 0.42f, 1.06f, sf::Color(190, 160, 245)}
     }};
 }
 
@@ -427,49 +426,6 @@ Vector3 movementAccelerationForPitch(
     return acceleration + turbulenceForce * variation.turbulenceStrength * turbulenceRamp;
 }
 
-Vector3 predictPlatePosition(
-    const PitchProfile& pitch,
-    const PitchFlightVariation& variation,
-    const Vector3& initialVelocity
-) {
-    Body3D simulated(releasePoint + variation.releaseOffset, 0.145f);
-    simulated.setRadius(baseballRadius);
-    simulated.dragCoefficient = pitch.dragCoefficient * variation.dragScale;
-    simulated.airResistanceScale = pitch.airScale;
-    simulated.velocity = initialVelocity;
-
-    float airDensity = 0.18f * variation.dragScale;
-    float pitchAge = 0.0f;
-    Vector3 previousPosition = simulated.position;
-
-    for (int step = 0; step < 720; step++) {
-        previousPosition = simulated.position;
-        Vector3 dragForce = AirResistance3D::calculateDragForce(
-            simulated,
-            variation.airVelocity,
-            airDensity
-        );
-        Vector3 acceleration =
-            Vector3(0.0f, -9.8f, 0.0f) +
-            movementAccelerationForPitch(pitch, variation, simulated.position, pitchAge) +
-            dragForce * simulated.inverseMass();
-
-        simulated.velocity += acceleration * fixedStep;
-        simulated.position += simulated.velocity * fixedStep;
-        pitchAge += fixedStep;
-
-        if (simulated.position.z >= plateZ) {
-            float segmentLength = simulated.position.z - previousPosition.z;
-            float t = segmentLength <= 0.0f
-                ? 1.0f
-                : (plateZ - previousPosition.z) / segmentLength;
-            return previousPosition + (simulated.position - previousPosition) * std::clamp(t, 0.0f, 1.0f);
-        }
-    }
-
-    return simulated.position;
-}
-
 Vector3 calculateLaunchVelocity(
     const PitchProfile& pitch,
     const Vector3& aimPoint,
@@ -479,21 +435,25 @@ Vector3 calculateLaunchVelocity(
     float pitchSpeed = mphToWorldUnitsPerSecond(pitchSpeedMph);
     Vector3 actualReleasePoint = releasePoint + variation.releaseOffset;
     float distance = aimPoint.z - actualReleasePoint.z;
-    float flightTime = distance / pitchSpeed;
-    Vector3 velocity(
-        (aimPoint.x - actualReleasePoint.x) / flightTime,
-        (aimPoint.y - actualReleasePoint.y) / flightTime + pitch.liftCompensation + variation.liftOffset,
-        pitchSpeed
-    );
+    float flightTime = distance / std::max(1.0f, pitchSpeed);
+    float movementInfluence = std::max(0.0f, 1.0f - pitch.breakStartZ) * 0.34f;
+    float estimatedAx = pitch.breakAcceleration.x * variation.breakScale.x * movementInfluence;
+    float estimatedAy = -9.8f + pitch.breakAcceleration.y * variation.breakScale.y * movementInfluence;
+    float desiredVx = (aimPoint.x - actualReleasePoint.x - 0.5f * estimatedAx * flightTime * flightTime) / flightTime;
+    float desiredVy =
+        (aimPoint.y - actualReleasePoint.y - 0.5f * estimatedAy * flightTime * flightTime) / flightTime +
+        pitch.liftCompensation +
+        variation.liftOffset;
 
-    for (int i = 0; i < 6; i++) {
-        Vector3 predicted = predictPlatePosition(pitch, variation, velocity);
-        Vector3 error = aimPoint - predicted;
-        velocity.x += error.x / flightTime * 0.85f;
-        velocity.y += error.y / flightTime * 0.85f;
-    }
+    float maxSideVelocity = pitchSpeed * 0.16f;
+    float minVerticalVelocity = pitchSpeed * std::tan(-5.5f * pi / 180.0f);
+    float maxVerticalVelocity = pitchSpeed * std::tan(4.5f * pi / 180.0f);
+    desiredVx = std::clamp(desiredVx, -maxSideVelocity, maxSideVelocity);
+    desiredVy = std::clamp(desiredVy, minVerticalVelocity, maxVerticalVelocity);
 
-    return velocity;
+    float forwardVelocitySquared = pitchSpeed * pitchSpeed - desiredVx * desiredVx - desiredVy * desiredVy;
+    float desiredVz = std::sqrt(std::max(forwardVelocitySquared, pitchSpeed * pitchSpeed * 0.82f));
+    return Vector3(desiredVx, desiredVy, desiredVz);
 }
 
 float rollPitchSpeed(
@@ -509,11 +469,11 @@ PitchFlightVariation rollPitchVariation(
     const PitchProfile& pitch,
     std::mt19937& randomGenerator
 ) {
-    float movementNoise = pitch.hotkey == 'F' ? 0.08f : 0.16f;
-    float turbulence = pitch.hotkey == 'P' ? 0.52f : 0.26f;
+    float movementNoise = pitch.hotkey == 'F' ? 0.05f : 0.10f;
+    float turbulence = pitch.hotkey == 'P' ? 0.24f : 0.18f;
 
     if (pitch.hotkey == 'C') {
-        turbulence = 0.18f;
+        turbulence = 0.16f;
     }
 
     return PitchFlightVariation{
@@ -533,7 +493,7 @@ PitchFlightVariation rollPitchVariation(
             1.0f
         ),
         randomRange(randomGenerator, 0.94f, 1.08f),
-        randomRange(randomGenerator, -0.08f, 0.08f),
+        randomRange(randomGenerator, -0.035f, 0.035f),
         randomRange(randomGenerator, 0.0f, pi * 2.0f),
         randomRange(randomGenerator, turbulence * 0.45f, turbulence)
     };
@@ -571,24 +531,6 @@ bool freezePitchAtPlate(Body3D& baseball, std::vector<Vector3>& trail) {
     }
 
     baseball.position.z = plateZ;
-    baseball.velocity = Vector3();
-    baseball.acceleration = Vector3();
-
-    if (trail.empty() || (baseball.position - trail.back()).magnitude() > 0.01f) {
-        trail.push_back(baseball.position);
-    }
-
-    return true;
-}
-
-bool freezePitchAtGround(Body3D& baseball, std::vector<Vector3>& trail) {
-    float groundY = boundsMinimum.y + baseball.radius;
-
-    if (baseball.position.y > groundY) {
-        return false;
-    }
-
-    baseball.position.y = groundY;
     baseball.velocity = Vector3();
     baseball.acceleration = Vector3();
 

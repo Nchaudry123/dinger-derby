@@ -42,11 +42,11 @@ struct PitchFlightVariation {
 
 std::array<PitchProfile, 5> makePitchProfiles() {
     return {{
-        PitchProfile{'F', "Four-Seam", 96.1f, 2.0f, 0.08f, Vector3(0.02f, 0.45f, 0.0f), 0.33f, 0.15f, 1.0f},
-        PitchProfile{'P', "Splitter", 91.5f, 1.8f, 0.06f, Vector3(0.08f, -3.2f, 0.0f), 0.42f, 0.68f, 1.16f},
-        PitchProfile{'C', "Curve", 77.1f, 2.2f, 0.16f, Vector3(-0.18f, -2.15f, 0.0f), 0.46f, 0.46f, 1.24f},
-        PitchProfile{'T', "Cutter", 91.4f, 1.9f, 0.05f, Vector3(1.2f, -0.05f, 0.0f), 0.36f, 0.45f, 1.05f},
-        PitchProfile{'S', "Slider", 87.2f, 1.7f, 0.04f, Vector3(2.4f, -0.55f, 0.0f), 0.39f, 0.46f, 1.1f}
+        PitchProfile{'F', "Four-Seam", 96.1f, 2.0f, 0.06f, Vector3(0.02f, 0.24f, 0.0f), 0.34f, 0.15f, 1.0f},
+        PitchProfile{'P', "Splitter", 91.5f, 1.8f, 0.02f, Vector3(0.10f, -1.45f, 0.0f), 0.60f, 0.60f, 1.08f},
+        PitchProfile{'C', "Curve", 77.1f, 2.2f, 0.08f, Vector3(-0.14f, -1.55f, 0.0f), 0.48f, 0.42f, 1.14f},
+        PitchProfile{'T', "Cutter", 91.4f, 1.9f, 0.03f, Vector3(0.78f, -0.08f, 0.0f), 0.42f, 0.40f, 1.02f},
+        PitchProfile{'S', "Slider", 87.2f, 1.7f, 0.03f, Vector3(1.65f, -0.34f, 0.0f), 0.46f, 0.42f, 1.06f}
     }};
 }
 
@@ -85,7 +85,13 @@ Vector3 movementAccelerationForPitch(
     return acceleration + turbulenceForce * variation.turbulenceStrength * turbulenceRamp;
 }
 
-Vector3 predictPlatePosition(
+struct FlightResult {
+    Vector3 platePosition;
+    float apexY = releasePoint.y;
+    bool crossedPlate = false;
+};
+
+FlightResult simulatePitch(
     const PitchProfile& pitch,
     const PitchFlightVariation& variation,
     const Vector3& initialVelocity
@@ -99,6 +105,7 @@ Vector3 predictPlatePosition(
     float airDensity = 0.18f * variation.dragScale;
     float pitchAge = 0.0f;
     Vector3 previousPosition = simulated.position;
+    float apexY = simulated.position.y;
 
     for (int step = 0; step < 720; step++) {
         previousPosition = simulated.position;
@@ -115,17 +122,22 @@ Vector3 predictPlatePosition(
         simulated.velocity += acceleration * fixedStep;
         simulated.position += simulated.velocity * fixedStep;
         pitchAge += fixedStep;
+        apexY = std::max(apexY, simulated.position.y);
 
         if (simulated.position.z >= plateZ) {
             float segmentLength = simulated.position.z - previousPosition.z;
             float t = segmentLength <= 0.0f
                 ? 1.0f
                 : (plateZ - previousPosition.z) / segmentLength;
-            return previousPosition + (simulated.position - previousPosition) * std::clamp(t, 0.0f, 1.0f);
+            return FlightResult{
+                previousPosition + (simulated.position - previousPosition) * std::clamp(t, 0.0f, 1.0f),
+                apexY,
+                true
+            };
         }
     }
 
-    return simulated.position;
+    return FlightResult{simulated.position, apexY, false};
 }
 
 Vector3 calculateLaunchVelocity(
@@ -136,24 +148,28 @@ Vector3 calculateLaunchVelocity(
     float pitchSpeed = mphToWorldUnitsPerSecond(pitchSpeedMph);
     Vector3 actualReleasePoint = releasePoint + variation.releaseOffset;
     float distance = aimPoint.z - actualReleasePoint.z;
-    float flightTime = distance / pitchSpeed;
-    Vector3 velocity(
-        (aimPoint.x - actualReleasePoint.x) / flightTime,
-        (aimPoint.y - actualReleasePoint.y) / flightTime + pitch.liftCompensation + variation.liftOffset,
-        pitchSpeed
-    );
+    float flightTime = distance / std::max(1.0f, pitchSpeed);
+    float movementInfluence = std::max(0.0f, 1.0f - pitch.breakStartZ) * 0.34f;
+    float estimatedAx = pitch.breakAcceleration.x * variation.breakScale.x * movementInfluence;
+    float estimatedAy = -9.8f + pitch.breakAcceleration.y * variation.breakScale.y * movementInfluence;
+    float desiredVx = (aimPoint.x - actualReleasePoint.x - 0.5f * estimatedAx * flightTime * flightTime) / flightTime;
+    float desiredVy =
+        (aimPoint.y - actualReleasePoint.y - 0.5f * estimatedAy * flightTime * flightTime) / flightTime +
+        pitch.liftCompensation +
+        variation.liftOffset;
 
-    for (int i = 0; i < 6; i++) {
-        Vector3 predicted = predictPlatePosition(pitch, variation, velocity);
-        Vector3 error = aimPoint - predicted;
-        velocity.x += error.x / flightTime * 0.85f;
-        velocity.y += error.y / flightTime * 0.85f;
-    }
+    float maxSideVelocity = pitchSpeed * 0.16f;
+    float minVerticalVelocity = pitchSpeed * std::tan(-5.5f * 3.1415926535f / 180.0f);
+    float maxVerticalVelocity = pitchSpeed * std::tan(4.5f * 3.1415926535f / 180.0f);
+    desiredVx = std::clamp(desiredVx, -maxSideVelocity, maxSideVelocity);
+    desiredVy = std::clamp(desiredVy, minVerticalVelocity, maxVerticalVelocity);
 
-    return velocity;
+    float forwardVelocitySquared = pitchSpeed * pitchSpeed - desiredVx * desiredVx - desiredVy * desiredVy;
+    float desiredVz = std::sqrt(std::max(forwardVelocitySquared, pitchSpeed * pitchSpeed * 0.82f));
+    return Vector3(desiredVx, desiredVy, desiredVz);
 }
 
-void testYamamotoPitchesReachPlateTarget() {
+void testYamamotoPitchesUseRealisticReleaseAndReachPlate() {
     std::array<PitchProfile, 5> pitches = makePitchProfiles();
     std::array<PitchFlightVariation, 3> variations = {{
         PitchFlightVariation{
@@ -161,18 +177,18 @@ void testYamamotoPitchesReachPlateTarget() {
             Vector3(-0.22f, -0.04f, -0.12f),
             Vector3(0.84f, 0.84f, 1.0f),
             0.94f,
-            -0.08f,
+            -0.035f,
             0.0f,
-            0.12f
+            0.08f
         },
         PitchFlightVariation{
             Vector3(0.045f, 0.035f, 0.0f),
             Vector3(0.22f, 0.04f, 0.08f),
             Vector3(1.16f, 1.16f, 1.0f),
             1.08f,
-            0.08f,
+            0.035f,
             1.7f,
-            0.52f
+            0.24f
         },
         PitchFlightVariation{
             Vector3(0.0f, 0.0f, 0.0f),
@@ -181,18 +197,25 @@ void testYamamotoPitchesReachPlateTarget() {
             1.0f,
             0.0f,
             3.1f,
-            0.28f
+            0.16f
         }
     }};
 
     for (const PitchProfile& pitch : pitches) {
         for (const PitchFlightVariation& variation : variations) {
             Vector3 velocity = calculateLaunchVelocity(pitch, pitch.baseSpeedMph, variation);
-            Vector3 platePosition = predictPlatePosition(pitch, variation, velocity);
+            FlightResult result = simulatePitch(pitch, variation, velocity);
+            float horizontalSpeed = std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+            float launchAngleDegrees = std::atan2(velocity.y, horizontalSpeed) * 180.0f / 3.1415926535f;
 
-            assert(platePosition.z >= plateZ - 0.01f);
-            assert(std::abs(platePosition.x - aimPoint.x) < 0.08f);
-            assert(std::abs(platePosition.y - aimPoint.y) < 0.08f);
+            assert(result.crossedPlate);
+            assert(result.platePosition.z >= plateZ - 0.01f);
+            assert(result.platePosition.y > 0.15f);
+            assert(result.platePosition.y < 2.95f);
+            assert(std::abs(result.platePosition.x - aimPoint.x) < 1.05f);
+            assert(launchAngleDegrees > -5.7f);
+            assert(launchAngleDegrees < 4.7f);
+            assert(result.apexY < releasePoint.y + 1.25f);
         }
     }
 }
@@ -200,6 +223,6 @@ void testYamamotoPitchesReachPlateTarget() {
 }
 
 int main() {
-    testYamamotoPitchesReachPlateTarget();
+    testYamamotoPitchesUseRealisticReleaseAndReachPlate();
     return 0;
 }
