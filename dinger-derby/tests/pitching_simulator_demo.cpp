@@ -169,12 +169,25 @@ void applyCameraMode(Camera3D& camera, PitchCameraMode mode) {
             camera.fieldOfView = 1450.0f;
             break;
         case PitchCameraMode::Catcher:
-            lookAt(camera, Vector3(0.0f, 1.42f, plateZ + 2.65f), Vector3(0.0f, 1.48f, plateZ - 8.0f));
-            camera.fieldOfView = 1020.0f;
+            // Over-the-shoulder: camera beside/behind catcher so the body is peripheral,
+            // looking past the plate toward the mound (not through the catcher's head).
+            lookAt(
+                camera,
+                Vector3(1.15f, 1.55f, plateZ + 1.55f),
+                Vector3(0.0f, 1.35f, plateZ * 0.35f)
+            );
+            // Smaller FOV scale = less zoom-in (see Camera3D::projectPoint).
+            camera.fieldOfView = 780.0f;
             break;
         case PitchCameraMode::Pitcher:
-            lookAt(camera, Vector3(0.0f, 1.78f, -1.8f), Vector3(0.0f, 1.35f, plateZ));
-            camera.fieldOfView = 1180.0f;
+            // Raised over shoulder and pulled back so the pitcher is a figure in frame,
+            // not filling the whole screen.
+            lookAt(
+                camera,
+                Vector3(0.75f, 1.72f, -3.6f),
+                Vector3(0.0f, 1.28f, plateZ)
+            );
+            camera.fieldOfView = 820.0f;
             break;
     }
 }
