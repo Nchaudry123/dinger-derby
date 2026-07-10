@@ -22,6 +22,10 @@
 #include "rendering/Rasterizer3D.h"
 #include "rendering/BaseballVisual3D.h"
 #include "rendering/BaseballPlayer3D.h"
+#include "rendering/BaseballAnims.h"
+#include "rendering/GltfLoader.h"
+#include "rendering/SkeletonAnimator.h"
+#include "rendering/SkinnedModel3D.h"
 
 namespace {
 
@@ -909,10 +913,6 @@ Matrix4 pitcherWorldTransform() {
     return Matrix4::translation(Vector3(0.0f, 0.0f, moundZ + 0.15f));
 }
 
-Vector3 throwHandWorld(const PitcherPose& pose) {
-    return pitcherWorldTransform().transformPoint(BaseballPlayer3D::throwHandLocal(pose));
-}
-
 bool freezePitchAtPlate(
     Body3D& baseball,
     const Vector3& previousPosition,
@@ -1006,8 +1006,27 @@ int main() {
     const float catcherWorldX = 0.05f;
     const float catcherWorldZ = plateZ + 0.95f;
     auto playerDetail = [&]() { return fullQuality ? 2 : 2; }; // always high model detail
-    Mesh3D pitcherMesh = BaseballPlayer3D::pitcher(playerDetail());
-    Mesh3D catcherMesh = BaseballPlayer3D::catcher(playerDetail());
+
+    // Skinned path (glTF if present, else procedural humanoid) + Yamamoto bone clip.
+    SkinnedModel3D pitcherModel = loadCharacterOrProcedural("pitcher", false, playerDetail());
+    SkinnedModel3D catcherModel = loadCharacterOrProcedural("catcher", true, playerDetail());
+    AnimationClip yamamotoClip = BaseballAnims::yamamotoWindup(pitcherModel);
+    // Prefer clip from glTF if authored under this name.
+    if (const AnimationClip* c = pitcherModel.findClip("yamamoto_windup")) {
+        yamamotoClip = *c;
+    }
+    AnimationClip pitcherIdleClip = BaseballAnims::pitcherIdle(pitcherModel);
+    AnimationClip catcherIdleClip = BaseballAnims::catcherIdle(catcherModel);
+
+    SkeletonAnimator pitcherAnim;
+    SkeletonAnimator catcherAnim;
+    pitcherAnim.setModel(pitcherModel);
+    catcherAnim.setModel(catcherModel);
+    pitcherAnim.resetToRest();
+    catcherAnim.applyClip(catcherIdleClip, 0.0f);
+
+    Mesh3D pitcherMesh = pitcherModel.skinToMesh(pitcherAnim.skinMatrices());
+    Mesh3D catcherMesh = catcherModel.skinToMesh(catcherAnim.skinMatrices());
     RasterMeshRenderCache renderCache;
     RasterMeshRenderCache pitcherCache;
     RasterMeshRenderCache catcherCache;
@@ -1041,7 +1060,7 @@ int main() {
     float playerRebuildTimer = 0.0f;
     bool ballReleased = false;
     // Yamamoto windup timing (FanGraphs slow-mo): long balance, late fire.
-    // Release key is at t=0.66 in pitcherDeliveryPose.
+    // Release key is at t=0.66 of the bone clip (duration 1.55s).
     constexpr float deliveryDuration = 1.55f;
     constexpr float releaseNormalized = 0.66f;
     constexpr float playerRebuildHz = 60.0f;
@@ -1050,11 +1069,15 @@ int main() {
     std::string latestResult = "Ready — press R to throw";
     sf::Color latestResultColor(225, 235, 205);
 
-    auto rebuildPlayers = [&](const PitcherPose& pitcherPose, const CatcherPose& catcherPose) {
-        pitcherMesh = BaseballPlayer3D::pitcher(playerDetail(), pitcherPose);
-        catcherMesh = BaseballPlayer3D::catcher(playerDetail(), catcherPose);
+    auto rebuildSkinnedPlayers = [&]() {
+        pitcherModel.skinInto(pitcherAnim.skinMatrices(), pitcherMesh);
+        catcherModel.skinInto(catcherAnim.skinMatrices(), catcherMesh);
         pitcherCache.reserveFor(pitcherMesh);
         catcherCache.reserveFor(catcherMesh);
+    };
+
+    auto throwHandWorldSkinned = [&]() {
+        return pitcherAnim.throwHandWorld(pitcherWorldTransform());
     };
 
     auto prepareReadyState = [&]() {
@@ -1089,8 +1112,8 @@ int main() {
         resultBannerTimer = 0.0f;
     };
 
-    auto releasePitch = [&](const PitcherPose& poseAtRelease) {
-        Vector3 hand = throwHandWorld(poseAtRelease);
+    auto releasePitch = [&]() {
+        Vector3 hand = throwHandWorldSkinned();
         launchPitch(
             baseball,
             world,
@@ -1244,44 +1267,14 @@ int main() {
             resultBannerTimer = std::max(0.0f, resultBannerTimer - dt);
         }
 
-        // Pose first so release can spawn the ball from the throw hand.
-        PitcherPose pitcherPose;
-        CatcherPose catcherPose;
-        PitcherPose idlePitcher = BaseballPlayer3D::pitcherIdlePose(poseClock);
+        // Skinned pose first so release spawns from the throw hand joint.
         if (deliveryAge >= 0.0f) {
             float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
-            PitcherPose delivery = BaseballPlayer3D::pitcherDeliveryPose(deliveryT);
-            float enter = smoothstep(0.0f, 0.12f, deliveryT);
-            pitcherPose = BaseballPlayer3D::blend(idlePitcher, delivery, enter);
+            pitcherAnim.applyClipNormalized(yamamotoClip, deliveryT);
         } else {
-            pitcherPose = idlePitcher;
+            pitcherAnim.applyClip(pitcherIdleClip, poseClock, true);
         }
-
-        CatcherPose idleCatcher = BaseballPlayer3D::catcherIdlePose(poseClock);
-        CatcherPose trackCatcher = BaseballPlayer3D::catcherReceivePose(
-            poseClock,
-            phase == PitchPhase::Flying || phase == PitchPhase::Settled
-                ? baseball.position.x
-                : aimPoint.x,
-            phase == PitchPhase::Flying || phase == PitchPhase::Settled
-                ? baseball.position.y
-                : aimPoint.y,
-            catcherWorldX,
-            0.0f
-        );
-        if (phase == PitchPhase::Flying) {
-            catcherPose = trackCatcher;
-            catcherPose.gloveOpen = std::max(catcherPose.gloveOpen, 0.55f);
-            catcherPose.freeArmBrace = 0.55f;
-        } else if (phase == PitchPhase::Settled) {
-            catcherPose = trackCatcher;
-            catcherPose.gloveOpen = 0.9f;
-            catcherPose.mittReach += 0.05f;
-            catcherPose.freeArmBrace = 0.4f;
-            catcherPose.torsoLean += 0.06f;
-        } else {
-            catcherPose = BaseballPlayer3D::blend(idleCatcher, trackCatcher, 0.65f);
-        }
+        catcherAnim.applyClip(catcherIdleClip, poseClock, true);
 
         if (!paused) {
             poseClock += dt;
@@ -1289,24 +1282,24 @@ int main() {
             if (deliveryAge >= 0.0f) {
                 deliveryAge += dt;
                 float deliveryT = std::clamp(deliveryAge / deliveryDuration, 0.0f, 1.0f);
+                pitcherAnim.applyClipNormalized(yamamotoClip, deliveryT);
 
-                // Keep the live ball glued to the throw hand until release.
+                // Keep the live ball glued to the skinned throw hand until release.
                 if (!ballReleased) {
-                    baseball.position = throwHandWorld(pitcherPose);
+                    baseball.position = throwHandWorldSkinned();
                     baseball.velocity = Vector3();
                     baseball.acceleration = Vector3();
                 }
 
                 if (!ballReleased && deliveryT >= releaseNormalized) {
-                    releasePitch(pitcherPose);
+                    releasePitch();
                 }
 
                 if (phase == PitchPhase::Settled && deliveryAge >= deliveryDuration + 0.55f) {
                     deliveryAge = -1.0f;
                 }
             } else if (phase == PitchPhase::Ready) {
-                // Ready: ball rests in the throwing hand (set pose).
-                baseball.position = throwHandWorld(pitcherPose);
+                baseball.position = throwHandWorldSkinned();
                 baseball.velocity = Vector3();
                 baseball.acceleration = Vector3();
             }
@@ -1315,7 +1308,7 @@ int main() {
         playerRebuildTimer += dt;
         if (playerRebuildTimer >= (1.0f / playerRebuildHz)) {
             playerRebuildTimer = 0.0f;
-            rebuildPlayers(pitcherPose, catcherPose);
+            rebuildSkinnedPlayers();
         }
 
         if (!paused && phase == PitchPhase::Flying) {

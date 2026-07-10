@@ -16,11 +16,16 @@ set(ENGINE_SOURCES
     src/math/Vector2.cpp
     src/math/Vector3.cpp
     src/math/Matrix4.cpp
+    src/math/Quaternion.cpp
     src/rendering/Camera3D.cpp
     src/rendering/FrameBuffer.cpp
     src/rendering/Mesh3D.cpp
     src/rendering/BaseballVisual3D.cpp
     src/rendering/BaseballPlayer3D.cpp
+    src/rendering/SkinnedModel3D.cpp
+    src/rendering/SkeletonAnimator.cpp
+    src/rendering/BaseballAnims.cpp
+    src/rendering/GltfLoader.cpp
     src/rendering/Rasterizer3D.cpp
     src/rendering/SoftwareRenderer3D.cpp
     src/rendering/SpatialGrid3D.cpp
@@ -117,3 +122,11 @@ add_test(NAME physics3d_test COMMAND physics3d_test)
 add_executable(pitching_solver_test tests/pitching_solver_test.cpp)
 target_link_libraries(pitching_solver_test PRIVATE dinger_engine)
 add_test(NAME pitching_solver_test COMMAND pitching_solver_test)
+
+add_executable(skinned_model_test tests/skinned_model_test.cpp)
+target_link_libraries(skinned_model_test PRIVATE dinger_engine)
+add_test(NAME skinned_model_test COMMAND skinned_model_test)
+
+add_executable(quaternion_test tests/quaternion_test.cpp)
+target_link_libraries(quaternion_test PRIVATE dinger_engine)
+add_test(NAME quaternion_test COMMAND quaternion_test)
