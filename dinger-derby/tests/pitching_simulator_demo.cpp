@@ -66,6 +66,12 @@ struct PitchFlightVariation {
     float turbulenceStrength = 0.0f;
 };
 
+struct PitchResult {
+    Vector3 platePosition;
+    std::string label;
+    sf::Color color;
+};
+
 enum class PitchCameraMode {
     Overview,
     Catcher,
@@ -266,6 +272,28 @@ void drawThickProjectedLine(
     window.draw(quad);
 }
 
+void drawProjectedDot(
+    sf::RenderWindow& window,
+    const Camera3D& camera,
+    const Vector3& point,
+    float radius,
+    sf::Color color
+) {
+    ProjectedPoint3D projected = project(camera, window, point);
+
+    if (!projected.visible) {
+        return;
+    }
+
+    sf::CircleShape dot(radius);
+    dot.setOrigin(sf::Vector2f(radius, radius));
+    dot.setPosition(sf::Vector2f(projected.position.x, projected.position.y));
+    dot.setFillColor(color);
+    dot.setOutlineThickness(1.0f);
+    dot.setOutlineColor(sf::Color(5, 8, 14, 210));
+    window.draw(dot);
+}
+
 bool surfaceFacesCamera(const Camera3D& camera, const Matrix4& transform, const Vector3& localPoint) {
     Vector3 worldPoint = transform.transformPoint(localPoint);
     Vector3 worldNormal = transform.transformDirection(localPoint.normalized()).normalized();
@@ -384,6 +412,44 @@ void drawStrikeZone(
         3.6f,
         pitch.color
     );
+}
+
+PitchResult classifyPitchResult(const Vector3& platePosition) {
+    const float halfWidth = 0.72f;
+    const float halfHeight = 0.95f;
+    bool inHorizontalZone = std::abs(platePosition.x - strikeZoneCenter.x) <= halfWidth;
+    bool inVerticalZone = std::abs(platePosition.y - strikeZoneCenter.y) <= halfHeight;
+
+    if (inHorizontalZone && inVerticalZone) {
+        return PitchResult{platePosition, "Strike", sf::Color(150, 245, 170)};
+    }
+
+    if (platePosition.y > strikeZoneCenter.y + halfHeight) {
+        return PitchResult{platePosition, "Ball High", sf::Color(245, 210, 120)};
+    }
+
+    if (platePosition.y < strikeZoneCenter.y - halfHeight) {
+        return PitchResult{platePosition, "Ball Low", sf::Color(245, 180, 110)};
+    }
+
+    if (platePosition.x < strikeZoneCenter.x - halfWidth) {
+        return PitchResult{platePosition, "Ball Inside", sf::Color(130, 205, 245)};
+    }
+
+    return PitchResult{platePosition, "Ball Outside", sf::Color(130, 205, 245)};
+}
+
+void drawPitchResultHistory(
+    sf::RenderWindow& window,
+    const Camera3D& camera,
+    const std::vector<PitchResult>& results
+) {
+    for (int i = 0; i < results.size(); i++) {
+        float age = static_cast<float>(i + 1) / static_cast<float>(results.size());
+        sf::Color color = results[i].color;
+        color.a = static_cast<std::uint8_t>(95 + age * 150.0f);
+        drawProjectedDot(window, camera, results[i].platePosition, 4.0f + age * 2.0f, color);
+    }
 }
 
 void drawFieldGuide(sf::RenderWindow& window, const Camera3D& camera) {
@@ -666,6 +732,7 @@ int main() {
     PhysicsWorld3D world;
     Body3D baseball;
     std::vector<Vector3> trail;
+    std::vector<PitchResult> pitchResults;
     std::mt19937 randomGenerator(std::random_device{}());
     float globalSpeedScale = 1.0f;
     float currentPitchSpeedMph = rollPitchSpeed(pitches[selectedPitch], globalSpeedScale, randomGenerator);
@@ -681,6 +748,7 @@ int main() {
     bool paused = false;
     bool draggingSpeedSlider = false;
     bool pitchFrozen = true;
+    std::string latestResult = "Ready";
 
     auto relaunchCurrentPitch = [&]() {
         activePitch = selectedPitch;
@@ -811,6 +879,14 @@ int main() {
                 baseball.applyForce(breakAcceleration * baseball.mass);
                 world.step(fixedStep);
                 pitchFrozen = freezePitchAtPlate(baseball, trail);
+                if (pitchFrozen) {
+                    PitchResult result = classifyPitchResult(baseball.position);
+                    latestResult = result.label;
+                    pitchResults.push_back(result);
+                    if (pitchResults.size() > 5) {
+                        pitchResults.erase(pitchResults.begin());
+                    }
+                }
                 pitchAge += fixedStep;
                 accumulator -= fixedStep;
 
@@ -862,6 +938,7 @@ int main() {
         drawFieldGuide(window, overlayCamera);
         drawProjectedPolyline(window, overlayCamera, trail, pitches[activePitch].color);
         drawStrikeZone(window, overlayCamera, aimPoint, pitches[selectedPitch]);
+        drawPitchResultHistory(window, overlayCamera, pitchResults);
         drawBaseballSeams(window, overlayCamera, baseballTransform, seamA, seamB);
 
         if (fontLoaded) {
@@ -902,6 +979,7 @@ int main() {
             drawText(window, font, aimLabel.str(), 12, sf::Vector2f(286.0f, 30.0f), sf::Color(135, 195, 200));
             drawText(window, font, speedLabel.str(), 12, sf::Vector2f(238.0f, 100.0f), sf::Color(175, 215, 180));
             drawText(window, font, cameraModeName(cameraMode), 11, sf::Vector2f(348.0f, 54.0f), sf::Color(130, 190, 205));
+            drawText(window, font, latestResult, 13, sf::Vector2f(338.0f, 72.0f), sf::Color(225, 235, 205));
         }
 
         fpsCounter.frame(window);
