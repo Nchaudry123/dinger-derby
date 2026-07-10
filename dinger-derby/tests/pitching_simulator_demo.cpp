@@ -176,15 +176,14 @@ void applyCameraMode(Camera3D& camera, PitchCameraMode mode) {
             camera.fieldOfView = 1450.0f;
             break;
         case PitchCameraMode::Catcher:
-            // Over-the-shoulder: camera beside/behind catcher so the body is peripheral,
-            // looking past the plate toward the mound (not through the catcher's head).
+            // Umpire/catcher POV: just behind home plate, looking down the lane at the pitcher.
+            // Catcher mesh is hidden in this mode so only the pitcher shows in the distance.
             lookAt(
                 camera,
-                Vector3(1.15f, 1.55f, plateZ + 1.55f),
-                Vector3(0.0f, 1.35f, plateZ * 0.35f)
+                Vector3(0.0f, 1.32f, plateZ + 0.28f),
+                Vector3(0.0f, 1.55f, moundZ + 1.5f)
             );
-            // Smaller FOV scale = less zoom-in (see Camera3D::projectPoint).
-            camera.fieldOfView = 780.0f;
+            camera.fieldOfView = 720.0f;
             break;
         case PitchCameraMode::Pitcher:
             // Raised over shoulder and pulled back so the pitcher is a figure in frame,
@@ -1361,14 +1360,17 @@ int main() {
             sf::Color(230, 230, 235),
             pitcherCache
         );
-        rasterizeMeshTriangles(
-            frameBuffer,
-            camera,
-            catcherMesh,
-            catcherTransform,
-            sf::Color(40, 50, 70),
-            catcherCache
-        );
+        // Hide catcher in catcher-cam so the view is pure plate → mound.
+        if (cameraMode != PitchCameraMode::Catcher) {
+            rasterizeMeshTriangles(
+                frameBuffer,
+                camera,
+                catcherMesh,
+                catcherTransform,
+                sf::Color(40, 50, 70),
+                catcherCache
+            );
+        }
         rasterizeMeshTrianglesSupersampled(
             frameBuffer,
             camera,
