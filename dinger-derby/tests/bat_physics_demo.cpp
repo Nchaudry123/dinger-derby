@@ -1238,7 +1238,7 @@ int main() {
     BroadcastCam broadcastCam = BroadcastCam::Plate;
     float holdLandTimer = 0.0f;
     float returnPlateTimer = 0.0f;
-    float returnPlateDuration = 0.85f;
+    float returnPlateDuration = 0.55f;
     Vector3 holdLandPos(0.0f, 0.5f, plateZ - 20.0f);
     float camShakeTimer = 0.0f;
     float camShakeIntensity = 0.0f;
@@ -1533,18 +1533,19 @@ int main() {
                 setDerbyLastResult(call);
                 // Hold next toss until the ball finishes its full flight to the ground.
                 // Short post-land pause only (timer freezes while airborne).
-                scheduleNextPitch(isDingerQuality(lastHit.quality) ? 1.6f : 1.15f);
+                // Post-land pause only (timer freezes during flight + broadcast cam).
+                scheduleNextPitch(isDingerQuality(lastHit.quality) ? 0.85f : 0.55f);
             } else if (std::string(kind) == "SWINGING_STRIKE") {
                 consumeDerbySwing();
                 call = "Miss";
                 statusCol = sf::Color(255, 160, 120);
                 setDerbyLastResult(call);
-                scheduleNextPitch(1.15f);
+                scheduleNextPitch(0.7f);
             } else if (std::string(kind) == "CALLED_STRIKE" || std::string(kind) == "BALL") {
                 // No swing — soft toss again without burning budget.
                 call = "Take — no swing";
                 statusCol = sf::Color(180, 200, 220);
-                scheduleNextPitch(0.9f);
+                scheduleNextPitch(0.55f);
             }
             if (derby.roundOver) {
                 derby.roundOverTimer = 5.5f;
@@ -2159,7 +2160,8 @@ int main() {
         if (hasHit && ballSettled && broadcastCam == BroadcastCam::Chase) {
             holdLandPos = baseball.position;
             bool dinger = isDingerQuality(lastHit.quality);
-            holdLandTimer = dinger ? 1.85f : (lastHit.hitsWallFace ? 1.35f : 1.15f);
+            // Snappier broadcast hold so the next toss comes sooner.
+            holdLandTimer = dinger ? 1.05f : (lastHit.hitsWallFace ? 0.75f : 0.55f);
             broadcastCam = BroadcastCam::HoldLand;
         }
 
