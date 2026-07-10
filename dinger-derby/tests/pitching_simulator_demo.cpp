@@ -32,7 +32,7 @@ constexpr float plateZ = pitchingDistanceFeet / feetPerWorldUnit;
 constexpr float moundZ = 0.0f;
 const Vector3 releasePoint(-0.22f, 1.72f, moundZ);
 const Vector3 strikeZoneCenter(0.0f, 1.28f, plateZ);
-const Vector3 boundsMinimum(-3.2f, -0.35f, -2.0f);
+const Vector3 boundsMinimum(-3.2f, -40.0f, -2.0f);
 const Vector3 boundsMaximum(3.2f, 3.6f, plateZ + 4.0f);
 const sf::FloatRect speedSliderTrack(sf::Vector2f(34.0f, 82.0f), sf::Vector2f(280.0f, 8.0f));
 
@@ -382,11 +382,11 @@ void drawFieldGuide(sf::RenderWindow& window, const Camera3D& camera) {
 
 std::array<PitchProfile, 5> makePitchProfiles() {
     return {{
-        PitchProfile{'F', "Four-Seam", 96.1f, 2.0f, 0.12f, Vector3(0.02f, 0.55f, 0.0f), 0.33f, 0.15f, 1.0f, sf::Color(245, 235, 180)},
-        PitchProfile{'P', "Splitter", 91.5f, 1.8f, 0.08f, Vector3(0.08f, -4.4f, 0.0f), 0.42f, 0.66f, 1.16f, sf::Color(190, 245, 160)},
-        PitchProfile{'C', "Curve", 77.1f, 2.2f, 0.36f, Vector3(-0.18f, -3.0f, 0.0f), 0.46f, 0.40f, 1.24f, sf::Color(245, 145, 90)},
-        PitchProfile{'T', "Cutter", 91.4f, 1.9f, 0.07f, Vector3(1.45f, -0.1f, 0.0f), 0.36f, 0.45f, 1.05f, sf::Color(145, 220, 245)},
-        PitchProfile{'S', "Slider", 87.2f, 1.7f, 0.04f, Vector3(2.9f, -0.8f, 0.0f), 0.39f, 0.44f, 1.1f, sf::Color(190, 160, 245)}
+        PitchProfile{'F', "Four-Seam", 96.1f, 2.0f, 0.08f, Vector3(0.02f, 0.45f, 0.0f), 0.33f, 0.15f, 1.0f, sf::Color(245, 235, 180)},
+        PitchProfile{'P', "Splitter", 91.5f, 1.8f, 0.06f, Vector3(0.08f, -3.2f, 0.0f), 0.42f, 0.68f, 1.16f, sf::Color(190, 245, 160)},
+        PitchProfile{'C', "Curve", 77.1f, 2.2f, 0.16f, Vector3(-0.18f, -2.15f, 0.0f), 0.46f, 0.46f, 1.24f, sf::Color(245, 145, 90)},
+        PitchProfile{'T', "Cutter", 91.4f, 1.9f, 0.05f, Vector3(1.2f, -0.05f, 0.0f), 0.36f, 0.45f, 1.05f, sf::Color(145, 220, 245)},
+        PitchProfile{'S', "Slider", 87.2f, 1.7f, 0.04f, Vector3(2.4f, -0.55f, 0.0f), 0.39f, 0.46f, 1.1f, sf::Color(190, 160, 245)}
     }};
 }
 
@@ -404,9 +404,16 @@ Vector3 calculateLaunchVelocity(
     Vector3 actualReleasePoint = releasePoint + variation.releaseOffset;
     float distance = aimPoint.z - actualReleasePoint.z;
     float flightTime = distance / pitchSpeed;
+    float expectedBreakInfluence = std::max(0.0f, 1.0f - pitch.breakStartZ) * 0.36f;
+    float estimatedVerticalAcceleration =
+        -9.8f +
+        pitch.breakAcceleration.y * variation.breakScale.y * expectedBreakInfluence;
     Vector3 flatVelocity(
         (aimPoint.x - actualReleasePoint.x) / flightTime,
-        (aimPoint.y - actualReleasePoint.y) / flightTime + pitch.liftCompensation + variation.liftOffset,
+        (aimPoint.y - actualReleasePoint.y - 0.5f * estimatedVerticalAcceleration * flightTime * flightTime) /
+            flightTime +
+            pitch.liftCompensation +
+            variation.liftOffset,
         pitchSpeed
     );
 
@@ -716,7 +723,7 @@ int main() {
 
                 baseball.applyForce(breakAcceleration * baseball.mass);
                 world.step(fixedStep);
-                pitchFrozen = freezePitchAtPlate(baseball, trail) || freezePitchAtGround(baseball, trail);
+                pitchFrozen = freezePitchAtPlate(baseball, trail);
                 pitchAge += fixedStep;
                 accumulator -= fixedStep;
 
