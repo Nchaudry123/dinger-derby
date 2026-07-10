@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -88,9 +89,12 @@ struct PitchFlightVariation {
 
 struct PitchResult {
     Vector3 platePosition;
-    std::string label;
+    Vector3 aimPosition;
+    std::string label;       // "Strike" / "Ball Low" / …
+    std::string detail;      // "0.9\" off target · heart"
     sf::Color color;
     bool isStrike = false;
+    float missInches = 0.0f; // distance from catcher's target at plate
 };
 
 struct CountState {
@@ -403,7 +407,9 @@ void drawStrikeZone(
     sf::RenderWindow& window,
     const Camera3D& camera,
     const Vector3& /*aimPoint*/,
-    const PitchProfile& /*pitch*/
+    const PitchProfile& /*pitch*/,
+    sf::Color outlineColor = sf::Color(115, 230, 235, 200),
+    float outlineThickness = 2.4f
 ) {
     // Zone outline only — aim reticle is drawn once in drawCatcherTarget.
     std::array<Vector3, 4> corners = {
@@ -413,16 +419,45 @@ void drawStrikeZone(
         Vector3(-strikeZoneHalfWidth, strikeZoneHalfHeight, 0.0f) + strikeZoneCenter
     };
 
+    // Light inner thirds for framing read.
+    Vector3 c = strikeZoneCenter;
+    float hw = strikeZoneHalfWidth;
+    float hh = strikeZoneHalfHeight;
+    sf::Color grid(outlineColor.r, outlineColor.g, outlineColor.b, 70);
+    drawThickProjectedLine(window, camera, c + Vector3(-hw / 3.0f, -hh, 0), c + Vector3(-hw / 3.0f, hh, 0), 1.0f, grid);
+    drawThickProjectedLine(window, camera, c + Vector3(hw / 3.0f, -hh, 0), c + Vector3(hw / 3.0f, hh, 0), 1.0f, grid);
+    drawThickProjectedLine(window, camera, c + Vector3(-hw, -hh / 3.0f, 0), c + Vector3(hw, -hh / 3.0f, 0), 1.0f, grid);
+    drawThickProjectedLine(window, camera, c + Vector3(-hw, hh / 3.0f, 0), c + Vector3(hw, hh / 3.0f, 0), 1.0f, grid);
+
     for (int i = 0; i < 4; i++) {
         drawThickProjectedLine(
             window,
             camera,
             corners[i],
             corners[(i + 1) % 4],
-            2.4f,
-            sf::Color(115, 230, 235, 200)
+            outlineThickness,
+            outlineColor
         );
     }
+}
+
+void drawResultMarkers(
+    sf::RenderWindow& window,
+    const Camera3D& camera,
+    const Vector3& aimPoint,
+    const Vector3& plateHit,
+    bool show
+) {
+    if (!show) {
+        return;
+    }
+    // Aim (hollow) vs actual plate location (filled).
+    Vector3 aim = Vector3(aimPoint.x, aimPoint.y, plateZ + 0.04f);
+    Vector3 hit = Vector3(plateHit.x, plateHit.y, plateZ + 0.05f);
+    drawProjectedDot(window, camera, aim, 5.5f, sf::Color(255, 255, 255, 90));
+    drawProjectedDot(window, camera, aim, 3.0f, sf::Color(40, 50, 60, 200));
+    drawProjectedDot(window, camera, hit, 6.5f, sf::Color(255, 220, 90, 230));
+    drawThickProjectedLine(window, camera, aim, hit, 1.4f, sf::Color(255, 230, 120, 140));
 }
 
 void drawHomePlate(sf::RenderWindow& window, const Camera3D& camera) {
@@ -493,27 +528,94 @@ void drawCatcherTarget(
 
 
 
-PitchResult classifyPitchResult(const Vector3& platePosition) {
+// World units → inches (1 unit ≈ 2 ft).
+float worldDeltaToInches(float worldDelta) {
+    return worldDelta * feetPerWorldUnit * 12.0f;
+}
+
+const char* zoneRegionName(const Vector3& platePosition) {
+    float nx = (platePosition.x - strikeZoneCenter.x) / strikeZoneHalfWidth;
+    float ny = (platePosition.y - strikeZoneCenter.y) / strikeZoneHalfHeight;
+    float ax = std::abs(nx);
+    float ay = std::abs(ny);
+    if (ax <= 0.34f && ay <= 0.34f) {
+        return "heart";
+    }
+    if (ax <= 1.0f && ay <= 1.0f) {
+        // Corners / edges for framing feedback.
+        if (nx < -0.34f && ny > 0.34f) return "up-in";
+        if (nx > 0.34f && ny > 0.34f) return "up-away";
+        if (nx < -0.34f && ny < -0.34f) return "down-in";
+        if (nx > 0.34f && ny < -0.34f) return "down-away";
+        if (ny > 0.34f) return "up";
+        if (ny < -0.34f) return "down";
+        if (nx < -0.34f) return "in";
+        if (nx > 0.34f) return "away";
+        return "edge";
+    }
+    return "out";
+}
+
+PitchResult classifyPitchResult(
+    const Vector3& platePosition,
+    const Vector3& aimPosition,
+    const PitchProfile& pitch
+) {
+    PitchResult result;
+    result.platePosition = platePosition;
+    result.aimPosition = aimPosition;
+
+    float dx = platePosition.x - aimPosition.x;
+    float dy = platePosition.y - aimPosition.y;
+    result.missInches = worldDeltaToInches(std::sqrt(dx * dx + dy * dy));
+
     bool inHorizontalZone = std::abs(platePosition.x - strikeZoneCenter.x) <= strikeZoneHalfWidth;
     bool inVerticalZone = std::abs(platePosition.y - strikeZoneCenter.y) <= strikeZoneHalfHeight;
+    result.isStrike = inHorizontalZone && inVerticalZone;
 
-    if (inHorizontalZone && inVerticalZone) {
-        return PitchResult{platePosition, "Strike", sf::Color(150, 245, 170), true};
+    const char* region = zoneRegionName(platePosition);
+
+    if (result.isStrike) {
+        // "Paint" = strike near the black; "heart" = middle.
+        bool paint =
+            std::abs(platePosition.x - strikeZoneCenter.x) > strikeZoneHalfWidth * 0.72f ||
+            std::abs(platePosition.y - strikeZoneCenter.y) > strikeZoneHalfHeight * 0.72f;
+        if (paint) {
+            result.label = "Strike · paint";
+            result.color = sf::Color(120, 255, 190);
+        } else if (std::strcmp(region, "heart") == 0) {
+            result.label = "Strike · heart";
+            result.color = sf::Color(150, 245, 170);
+        } else {
+            result.label = "Strike";
+            result.color = sf::Color(150, 245, 170);
+        }
+    } else if (platePosition.y > strikeZoneCenter.y + strikeZoneHalfHeight) {
+        result.label = "Ball High";
+        result.color = sf::Color(245, 210, 120);
+    } else if (platePosition.y < strikeZoneCenter.y - strikeZoneHalfHeight) {
+        result.label = "Ball Low";
+        result.color = sf::Color(245, 180, 110);
+    } else if (platePosition.x < strikeZoneCenter.x - strikeZoneHalfWidth) {
+        result.label = "Ball Inside";
+        result.color = sf::Color(130, 205, 245);
+    } else {
+        result.label = "Ball Outside";
+        result.color = sf::Color(130, 205, 245);
     }
 
-    if (platePosition.y > strikeZoneCenter.y + strikeZoneHalfHeight) {
-        return PitchResult{platePosition, "Ball High", sf::Color(245, 210, 120), false};
+    // Fastballs that stick to the glove get special praise.
+    std::ostringstream detail;
+    detail << std::fixed << std::setprecision(1) << result.missInches << "\" off target";
+    if (result.isStrike && pitch.hotkey == 'F' && result.missInches < 2.5f) {
+        detail << " · on the money";
+    } else if (result.isStrike) {
+        detail << " · " << region;
+    } else if (result.missInches < 4.0f) {
+        detail << " · just missed";
     }
-
-    if (platePosition.y < strikeZoneCenter.y - strikeZoneHalfHeight) {
-        return PitchResult{platePosition, "Ball Low", sf::Color(245, 180, 110), false};
-    }
-
-    if (platePosition.x < strikeZoneCenter.x - strikeZoneHalfWidth) {
-        return PitchResult{platePosition, "Ball Inside", sf::Color(130, 205, 245), false};
-    }
-
-    return PitchResult{platePosition, "Ball Outside", sf::Color(130, 205, 245), false};
+    result.detail = detail.str();
+    return result;
 }
 
 std::string applyCount(CountState& count, const PitchResult& result) {
@@ -527,7 +629,7 @@ std::string applyCount(CountState& count, const PitchResult& result) {
             count.balls = 0;
             count.strikes = 0;
             count.lastOutcome = "Strikeout";
-            return "Strikeout";
+            return "Strikeout · " + result.detail;
         }
     } else {
         count.balls = std::min(count.balls + 1, 4);
@@ -536,11 +638,11 @@ std::string applyCount(CountState& count, const PitchResult& result) {
             count.balls = 0;
             count.strikes = 0;
             count.lastOutcome = "Walk";
-            return "Walk";
+            return "Walk · " + result.detail;
         }
     }
 
-    return result.label;
+    return result.label + " · " + result.detail;
 }
 
 // Convert rpm + unit axis → world angular velocity (rad/s).
@@ -681,37 +783,37 @@ std::array<PitchProfile, 5> makePitchProfiles() {
     //   backspin ω≈(−X) → lift (+Y)
     //   topspin  ω≈(+X) → drop (−Y)
     //   glove sidespin ω≈(−Y) → break toward −X (3B / glove)
-    // RPM / efficiency from typical MLB tracking ranges.
+    // Tuned so path shapes read clearly while iterative aim still hits the glove.
     return {{
-        // Four-seam: high backspin ride, little side.
+        // Four-seam: high backspin ride, almost pure vertical spin.
         PitchProfile{
-            'F', "Four-Seam", 96.1f, 2.0f,
-            2450.0f, Vector3(-1.0f, 0.06f, 0.05f), 0.98f, 1.15f,
-            0.30f, 0.88f, sf::Color(245, 235, 180)
+            'F', "Four-Seam", 96.1f, 1.2f,
+            2420.0f, Vector3(-1.0f, 0.04f, 0.02f), 0.99f, 1.10f,
+            0.29f, 0.86f, sf::Color(245, 235, 180)
         },
-        // Splitter: low spin, mostly gyro → dies / tumbles down.
+        // Splitter: low useful spin, more drag → late tumble / die.
         PitchProfile{
-            'P', "Splitter", 91.5f, 1.8f,
-            1300.0f, Vector3(-0.25f, 0.20f, 0.92f), 0.40f, 0.55f,
-            0.42f, 1.05f, sf::Color(190, 245, 160)
+            'P', "Splitter", 89.8f, 1.6f,
+            1200.0f, Vector3(-0.20f, 0.15f, 0.95f), 0.35f, 0.48f,
+            0.46f, 1.12f, sf::Color(190, 245, 160)
         },
-        // Curve: topspin + glove sidespin (12–6 / 1–7 shape).
+        // Curve: strong topspin + glove sidespin (12–6 / 1–7).
         PitchProfile{
-            'C', "Curve", 77.1f, 2.2f,
-            2800.0f, Vector3(0.78f, -0.55f, -0.18f), 0.92f, 1.25f,
-            0.36f, 0.95f, sf::Color(245, 145, 90)
+            'C', "Curve", 76.5f, 2.0f,
+            2850.0f, Vector3(0.82f, -0.48f, -0.20f), 0.94f, 1.35f,
+            0.37f, 0.96f, sf::Color(245, 145, 90)
         },
-        // Cutter: mild glove-side cut, some backspin.
+        // Cutter: firm glove cut, keeps some backspin (late glove-side).
         PitchProfile{
-            'T', "Cutter", 91.4f, 1.9f,
-            2500.0f, Vector3(-0.55f, -0.72f, 0.20f), 0.90f, 1.05f,
-            0.32f, 0.90f, sf::Color(145, 220, 245)
+            'T', "Cutter", 91.0f, 1.5f,
+            2480.0f, Vector3(-0.48f, -0.78f, 0.18f), 0.92f, 1.12f,
+            0.31f, 0.88f, sf::Color(145, 220, 245)
         },
-        // Slider: stronger glove sidespin + some topspin / gyro.
+        // Slider: sharper glove + down than cutter, more gyro.
         PitchProfile{
-            'S', "Slider", 87.2f, 1.7f,
-            2650.0f, Vector3(0.30f, -0.82f, 0.40f), 0.88f, 1.20f,
-            0.34f, 0.92f, sf::Color(190, 160, 245)
+            'S', "Slider", 86.5f, 1.6f,
+            2680.0f, Vector3(0.28f, -0.86f, 0.38f), 0.90f, 1.28f,
+            0.34f, 0.93f, sf::Color(190, 160, 245)
         }
     }};
 }
@@ -724,17 +826,17 @@ float mphToWorldUnitsPerSecond(float mph) {
 float commandRadiusForPitch(const PitchProfile& pitch) {
     switch (pitch.hotkey) {
         case 'F':
-            return 0.045f; // ~1.1" radius — sticks near the target
+            return 0.035f; // ~0.8" — sticks to the target
         case 'T':
-            return 0.085f;
+            return 0.070f; // mild cut miss
         case 'P':
-            return 0.12f;
+            return 0.100f; // harder to locate
         case 'S':
-            return 0.13f;
+            return 0.095f;
         case 'C':
-            return 0.15f;
+            return 0.110f;
         default:
-            return 0.10f;
+            return 0.080f;
     }
 }
 
@@ -913,13 +1015,11 @@ PitchFlightVariation rollPitchVariation(
     const PitchProfile& pitch,
     std::mt19937& randomGenerator
 ) {
-    // Fastball: tight RPM / axis / command so the ball tracks the aim point.
+    // Per-pitch noise: FB almost pure; secondaries wander more in command/RPM.
     const bool isFastball = pitch.hotkey == 'F';
-    float rpmNoise = isFastball ? 0.015f : 0.07f;
-    float turbulence = pitch.hotkey == 'P' ? 0.12f : (isFastball ? 0.03f : 0.08f);
-    if (pitch.hotkey == 'C') {
-        turbulence = 0.06f;
-    }
+    const bool isOffspeed = pitch.hotkey == 'C' || pitch.hotkey == 'P';
+    float rpmNoise = isFastball ? 0.012f : (isOffspeed ? 0.08f : 0.05f);
+    float turbulence = isFastball ? 0.015f : (pitch.hotkey == 'P' ? 0.10f : 0.05f);
 
     float commandRadius = commandRadiusForPitch(pitch);
     float commandAngle = randomRange(randomGenerator, 0.0f, pi * 2.0f);
@@ -927,8 +1027,8 @@ PitchFlightVariation rollPitchVariation(
 
     return PitchFlightVariation{
         Vector3(
-            randomRange(randomGenerator, isFastball ? -0.015f : -0.04f, isFastball ? 0.015f : 0.04f),
-            randomRange(randomGenerator, isFastball ? -0.012f : -0.03f, isFastball ? 0.012f : 0.03f),
+            randomRange(randomGenerator, isFastball ? -0.012f : -0.035f, isFastball ? 0.012f : 0.035f),
+            randomRange(randomGenerator, isFastball ? -0.010f : -0.028f, isFastball ? 0.010f : 0.028f),
             0.0f
         ),
         Vector3(
@@ -937,16 +1037,16 @@ PitchFlightVariation rollPitchVariation(
             0.0f
         ),
         Vector3(
-            randomRange(randomGenerator, isFastball ? -0.06f : -0.16f, isFastball ? 0.06f : 0.16f),
-            randomRange(randomGenerator, -0.02f, 0.02f),
-            randomRange(randomGenerator, -0.06f, 0.04f)
+            randomRange(randomGenerator, isFastball ? -0.04f : -0.12f, isFastball ? 0.04f : 0.12f),
+            randomRange(randomGenerator, -0.015f, 0.015f),
+            randomRange(randomGenerator, -0.05f, 0.03f)
         ),
         randomRange(randomGenerator, 1.0f - rpmNoise, 1.0f + rpmNoise),
-        randomRange(randomGenerator, isFastball ? 0.005f : 0.02f, isFastball ? 0.02f : 0.09f),
-        randomRange(randomGenerator, isFastball ? 0.98f : 0.94f, isFastball ? 1.02f : 1.08f),
-        randomRange(randomGenerator, isFastball ? -0.008f : -0.02f, isFastball ? 0.008f : 0.02f),
+        randomRange(randomGenerator, isFastball ? 0.004f : 0.015f, isFastball ? 0.015f : 0.07f),
+        randomRange(randomGenerator, isFastball ? 0.985f : 0.95f, isFastball ? 1.015f : 1.06f),
+        randomRange(randomGenerator, isFastball ? -0.005f : -0.015f, isFastball ? 0.005f : 0.015f),
         randomRange(randomGenerator, 0.0f, pi * 2.0f),
-        randomRange(randomGenerator, turbulence * 0.3f, turbulence)
+        randomRange(randomGenerator, turbulence * 0.25f, turbulence)
     };
 }
 
@@ -977,7 +1077,9 @@ void resetPitchOnMound(
     trail.push_back(baseball.position);
 }
 
-void launchPitch(
+// Returns the commanded plate target actually used for the launch solve
+// (aim + command scatter). Stored for strike feedback vs result.
+Vector3 launchPitch(
     Body3D& baseball,
     PhysicsWorld3D& world,
     const PitchProfile& pitch,
@@ -1020,6 +1122,7 @@ void launchPitch(
 
     trail.clear();
     trail.push_back(baseball.position);
+    return commandedAimPoint;
 }
 
 // Pitcher root transform in the scene (must match draw).
@@ -1228,16 +1331,21 @@ int main() {
     float deliveryAge = -1.0f; // < 0 => idle; seconds into delivery clip
     float playerRebuildTimer = 0.0f;
     bool ballReleased = false;
-    // throw_preview: release key at 1.22s / 2.20s ≈ 0.555. Older yamamoto used 0.66.
+    // throw_preview: release slightly before the visual peak so the ball
+    // leaves cleanly as the arm comes through (1.18s / 2.20s ≈ 0.536).
     const float deliveryDuration = deliveryClip.duration > 1e-3f ? deliveryClip.duration : 2.20f;
     const float releaseNormalized = (deliveryClip.name == "throw_preview")
-        ? (1.22f / deliveryDuration)
+        ? (1.18f / deliveryDuration)
         : 0.66f;
     constexpr float playerRebuildHz = 60.0f;
     bool paused = false;
     bool draggingSpeedSlider = false;
     std::string latestResult = "Ready — press R to throw";
     sf::Color latestResultColor(225, 235, 205);
+    Vector3 lastCommandedAim = strikeZoneCenter;
+    Vector3 lastPlateHit = strikeZoneCenter;
+    bool showLastResultMarkers = false;
+    bool lastPitchWasStrike = false;
 
     auto rebuildSkinnedPlayers = [&]() {
         pitcherModel.skinInto(pitcherAnim.skinMatrices(), pitcherMesh);
@@ -1302,7 +1410,7 @@ int main() {
         Vector3 hand = throwHandWorldSkinned();
         // Prefer the animated hand location so flight starts exactly where the
         // fingers let go (Ball joint / Palm_R), not a fixed mound offset.
-        launchPitch(
+        lastCommandedAim = launchPitch(
             baseball,
             world,
             pitches[selectedPitch],
@@ -1313,11 +1421,13 @@ int main() {
             hand,
             randomGenerator
         );
-        // Nudge with recent hand motion so the first frame doesn't look stuck.
+        showLastResultMarkers = false;
+        // Small whip assist — capped so it doesn't blow aim on four-seams.
         float whip = handVelocity.magnitude();
-        if (whip > 0.5f && whip < 40.0f) {
+        float whipCap = pitches[selectedPitch].hotkey == 'F' ? 1.2f : 2.2f;
+        if (whip > 0.8f && whip < 40.0f) {
             Vector3 whipDir = handVelocity * (1.0f / whip);
-            baseball.velocity = baseball.velocity + whipDir * std::min(whip * 0.08f, 2.5f);
+            baseball.velocity = baseball.velocity + whipDir * std::min(whip * 0.05f, whipCap);
         }
         ballReleased = true;
         phase = PitchPhase::Flying;
@@ -1546,7 +1656,15 @@ int main() {
                 world.step(fixedStep);
                 bool reachedPlate = freezePitchAtPlate(baseball, previousPosition, trail);
                 if (reachedPlate) {
-                    PitchResult result = classifyPitchResult(baseball.position);
+                    const PitchProfile& thrown = pitches[activePitch];
+                    PitchResult result = classifyPitchResult(
+                        baseball.position,
+                        lastCommandedAim,
+                        thrown
+                    );
+                    lastPlateHit = baseball.position;
+                    showLastResultMarkers = true;
+                    lastPitchWasStrike = result.isStrike;
                     latestResult = applyCount(count, result);
                     latestResultColor = count.lastOutcome.empty() ? result.color : sf::Color(255, 220, 120);
                     if (!count.lastOutcome.empty()) {
@@ -1559,7 +1677,7 @@ int main() {
                         pitchResults.erase(pitchResults.begin());
                     }
                     phase = PitchPhase::Settled;
-                    resultBannerTimer = 2.4f;
+                    resultBannerTimer = 2.6f;
                 }
                 pitchAge += fixedStep;
                 accumulator -= fixedStep;
@@ -1644,7 +1762,37 @@ int main() {
         drawHomePlate(window, overlayCamera);
         drawCatcherTarget(window, overlayCamera, aimPoint, pitches[selectedPitch]);
         drawProjectedPolyline(window, overlayCamera, trail, pitches[activePitch].color);
-        drawStrikeZone(window, overlayCamera, aimPoint, pitches[selectedPitch]);
+
+        // Zone flash after result: green strike / warm ball.
+        sf::Color zoneColor(115, 230, 235, 200);
+        float zoneThick = 2.4f;
+        if (resultBannerTimer > 0.0f && phase == PitchPhase::Settled) {
+            float pulse = std::clamp(resultBannerTimer / 2.6f, 0.0f, 1.0f);
+            if (lastPitchWasStrike) {
+                zoneColor = sf::Color(
+                    90,
+                    static_cast<std::uint8_t>(200 + 55 * pulse),
+                    140,
+                    static_cast<std::uint8_t>(180 + 60 * pulse)
+                );
+            } else {
+                zoneColor = sf::Color(
+                    static_cast<std::uint8_t>(200 + 40 * pulse),
+                    160,
+                    90,
+                    static_cast<std::uint8_t>(170 + 50 * pulse)
+                );
+            }
+            zoneThick = 2.4f + 1.2f * pulse;
+        }
+        drawStrikeZone(window, overlayCamera, aimPoint, pitches[selectedPitch], zoneColor, zoneThick);
+        drawResultMarkers(
+            window,
+            overlayCamera,
+            lastCommandedAim,
+            lastPlateHit,
+            showLastResultMarkers && phase == PitchPhase::Settled
+        );
         drawPitchResultHistory(window, overlayCamera, pitchResults);
         drawBallShadow(window, overlayCamera, baseball.position, baseballRadius);
         drawBaseballSeams(window, overlayCamera, baseballTransform, seamA, seamB);
@@ -1712,13 +1860,13 @@ int main() {
             drawText(window, font, latestResult, 13, sf::Vector2f(34.0f, 150.0f), latestResultColor);
 
             if (resultBannerTimer > 0.0f && phase == PitchPhase::Settled) {
-                float alpha = std::clamp(resultBannerTimer / 2.4f, 0.0f, 1.0f);
-                sf::RectangleShape banner(sf::Vector2f(360.0f, 52.0f));
+                float alpha = std::clamp(resultBannerTimer / 2.6f, 0.0f, 1.0f);
+                sf::RectangleShape banner(sf::Vector2f(420.0f, 64.0f));
                 banner.setPosition(sf::Vector2f(
-                    static_cast<float>(window.getSize().x) * 0.5f - 180.0f,
-                    78.0f
+                    static_cast<float>(window.getSize().x) * 0.5f - 210.0f,
+                    72.0f
                 ));
-                banner.setFillColor(sf::Color(8, 14, 20, static_cast<std::uint8_t>(200 * alpha)));
+                banner.setFillColor(sf::Color(8, 14, 20, static_cast<std::uint8_t>(210 * alpha)));
                 banner.setOutlineThickness(1.5f);
                 banner.setOutlineColor(sf::Color(
                     latestResultColor.r,
@@ -1727,12 +1875,20 @@ int main() {
                     static_cast<std::uint8_t>(220 * alpha)
                 ));
                 window.draw(banner);
+                // Split "Strike · heart · 0.9\" off target" across two lines if long.
+                std::string line1 = latestResult;
+                std::string line2;
+                auto sep = latestResult.find(" · ");
+                if (sep != std::string::npos && latestResult.size() > 28) {
+                    line1 = latestResult.substr(0, sep);
+                    line2 = latestResult.substr(sep + 3);
+                }
                 drawText(
                     window,
                     font,
-                    latestResult,
+                    line1,
                     22,
-                    sf::Vector2f(static_cast<float>(window.getSize().x) * 0.5f - 150.0f, 90.0f),
+                    sf::Vector2f(static_cast<float>(window.getSize().x) * 0.5f - 190.0f, 80.0f),
                     sf::Color(
                         latestResultColor.r,
                         latestResultColor.g,
@@ -1740,6 +1896,16 @@ int main() {
                         static_cast<std::uint8_t>(255 * alpha)
                     )
                 );
+                if (!line2.empty()) {
+                    drawText(
+                        window,
+                        font,
+                        line2,
+                        15,
+                        sf::Vector2f(static_cast<float>(window.getSize().x) * 0.5f - 190.0f, 106.0f),
+                        sf::Color(210, 220, 200, static_cast<std::uint8_t>(240 * alpha))
+                    );
+                }
             }
         }
 
