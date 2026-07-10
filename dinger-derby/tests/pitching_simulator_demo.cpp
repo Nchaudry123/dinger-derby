@@ -66,6 +66,12 @@ struct PitchFlightVariation {
     float turbulenceStrength = 0.0f;
 };
 
+enum class PitchCameraMode {
+    Overview,
+    Catcher,
+    Pitcher
+};
+
 bool loadUiFont(sf::Font& font) {
     const std::vector<std::filesystem::path> candidates = {
         "/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -120,6 +126,36 @@ void lookAt(Camera3D& camera, const Vector3& position, const Vector3& target) {
     camera.rotation.y = std::atan2(toTarget.x, toTarget.z);
     camera.rotation.x = -std::atan2(toTarget.y, horizontal);
     camera.rotation.z = 0.0f;
+}
+
+std::string cameraModeName(PitchCameraMode mode) {
+    switch (mode) {
+        case PitchCameraMode::Overview:
+            return "Overview";
+        case PitchCameraMode::Catcher:
+            return "Catcher";
+        case PitchCameraMode::Pitcher:
+            return "Pitcher";
+        default:
+            return "Overview";
+    }
+}
+
+void applyCameraMode(Camera3D& camera, PitchCameraMode mode) {
+    switch (mode) {
+        case PitchCameraMode::Overview:
+            lookAt(camera, Vector3(0.0f, 1.68f, -3.35f), Vector3(0.0f, 1.25f, plateZ));
+            camera.fieldOfView = 1450.0f;
+            break;
+        case PitchCameraMode::Catcher:
+            lookAt(camera, Vector3(0.0f, 1.42f, plateZ + 2.65f), Vector3(0.0f, 1.48f, plateZ - 8.0f));
+            camera.fieldOfView = 1020.0f;
+            break;
+        case PitchCameraMode::Pitcher:
+            lookAt(camera, Vector3(0.0f, 1.78f, -1.8f), Vector3(0.0f, 1.35f, plateZ));
+            camera.fieldOfView = 1180.0f;
+            break;
+    }
 }
 
 Mesh3D makeBaseballMesh() {
@@ -615,8 +651,8 @@ int main() {
     sf::Vector2u rasterSize = rasterSizeForWindow(window.getSize());
     FrameBuffer frameBuffer(rasterSize.x, rasterSize.y);
     Camera3D camera;
-    lookAt(camera, Vector3(0.0f, 1.68f, -3.35f), Vector3(0.0f, 1.25f, plateZ));
-    camera.fieldOfView = 1450.0f;
+    PitchCameraMode cameraMode = PitchCameraMode::Overview;
+    applyCameraMode(camera, cameraMode);
 
     Mesh3D baseballMesh = makeBaseballMesh();
     std::vector<SeamPoint> seamA = makeSeamLoop(false);
@@ -690,6 +726,21 @@ int main() {
 
                 if (key->code == sf::Keyboard::Key::RBracket) {
                     globalSpeedScale = std::clamp(globalSpeedScale + 0.05f, 0.75f, 1.25f);
+                }
+
+                if (key->code == sf::Keyboard::Key::Num1) {
+                    cameraMode = PitchCameraMode::Overview;
+                    applyCameraMode(camera, cameraMode);
+                }
+
+                if (key->code == sf::Keyboard::Key::Num2) {
+                    cameraMode = PitchCameraMode::Catcher;
+                    applyCameraMode(camera, cameraMode);
+                }
+
+                if (key->code == sf::Keyboard::Key::Num3) {
+                    cameraMode = PitchCameraMode::Pitcher;
+                    applyCameraMode(camera, cameraMode);
                 }
 
                 if (key->code == sf::Keyboard::Key::Left) {
@@ -847,9 +898,10 @@ int main() {
             drawText(window, font, pitches[selectedPitch].name, 17, sf::Vector2f(34.0f, 28.0f), pitches[selectedPitch].color);
             drawText(window, font, "F 4S  P SPL  C CB  T CUT  S SL", 12, sf::Vector2f(34.0f, 54.0f), sf::Color(180, 215, 220));
             drawText(window, font, "Drag speed for next throw", 11, sf::Vector2f(34.0f, 70.0f), sf::Color(120, 175, 185));
-            drawText(window, font, "R throw | Space pause | arrows aim", 12, sf::Vector2f(34.0f, 112.0f), sf::Color(155, 195, 200));
+            drawText(window, font, "R throw | Space pause | arrows aim | 1/2/3 camera", 12, sf::Vector2f(34.0f, 112.0f), sf::Color(155, 195, 200));
             drawText(window, font, aimLabel.str(), 12, sf::Vector2f(286.0f, 30.0f), sf::Color(135, 195, 200));
             drawText(window, font, speedLabel.str(), 12, sf::Vector2f(238.0f, 100.0f), sf::Color(175, 215, 180));
+            drawText(window, font, cameraModeName(cameraMode), 11, sf::Vector2f(348.0f, 54.0f), sf::Color(130, 190, 205));
         }
 
         fpsCounter.frame(window);
