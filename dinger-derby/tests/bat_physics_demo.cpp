@@ -3200,12 +3200,10 @@ int main() {
         Matrix4 stadiumXform = Matrix4::identity();
         if (useGL) {
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            const float gr = stadiumLayout.maxWallR() + 480.0f;
+            const float gr = stadiumLayout.maxWallR() + 620.0f;
             const float plateZGround = stadiumLayout.plateZ();
             gl.drawMesh(glStadiumSky, stadiumXform);
-            gl.drawGround(
-                gr, plateZGround - gr, plateZGround + gr, Stadium3D::concreteFloorColor()
-            );
+            gl.drawGround(gr, plateZGround - gr, plateZGround + gr, sf::Color(38, 72, 40));
             gl.drawMesh(glStadiumCity, stadiumXform);
             gl.drawMesh(glStadiumField, stadiumXform);
             {

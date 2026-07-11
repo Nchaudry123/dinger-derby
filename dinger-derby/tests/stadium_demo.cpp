@@ -315,10 +315,11 @@ int main() {
         if (useGL) {
             // Open-air park + full suburb backdrop for out-of-park fly balls.
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            const float gr = layout.maxWallR() + 480.0f;
+            const float gr = layout.maxWallR() + 620.0f;
             const float plateZ = layout.plateZ();
             gl.drawMesh(glSky, id);
-            gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::concreteFloorColor());
+            // Dark grass underlay — never shows as bare concrete if a gap exists.
+            gl.drawGround(gr, plateZ - gr, plateZ + gr, sf::Color(38, 72, 40));
             gl.drawMesh(glCity, id);
             gl.drawMesh(glField, id);
             gl.drawMesh(glStands, id);

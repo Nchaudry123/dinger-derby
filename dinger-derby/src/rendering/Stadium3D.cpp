@@ -728,7 +728,7 @@ Mesh3D buildStructure(const Layout& L) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// EXTERIOR — berm, parking, suburbs, trees, hills (HR ball backdrop)
+// EXTERIOR — seamless ground cover + dense suburb (no bare spots)
 // ═══════════════════════════════════════════════════════════════════════
 
 void addTree(Mesh3D& m, const Vector3& base, float scale, int seed) {
@@ -737,7 +737,6 @@ void addTree(Mesh3D& m, const Vector3& base, float scale, int seed) {
     sf::Color trunk(95, 70, 45);
     sf::Color leaf = shade(sf::Color(40, 110, 50), 0.85f + 0.2f * hash01(seed + 3));
     addBox(m, base + Vector3(0, trunkH * 0.5f, 0), 0.45f * scale, trunkH, 0.45f * scale, trunk);
-    // Layered canopy (low-poly tree)
     addBox(
         m, base + Vector3(0, trunkH + canopyR * 0.35f, 0), canopyR * 1.6f, canopyR * 0.9f,
         canopyR * 1.6f, leaf
@@ -752,12 +751,47 @@ void addTree(Mesh3D& m, const Vector3& base, float scale, int seed) {
     );
 }
 
+void addBush(Mesh3D& m, const Vector3& base, float scale, int seed) {
+    sf::Color leaf = shade(sf::Color(45, 105, 48), 0.88f + 0.15f * hash01(seed));
+    addBox(m, base + Vector3(0, 0.55f * scale, 0), 1.4f * scale, 1.1f * scale, 1.4f * scale, leaf);
+    addBox(
+        m, base + Vector3(0.3f * scale, 0.75f * scale, 0.2f * scale), 1.0f * scale, 0.8f * scale,
+        1.0f * scale, shade(leaf, 1.1f)
+    );
+}
+
+void addCar(Mesh3D& m, const Vector3& c, float yaw, int seed) {
+    sf::Color bodyCols[] = {
+        sf::Color(40, 45, 55), sf::Color(180, 50, 45), sf::Color(50, 90, 160),
+        sf::Color(220, 220, 225), sf::Color(60, 120, 70), sf::Color(140, 100, 40)};
+    sf::Color body = bodyCols[static_cast<unsigned>(seed) % 6];
+    // Simple axis-aligned car (yaw ignored for density — fine from overhead)
+    (void)yaw;
+    addBox(m, c + Vector3(0, 0.55f, 0), 2.2f, 0.7f, 4.4f, body);
+    addBox(m, c + Vector3(0, 1.05f, -0.2f), 1.9f, 0.55f, 2.4f, shade(body, 0.85f));
+    addBox(m, c + Vector3(0, 1.15f, -0.2f), 1.7f, 0.35f, 2.0f, sf::Color(80, 140, 180, 150));
+}
+
 Mesh3D buildCity(const Layout& L) {
     Mesh3D m;
-    const float parkR = L.maxWallR() + 35.0f; // just outside stadium footprint
-    const int segs = 96;
+    const float parkR = L.maxWallR() + 28.0f;
+    const int segs = 128; // high-res so no pie-slice gaps
+    const float yG = -1.85f;
+    const float rPark0 = parkR;
+    const float rPark1 = parkR + 52.0f;
+    const float rSuburb = parkR + 140.0f;
+    const float rFar = parkR + 480.0f;
+    const float rHorizon = parkR + 620.0f;
 
-    // ── Near apron / berm (touches the park) ──────────────────────────
+    sf::Color asphalt(68, 70, 76);
+    sf::Color asphaltLine(195, 195, 185);
+    sf::Color grassA = shade(grassColor(), 0.80f);
+    sf::Color grassB = shade(sf::Color(48, 95, 45), 0.95f);
+    sf::Color grassC = shade(sf::Color(60, 110, 52), 0.88f);
+    sf::Color dirtLot(115, 95, 68);
+
+    // ── Continuous ground from seat outer edge → horizon (NO bare gaps) ─
+    // Each ring slightly overlaps the next so nothing peeks through.
     for (int i = 0; i < segs; i++) {
         float t0 = static_cast<float>(i) / segs;
         float t1 = static_cast<float>(i + 1) / segs;
@@ -765,230 +799,297 @@ Mesh3D buildCity(const Layout& L) {
         float ang1 = -pi + t1 * 2.0f * pi;
         float angM = 0.5f * (ang0 + ang1);
         float rSeat = seatInnerR(L, angM);
-        float depth = inSeatArc(L, angM) ? (isOfBleacher(L, angM) ? 14.0f : 22.0f) : 12.0f;
-        float rIn = rSeat + (isOfBleacher(L, angM) ? 10.0f : 18.0f);
-        float rMid = rIn + depth * 0.45f;
-        float rOut = rIn + depth;
+        float rApron0 = rSeat + (isOfBleacher(L, angM) ? 9.0f : 16.0f);
+        float rApron1 = rApron0 + (isOfBleacher(L, angM) ? 12.0f : 18.0f);
+
+        // Tan apron (overlaps parking start)
         addQuad(
-            m, L.fromHome(rIn, ang0, -0.2f), L.fromHome(rIn, ang1, -0.2f),
-            L.fromHome(rMid, ang1, -0.8f), L.fromHome(rMid, ang0, -0.8f), facadeTanColor()
+            m, L.fromHome(rApron0, ang0, -0.15f), L.fromHome(rApron0, ang1, -0.15f),
+            L.fromHome(rApron1 + 2.0f, ang1, yG + 0.05f),
+            L.fromHome(rApron1 + 2.0f, ang0, yG + 0.05f),
+            shade(facadeTanColor(), 0.94f + 0.06f * hash01(i))
         );
+        // Grass strip apron → parking
         addQuad(
-            m, L.fromHome(rMid, ang0, -0.8f), L.fromHome(rMid, ang1, -0.8f),
-            L.fromHome(rOut, ang1, -1.4f), L.fromHome(rOut, ang0, -1.4f),
-            shade(facadeTanColor(), 0.92f)
+            m, L.fromHome(rApron1, ang0, yG + 0.02f), L.fromHome(rApron1, ang1, yG + 0.02f),
+            L.fromHome(rPark0 + 1.5f, ang1, yG), L.fromHome(rPark0 + 1.5f, ang0, yG),
+            (i % 2 == 0) ? grassA : grassB
         );
+        // Parking asphalt (full solid)
         addQuad(
-            m, L.fromHome(rOut, ang0, -1.35f), L.fromHome(rOut, ang1, -1.35f),
-            L.fromHome(rOut + 14.0f, ang1, -1.7f), L.fromHome(rOut + 14.0f, ang0, -1.7f),
-            shade(grassColor(), 0.82f + 0.06f * hash01(i))
+            m, L.fromHome(rPark0, ang0, yG), L.fromHome(rPark0, ang1, yG),
+            L.fromHome(rPark1 + 1.0f, ang1, yG), L.fromHome(rPark1 + 1.0f, ang0, yG),
+            shade(asphalt, 0.90f + 0.1f * hash01(i + 3))
         );
+        // Suburb yards (mowed strips so no flat clear spots)
+        for (int band = 0; band < 4; band++) {
+            float u0 = static_cast<float>(band) / 4.0f;
+            float u1 = static_cast<float>(band + 1) / 4.0f;
+            float ri = rPark1 + (rSuburb - rPark1) * u0 - 0.5f;
+            float ro = rPark1 + (rSuburb - rPark1) * u1 + 0.5f;
+            sf::Color g = ((i + band) % 3 == 0) ? grassA : (((i + band) % 3 == 1) ? grassB : grassC);
+            addQuad(
+                m, L.fromHome(ri, ang0, yG - 0.02f * band),
+                L.fromHome(ri, ang1, yG - 0.02f * band),
+                L.fromHome(ro, ang1, yG - 0.05f * band),
+                L.fromHome(ro, ang0, yG - 0.05f * band), g
+            );
+        }
+        // Outer fields (dense color variation)
+        for (int band = 0; band < 5; band++) {
+            float u0 = static_cast<float>(band) / 5.0f;
+            float u1 = static_cast<float>(band + 1) / 5.0f;
+            float ri = rSuburb + (rFar - rSuburb) * u0 - 1.0f;
+            float ro = rSuburb + (rFar - rSuburb) * u1 + 1.0f;
+            sf::Color g = shade(
+                ((i + band) % 2 == 0) ? grassA : grassB, 0.85f + 0.08f * hash01(i * 5 + band)
+            );
+            addQuad(
+                m, L.fromHome(ri, ang0, yG - 0.15f - band * 0.05f),
+                L.fromHome(ri, ang1, yG - 0.15f - band * 0.05f),
+                L.fromHome(ro, ang1, yG - 0.2f - band * 0.06f),
+                L.fromHome(ro, ang0, yG - 0.2f - band * 0.06f), g
+            );
+        }
+        // Horizon ground pad (extends past hills)
         addQuad(
-            m, L.fromHome(rOut, ang0, -1.4f), L.fromHome(rOut, ang1, -1.4f),
-            L.fromHome(rOut, ang1, 0.5f), L.fromHome(rOut, ang0, 0.5f),
+            m, L.fromHome(rFar - 2.0f, ang0, yG - 0.55f),
+            L.fromHome(rFar - 2.0f, ang1, yG - 0.55f),
+            L.fromHome(rHorizon, ang1, yG - 1.2f), L.fromHome(rHorizon, ang0, yG - 1.2f),
+            shade(grassC, 0.75f + 0.1f * hash01(i + 90))
+        );
+    }
+
+    // Berm walls (vertical face — solid connection)
+    for (int i = 0; i < segs; i++) {
+        float t0 = static_cast<float>(i) / segs;
+        float t1 = static_cast<float>(i + 1) / segs;
+        float ang0 = -pi + t0 * 2.0f * pi;
+        float ang1 = -pi + t1 * 2.0f * pi;
+        float angM = 0.5f * (ang0 + ang1);
+        float rSeat = seatInnerR(L, angM);
+        float rOut = rSeat + (isOfBleacher(L, angM) ? 22.0f : 32.0f);
+        addQuad(
+            m, L.fromHome(rOut, ang0, yG), L.fromHome(rOut, ang1, yG),
+            L.fromHome(rOut, ang1, 0.6f), L.fromHome(rOut, ang0, 0.6f),
             shade(facadeTanColor(), 0.88f)
         );
     }
 
-    // Side service buildings
+    // Ring road + radial roads (asphalt details over solid parking)
+    for (int i = 0; i < segs; i++) {
+        float t0 = static_cast<float>(i) / segs;
+        float t1 = static_cast<float>(i + 1) / segs;
+        float ang0 = -pi + t0 * 2.0f * pi;
+        float ang1 = -pi + t1 * 2.0f * pi;
+        float r = (rPark0 + rPark1) * 0.5f;
+        addQuad(
+            m, L.fromHome(r - 5.0f, ang0, yG + 0.03f), L.fromHome(r - 5.0f, ang1, yG + 0.03f),
+            L.fromHome(r + 5.0f, ang1, yG + 0.03f), L.fromHome(r + 5.0f, ang0, yG + 0.03f),
+            shade(asphalt, 1.1f)
+        );
+    }
+    for (int i = 0; i < 16; i++) {
+        float ang = -pi + (static_cast<float>(i) + 0.5f) / 16.0f * 2.0f * pi;
+        addPath(
+            m, L.fromHome(rPark0 + 1.0f, ang, yG), L.fromHome(rSuburb + 20.0f, ang, yG - 0.1f),
+            3.5f, yG + 0.04f, shade(asphalt, 1.06f)
+        );
+        addPath(
+            m, L.fromHome(rPark0 + 1.0f, ang, yG), L.fromHome(rSuburb + 20.0f, ang, yG - 0.1f),
+            0.14f, yG + 0.06f, asphaltLine
+        );
+    }
+    // Parking stalls + cars
+    for (int i = 0; i < 96; i++) {
+        float ang = -pi + (static_cast<float>(i) + 0.5f) / 96.0f * 2.0f * pi;
+        float r0 = rPark0 + 6.0f + hash01(i) * 28.0f;
+        Vector3 a = L.fromHome(r0, ang, yG + 0.04f);
+        Vector3 b = L.fromHome(r0 + 5.0f, ang, yG + 0.04f);
+        addPath(m, a, b, 0.1f, yG + 0.05f, asphaltLine);
+        if (hash01(i * 7) > 0.35f) {
+            Vector3 car = L.fromHome(r0 + 2.5f, ang + 0.012f, yG);
+            addCar(m, car, ang, i);
+        }
+    }
+
+    // ── Dense buildings — extra thick BEHIND home (ang ~ π) ───────────
+    const sf::Color houseCols[] = {
+        sf::Color(190, 175, 155), sf::Color(160, 150, 145), sf::Color(200, 185, 160),
+        sf::Color(145, 155, 165), sf::Color(175, 140, 120), sf::Color(150, 160, 140),
+        sf::Color(180, 170, 185), facadeGrayColor(), facadeTanColor(),
+        sf::Color(130, 125, 120), sf::Color(165, 155, 140),
+    };
+    auto placeBuilding = [&](float ang, float r, int seed, bool tallOk) {
+        float w = 5.5f + hash01(seed * 7) * 12.0f;
+        float d = 5.5f + hash01(seed * 11) * 14.0f;
+        float h = 3.5f + hash01(seed * 13) * (tallOk ? 22.0f : 12.0f);
+        sf::Color col = houseCols[static_cast<unsigned>(seed) % 11];
+        col = shade(col, 0.88f + 0.14f * hash01(seed + 20));
+        Vector3 c = L.fromHome(r, ang, h * 0.5f + yG);
+        addBox(m, c, w, h, d, col);
+        addBox(
+            m, c + Vector3(0, h * 0.5f + 0.3f, 0), w + 0.7f, 0.45f, d + 0.7f, shade(col, 0.72f)
+        );
+        // Yard patch under building (kills clear ground under props)
+        addBox(m, L.fromHome(r, ang, yG + 0.08f), w + 2.5f, 0.12f, d + 2.5f, dirtLot);
+        if (tallOk && hash01(seed * 17) > 0.7f) {
+            float h2 = 16.0f + hash01(seed) * 30.0f;
+            Vector3 c2 = L.fromHome(r + 10.0f, ang + 0.03f, h2 * 0.5f + yG);
+            addBox(m, c2, 7.0f + hash01(seed + 1) * 8.0f, h2, 7.0f, facadeGrayColor());
+            for (int fl = 1; fl < static_cast<int>(h2 / 3.2f); fl++) {
+                addBox(
+                    m, c2 + Vector3(0, -h2 * 0.5f + fl * 3.2f, 0.1f), 6.5f, 1.1f, 0.15f,
+                    sf::Color(95, 155, 200, 150)
+                );
+            }
+        }
+    };
+
+    // Full ring suburbs
+    for (int i = 0; i < 120; i++) {
+        float ang = -pi + (static_cast<float>(i) + 0.2f * hash01(i * 3)) / 120.0f * 2.0f * pi;
+        float r = rPark1 + 12.0f + hash01(i * 5) * 70.0f;
+        placeBuilding(ang, r, i, true);
+    }
+    // Extra dense pack BEHIND home plate (camera / chase often looks here)
+    for (int i = 0; i < 80; i++) {
+        float u = (static_cast<float>(i) + 0.5f) / 80.0f;
+        float ang = pi - 1.35f + u * 2.7f; // wrap behind home
+        if (ang > pi) {
+            ang -= 2.0f * pi;
+        }
+        float r = rPark1 + 8.0f + hash01(i * 9) * 95.0f + (i % 5) * 6.0f;
+        placeBuilding(ang, r, i + 300, true);
+    }
+    // Extra pack behind CF / OF (HR landings)
+    for (int i = 0; i < 50; i++) {
+        float ang = -0.95f + (static_cast<float>(i) / 50.0f) * 1.9f;
+        float r = L.wallRAtAngle(ang) + 40.0f + hash01(i * 4) * 90.0f;
+        placeBuilding(ang, r, i + 500, true);
+    }
+    // Outer commercial
+    for (int i = 0; i < 64; i++) {
+        float ang = -pi + (static_cast<float>(i) + 0.5f) / 64.0f * 2.0f * pi;
+        float r = rSuburb + 15.0f + hash01(i * 9) * 100.0f;
+        float h = 8.0f + hash01(i * 3) * 28.0f;
+        float w = 12.0f + hash01(i * 5) * 22.0f;
+        Vector3 c = L.fromHome(r, ang, h * 0.5f + yG);
+        sf::Color col = shade(facadeGrayColor(), 0.82f + 0.18f * hash01(i));
+        addBox(m, c, w, h, w * 0.65f, col);
+        addBox(m, c + Vector3(0, h * 0.5f + 0.35f, 0), w + 1.0f, 0.45f, w * 0.65f + 1.0f, shade(col, 0.7f));
+        addBox(m, L.fromHome(r, ang, yG + 0.06f), w + 3.0f, 0.1f, w * 0.65f + 3.0f, asphalt);
+    }
+
+    // Park service buildings
     float pz = L.plateZ();
     addBox(m, Vector3(52.0f, 5.5f, pz + 6.0f), 24.0f, 11.0f, 32.0f, facadeGrayColor());
     addBox(m, Vector3(-52.0f, 5.5f, pz + 6.0f), 24.0f, 11.0f, 32.0f, facadeGrayColor());
     addBox(m, Vector3(58.0f, 4.0f, pz - 25.0f), 16.0f, 8.0f, 20.0f, facadeTanColor());
     addBox(m, Vector3(-58.0f, 4.0f, pz - 25.0f), 16.0f, 8.0f, 20.0f, facadeTanColor());
-    addBox(m, Vector3(45.0f, 3.0f, pz - 50.0f), 12.0f, 6.0f, 14.0f, facadeGrayColor());
-    addBox(m, Vector3(-45.0f, 3.0f, pz - 50.0f), 12.0f, 6.0f, 14.0f, facadeGrayColor());
-    for (float side : {1.0f, -1.0f}) {
-        for (int s = 0; s < 6; s++) {
-            addBox(
-                m, Vector3(side * (40.0f + s * 1.5f), 0.4f + s * 0.55f, pz + 18.0f),
-                3.0f, 0.35f, 4.0f, facadeGrayColor()
+    addBox(m, Vector3(0.0f, 6.0f, pz + 48.0f), 30.0f, 12.0f, 18.0f, facadeGrayColor()); // behind home
+    addBox(m, Vector3(22.0f, 4.5f, pz + 42.0f), 14.0f, 9.0f, 14.0f, facadeTanColor());
+    addBox(m, Vector3(-22.0f, 4.5f, pz + 42.0f), 14.0f, 9.0f, 14.0f, facadeTanColor());
+
+    // ── Dense trees / bushes — fill every band ────────────────────────
+    for (int i = 0; i < 420; i++) {
+        float ang = -pi + (static_cast<float>(i) + hash01(i * 2)) / 420.0f * 2.0f * pi;
+        float band = hash01(i * 11);
+        float r;
+        if (band < 0.22f) {
+            r = rPark0 - 2.0f + hash01(i) * 10.0f;
+        } else if (band < 0.45f) {
+            r = rPark0 + 4.0f + hash01(i + 1) * 40.0f;
+        } else if (band < 0.72f) {
+            r = rPark1 + 3.0f + hash01(i + 2) * 80.0f;
+        } else {
+            r = rSuburb + hash01(i + 3) * 180.0f;
+        }
+        // Keep out of fair field
+        if (r < L.maxWallR() + 6.0f && std::abs(ang) < L.foulAngleRad() + 0.12f) {
+            continue;
+        }
+        Vector3 base = L.fromHome(r, ang, yG);
+        float sc = 0.75f + hash01(i * 19) * 1.6f;
+        if (hash01(i * 23) > 0.55f) {
+            addTree(m, base, sc, i * 13);
+        } else {
+            addBush(m, base, 0.7f + hash01(i) * 1.2f, i * 17);
+        }
+    }
+    // Heavy tree wall behind home
+    for (int i = 0; i < 100; i++) {
+        float u = (static_cast<float>(i) + 0.5f) / 100.0f;
+        float ang = pi - 1.4f + u * 2.8f;
+        if (ang > pi) {
+            ang -= 2.0f * pi;
+        }
+        float r = rPark1 + 5.0f + (i % 7) * 9.0f + hash01(i) * 20.0f;
+        addTree(m, L.fromHome(r, ang, yG), 1.1f + hash01(i + 4) * 1.3f, i * 41);
+        if (i % 2 == 0) {
+            addBush(
+                m, L.fromHome(r - 4.0f, ang + 0.02f, yG), 0.9f + hash01(i + 2), i * 43
             );
         }
     }
+    // CF tree belt (HR backdrop)
+    for (int i = 0; i < 70; i++) {
+        float ang = -0.7f + (static_cast<float>(i) / 70.0f) * 1.4f;
+        float r = L.wallRAtAngle(0.0f) + 45.0f + (i % 6) * 10.0f + hash01(i) * 15.0f;
+        addTree(m, L.fromHome(r, ang, yG), 1.15f + hash01(i + 7) * 1.25f, i * 29);
+    }
 
-    // ── Huge outer ground (so fly balls never hit empty void) ─────────
-    // Parking asphalt ring, then grass, then fields going far out.
-    const float rPark0 = parkR;
-    const float rPark1 = parkR + 45.0f;
-    const float rGrass1 = parkR + 120.0f;
-    const float rFar = parkR + 420.0f;
-    const float yG = -1.9f;
-    sf::Color asphalt(70, 72, 78);
-    sf::Color asphaltLine(200, 200, 190);
-    sf::Color grassFar = shade(grassColor(), 0.78f);
-    sf::Color grassFar2 = shade(sf::Color(55, 100, 48), 0.9f);
-    sf::Color dirtRoad(120, 100, 70);
-
+    // Fences / hedges around parking (visual fill)
     for (int i = 0; i < segs; i++) {
-        float t0 = static_cast<float>(i) / segs;
-        float t1 = static_cast<float>(i + 1) / segs;
-        float ang0 = -pi + t0 * 2.0f * pi;
-        float ang1 = -pi + t1 * 2.0f * pi;
-        // Parking lot
-        addQuad(
-            m, L.fromHome(rPark0, ang0, yG), L.fromHome(rPark0, ang1, yG),
-            L.fromHome(rPark1, ang1, yG), L.fromHome(rPark1, ang0, yG),
-            shade(asphalt, 0.92f + 0.08f * hash01(i))
-        );
-        // Suburb grass
-        addQuad(
-            m, L.fromHome(rPark1, ang0, yG - 0.05f), L.fromHome(rPark1, ang1, yG - 0.05f),
-            L.fromHome(rGrass1, ang1, yG - 0.2f), L.fromHome(rGrass1, ang0, yG - 0.2f),
-            (i % 2 == 0) ? grassFar : grassFar2
-        );
-        // Distant countryside (very large)
-        addQuad(
-            m, L.fromHome(rGrass1, ang0, yG - 0.2f), L.fromHome(rGrass1, ang1, yG - 0.2f),
-            L.fromHome(rFar, ang1, yG - 0.8f), L.fromHome(rFar, ang0, yG - 0.8f),
-            shade(grassFar, 0.88f + 0.06f * hash01(i + 40))
-        );
-    }
-
-    // Parking stall stripes (every few sectors)
-    for (int i = 0; i < 48; i++) {
-        float ang = -pi + (static_cast<float>(i) + 0.5f) / 48.0f * 2.0f * pi;
-        float r0 = rPark0 + 4.0f + hash01(i) * 8.0f;
-        Vector3 a = L.fromHome(r0, ang, yG + 0.02f);
-        Vector3 b = L.fromHome(r0 + 5.5f, ang, yG + 0.02f);
-        addPath(m, a, b, 0.12f, yG + 0.03f, asphaltLine);
-    }
-
-    // Radial access roads from parking outward
-    for (int i = 0; i < 12; i++) {
-        float ang = -pi + (static_cast<float>(i) + 0.5f) / 12.0f * 2.0f * pi;
-        addPath(
-            m, L.fromHome(rPark0 + 2.0f, ang, yG), L.fromHome(rGrass1 + 40.0f, ang, yG - 0.3f),
-            3.2f, yG + 0.01f, shade(asphalt, 1.05f)
-        );
-        addPath(
-            m, L.fromHome(rPark0 + 2.0f, ang, yG), L.fromHome(rGrass1 + 40.0f, ang, yG - 0.3f),
-            0.15f, yG + 0.04f, asphaltLine
-        );
-    }
-
-    // Ring road around parking
-    for (int i = 0; i < segs; i++) {
-        float t0 = static_cast<float>(i) / segs;
-        float t1 = static_cast<float>(i + 1) / segs;
-        float ang0 = -pi + t0 * 2.0f * pi;
-        float ang1 = -pi + t1 * 2.0f * pi;
-        float r = rPark1 - 6.0f;
-        addQuad(
-            m, L.fromHome(r - 4.0f, ang0, yG + 0.02f), L.fromHome(r - 4.0f, ang1, yG + 0.02f),
-            L.fromHome(r + 4.0f, ang1, yG + 0.02f), L.fromHome(r + 4.0f, ang0, yG + 0.02f),
-            shade(asphalt, 1.08f)
-        );
-    }
-
-    // ── Suburban building ring (homes / shops beyond parking) ─────────
-    const sf::Color houseCols[] = {
-        sf::Color(190, 175, 155), sf::Color(160, 150, 145), sf::Color(200, 185, 160),
-        sf::Color(145, 155, 165), sf::Color(175, 140, 120), sf::Color(150, 160, 140),
-        sf::Color(180, 170, 185), facadeGrayColor(), facadeTanColor(),
-    };
-    for (int i = 0; i < 72; i++) {
-        float ang = -pi + (static_cast<float>(i) + 0.35f * hash01(i * 3)) / 72.0f * 2.0f * pi;
-        float r = rPark1 + 18.0f + hash01(i * 5) * 55.0f;
-        float w = 6.0f + hash01(i * 7) * 10.0f;
-        float d = 6.0f + hash01(i * 11) * 12.0f;
-        float h = 4.0f + hash01(i * 13) * 14.0f; // 1–4 story
-        sf::Color col = houseCols[static_cast<unsigned>(i) % 9];
-        col = shade(col, 0.9f + 0.12f * hash01(i + 20));
-        Vector3 c = L.fromHome(r, ang, h * 0.5f + yG);
-        addBox(m, c, w, h, d, col);
-        // Flat or pitched roof slab
-        addBox(
-            m, c + Vector3(0, h * 0.5f + 0.35f, 0), w + 0.8f, 0.5f, d + 0.8f,
-            shade(col, 0.75f)
-        );
-        // Occasional taller office
-        if (hash01(i * 17) > 0.82f) {
-            float h2 = 18.0f + hash01(i) * 28.0f;
-            Vector3 c2 = L.fromHome(r + 12.0f, ang + 0.04f, h2 * 0.5f + yG);
-            addBox(m, c2, 8.0f + hash01(i + 1) * 6.0f, h2, 8.0f, facadeGrayColor());
-            // Window bands
-            for (int fl = 1; fl < static_cast<int>(h2 / 3.5f); fl++) {
-                addBox(
-                    m, c2 + Vector3(0, -h2 * 0.5f + fl * 3.5f, d * 0.05f),
-                    7.0f, 1.2f, 0.2f, sf::Color(100, 160, 200, 160)
-                );
-            }
-        }
-    }
-
-    // Second outer commercial strip (further out — HR chase backdrop)
-    for (int i = 0; i < 40; i++) {
-        float ang = -pi + (static_cast<float>(i) + 0.5f) / 40.0f * 2.0f * pi;
-        float r = rGrass1 + 30.0f + hash01(i * 9) * 80.0f;
-        float h = 6.0f + hash01(i * 3) * 22.0f;
-        float w = 10.0f + hash01(i * 5) * 18.0f;
-        Vector3 c = L.fromHome(r, ang, h * 0.5f + yG);
-        sf::Color col = shade(facadeGrayColor(), 0.85f + 0.15f * hash01(i));
-        addBox(m, c, w, h, w * 0.7f, col);
-        addBox(m, c + Vector3(0, h * 0.5f + 0.4f, 0), w + 1.0f, 0.5f, w * 0.7f + 1.0f, shade(col, 0.7f));
-    }
-
-    // ── Tree belts (parking edges + neighborhoods + OF deep) ──────────
-    for (int i = 0; i < 160; i++) {
-        float ang = -pi + (static_cast<float>(i) + hash01(i * 2)) / 160.0f * 2.0f * pi;
-        float band = hash01(i * 11);
-        float r;
-        if (band < 0.35f) {
-            r = rPark0 + 2.0f + hash01(i) * 8.0f; // near stadium
-        } else if (band < 0.7f) {
-            r = rPark1 + 5.0f + hash01(i + 1) * 40.0f; // suburb
-        } else {
-            r = rGrass1 + hash01(i + 2) * 150.0f; // countryside
-        }
-        Vector3 base = L.fromHome(r, ang, yG);
-        // Skip trees that would sit inside the fair diamond volume
-        if (r < L.maxWallR() + 8.0f && std::abs(ang) < L.foulAngleRad() + 0.15f) {
+        if (i % 2 != 0) {
             continue;
         }
-        float sc = 0.9f + hash01(i * 19) * 1.4f;
-        addTree(m, base, sc, i * 13);
-    }
-
-    // Tree rows behind CF (classic HR backdrop)
-    for (int i = 0; i < 36; i++) {
-        float ang = -0.55f + (static_cast<float>(i) / 36.0f) * 1.1f;
-        float r = L.wallRAtAngle(0.0f) + 55.0f + (i % 5) * 8.0f + hash01(i) * 12.0f;
-        addTree(m, L.fromHome(r, ang, yG), 1.2f + hash01(i + 7) * 1.1f, i * 29);
-    }
-
-    // ── Distant rolling hills (silhouette when ball is sky-high) ───────
-    for (int h = 0; h < 24; h++) {
-        float ang = -pi + (static_cast<float>(h) + 0.5f) / 24.0f * 2.0f * pi;
-        float r = rFar - 40.0f - hash01(h * 3) * 60.0f;
-        float hillH = 12.0f + hash01(h * 7) * 35.0f;
-        float hillW = 50.0f + hash01(h * 11) * 80.0f;
-        Vector3 c = L.fromHome(r, ang, hillH * 0.35f + yG);
-        sf::Color hillCol = shade(sf::Color(70, 105, 65), 0.75f + 0.2f * hash01(h));
-        addBox(m, c, hillW, hillH, hillW * 0.6f, hillCol);
-        // Soft top ridge
-        addBox(
-            m, c + Vector3(0, hillH * 0.35f, 0), hillW * 0.7f, hillH * 0.35f, hillW * 0.45f,
-            shade(hillCol, 1.1f)
+        float t0 = static_cast<float>(i) / segs;
+        float t1 = static_cast<float>(i + 1) / segs;
+        float ang0 = -pi + t0 * 2.0f * pi;
+        float ang1 = -pi + t1 * 2.0f * pi;
+        addQuad(
+            m, L.fromHome(rPark1 - 0.5f, ang0, yG), L.fromHome(rPark1 - 0.5f, ang1, yG),
+            L.fromHome(rPark1 - 0.5f, ang1, yG + 1.4f), L.fromHome(rPark1 - 0.5f, ang0, yG + 1.4f),
+            shade(sf::Color(55, 90, 50), 0.95f)
         );
     }
 
-    // Horizon haze slabs (very far, low poly skyline hints)
-    for (int i = 0; i < 16; i++) {
-        float ang = -pi + (static_cast<float>(i) + 0.5f) / 16.0f * 2.0f * pi;
-        float r = rFar + 80.0f;
-        float h = 20.0f + hash01(i * 5) * 50.0f;
+    // Hills (overlapping so no sky gaps on horizon)
+    for (int h = 0; h < 36; h++) {
+        float ang = -pi + (static_cast<float>(h) + 0.5f) / 36.0f * 2.0f * pi;
+        float r = rFar - 30.0f - hash01(h * 3) * 80.0f;
+        float hillH = 14.0f + hash01(h * 7) * 40.0f;
+        float hillW = 55.0f + hash01(h * 11) * 90.0f;
+        Vector3 c = L.fromHome(r, ang, hillH * 0.32f + yG);
+        sf::Color hillCol = shade(sf::Color(65, 100, 60), 0.72f + 0.22f * hash01(h));
+        addBox(m, c, hillW, hillH, hillW * 0.55f, hillCol);
         addBox(
-            m, L.fromHome(r, ang, h * 0.5f + yG), 40.0f + hash01(i) * 30.0f, h,
-            20.0f, shade(sf::Color(130, 145, 160), 0.7f + 0.15f * hash01(i + 2))
+            m, c + Vector3(0, hillH * 0.32f, 0), hillW * 0.75f, hillH * 0.4f, hillW * 0.4f,
+            shade(hillCol, 1.08f)
+        );
+    }
+    for (int i = 0; i < 20; i++) {
+        float ang = -pi + (static_cast<float>(i) + 0.5f) / 20.0f * 2.0f * pi;
+        float r = rHorizon - 40.0f;
+        float h = 22.0f + hash01(i * 5) * 55.0f;
+        addBox(
+            m, L.fromHome(r, ang, h * 0.5f + yG), 50.0f + hash01(i) * 40.0f, h, 25.0f,
+            shade(sf::Color(125, 140, 155), 0.68f + 0.18f * hash01(i + 2))
         );
     }
 
-    // Water tower / landmark (beyond RF)
+    // Landmarks
     {
-        Vector3 base = L.fromHome(rGrass1 + 50.0f, 0.9f, yG);
-        addBox(m, base + Vector3(0, 8.0f, 0), 1.2f, 16.0f, 1.2f, facadeGrayColor());
-        addBox(m, base + Vector3(0, 17.0f, 0), 6.0f, 4.0f, 6.0f, sf::Color(180, 50, 50));
+        Vector3 base = L.fromHome(rSuburb + 40.0f, 0.95f, yG);
+        addBox(m, base + Vector3(0, 9.0f, 0), 1.3f, 18.0f, 1.3f, facadeGrayColor());
+        addBox(m, base + Vector3(0, 19.0f, 0), 6.5f, 4.5f, 6.5f, sf::Color(175, 48, 48));
+    }
+    {
+        // Cell tower behind home
+        Vector3 base = L.fromHome(rPark1 + 60.0f, pi * 0.92f, yG);
+        addBox(m, base + Vector3(0, 14.0f, 0), 0.8f, 28.0f, 0.8f, sf::Color(120, 120, 125));
+        addBox(m, base + Vector3(0, 28.0f, 0), 4.0f, 0.5f, 0.5f, sf::Color(140, 140, 145));
     }
 
     m.rebuildNormals();
