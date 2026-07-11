@@ -554,28 +554,30 @@ AnimationClip catcherIdle(const SkinnedModel3D& model) {
 // Mid-chain twist bones carry small progressive roll (not zero — fluid whip).
 namespace {
 
-// Upright athletic set — weight slightly rear, not corkscrewed closed.
-Quaternion ohtaniHipSet() { return eul(0.04f, -0.42f, 0.02f); }
-Quaternion ohtaniSpineSet() { return eul(0.04f, -0.20f, 0.01f); }
-Quaternion ohtaniSpine2Set() { return eul(0.03f, -0.24f, 0.01f); }
-Quaternion ohtaniChestSet() { return eul(0.02f, -0.28f, 0.01f); }
-Quaternion ohtaniHeadSet() { return eul(-0.02f, 0.50f, 0.0f); } // track pitcher
+// MLB ready set: upright, closed-ish hips, eyes on pitcher.
+// Weight slightly rear (back hip loaded) without a deep crouch.
+Quaternion ohtaniHipSet() { return eul(0.05f, -0.48f, 0.02f); }
+Quaternion ohtaniSpineSet() { return eul(0.05f, -0.24f, 0.015f); }
+Quaternion ohtaniSpine2Set() { return eul(0.04f, -0.28f, 0.015f); }
+Quaternion ohtaniChestSet() { return eul(0.03f, -0.32f, 0.015f); }
+Quaternion ohtaniHeadSet() { return eul(-0.04f, 0.55f, 0.0f); } // track pitcher
 
-// Classic MLB ready: hands just above rear shoulder / ear, bat ~45° with
-// barrel high behind the head (not flat across the zone). Hitting Vault etc.
-// Hang-bind: −rx raise, +rz open R, −rz open L. Keep ry small (no noodle twist).
-Quaternion ohtaniShoulderR() { return eul(-1.38f, 0.10f, 0.28f); } // rear/bottom hand high
-Quaternion ohtaniElbowR() { return eul(1.05f, 0.0f, 0.0f); }      // L-shape to ear
-Quaternion ohtaniWristR() { return eul(-0.35f, 0.18f, 0.42f); }    // cock tip up/back
-Quaternion ohtaniShoulderL() { return eul(-1.18f, 0.06f, 0.38f); } // top hand stacked
-Quaternion ohtaniElbowL() { return eul(0.98f, 0.0f, 0.0f); }
-Quaternion ohtaniWristL() { return eul(-0.22f, -0.12f, -0.28f); }
+// Classic MLB stance silhouette (Hitting Vault / pro cues):
+//   hands at/above rear shoulder · bat ~45° · barrel high BEHIND the head.
+// Hang-bind: −rx raise, +rz open R, −rz open L. Minimal ry (no noodle twist).
+// Rear elbow (R) forms a high L near the ear; top hand (L) stacks above it.
+Quaternion ohtaniShoulderR() { return eul(-1.42f, 0.06f, 0.18f); } // rear hand high
+Quaternion ohtaniElbowR() { return eul(1.18f, 0.0f, 0.0f); }      // L at ear (hands close)
+Quaternion ohtaniWristR() { return eul(-0.38f, 0.18f, 0.42f); }    // tip up + back
+Quaternion ohtaniShoulderL() { return eul(-1.22f, 0.04f, 0.48f); } // top hand stacked inward
+Quaternion ohtaniElbowL() { return eul(1.15f, 0.0f, 0.0f); }
+Quaternion ohtaniWristL() { return eul(-0.24f, -0.10f, -0.28f); }
 
-// Athletic base — soft knees, not deep crouch.
-Quaternion ohtaniHipL() { return eul(0.14f, 0.10f, 0.16f); }
-Quaternion ohtaniHipR() { return eul(0.18f, -0.05f, -0.14f); }
-Quaternion ohtaniKneeL() { return eul(0.28f, 0.0f, 0.0f); }
-Quaternion ohtaniKneeR() { return eul(0.34f, 0.0f, 0.0f); }
+// Athletic base — soft knees, rear leg slightly more loaded.
+Quaternion ohtaniHipL() { return eul(0.16f, 0.12f, 0.18f); }  // lead
+Quaternion ohtaniHipR() { return eul(0.22f, -0.06f, -0.16f); } // rear load
+Quaternion ohtaniKneeL() { return eul(0.32f, 0.0f, 0.0f); }
+Quaternion ohtaniKneeR() { return eul(0.40f, 0.0f, 0.0f); }
 
 // Contact: short to ball, arms more extended (power lane).
 Quaternion ohtaniContactShR() { return eul(-0.88f, -0.42f, -0.06f); }
@@ -770,41 +772,41 @@ AnimationClip batterStance(const SkinnedModel3D& model) {
     // Hands locked high by the rear ear; bat tip overhead (tiny live settle).
     pushRot(clip, J("Shoulder_R"), t, {
         ohtaniShoulderR(),
-        eul(-1.36f, 0.09f, 0.29f),
-        eul(-1.40f, 0.11f, 0.27f),
-        eul(-1.37f, 0.10f, 0.28f),
+        eul(-1.40f, 0.05f, 0.19f),
+        eul(-1.44f, 0.07f, 0.17f),
+        eul(-1.41f, 0.06f, 0.18f),
         ohtaniShoulderR()
     });
     pushRot(clip, J("Elbow_R"), t, {
         ohtaniElbowR(),
-        eul(1.07f, 0, 0), eul(1.02f, 0, 0), eul(1.06f, 0, 0), ohtaniElbowR()
+        eul(1.20f, 0, 0), eul(1.15f, 0, 0), eul(1.19f, 0, 0), ohtaniElbowR()
     });
     pushRot(clip, J("Wrist_R"), t, {
         ohtaniWristR(),
-        eul(-0.32f, 0.16f, 0.40f),
-        eul(-0.38f, 0.20f, 0.44f),
-        eul(-0.34f, 0.17f, 0.41f),
+        eul(-0.36f, 0.16f, 0.40f),
+        eul(-0.40f, 0.20f, 0.44f),
+        eul(-0.37f, 0.17f, 0.41f),
         ohtaniWristR()
     });
     pushRot(clip, J("Palm_R"), t, {
-        eul(-0.12f, 0.04f, 0.08f), eul(-0.10f, 0.04f, 0.08f), eul(-0.14f, 0.05f, 0.09f),
+        eul(-0.12f, 0.04f, 0.08f), eul(-0.10f, 0.04f, 0.07f), eul(-0.14f, 0.05f, 0.09f),
         eul(-0.11f, 0.04f, 0.08f), eul(-0.12f, 0.04f, 0.08f)
     });
     pushRot(clip, J("Shoulder_L"), t, {
         ohtaniShoulderL(),
-        eul(-1.16f, 0.05f, 0.39f),
-        eul(-1.20f, 0.07f, 0.37f),
-        eul(-1.17f, 0.06f, 0.38f),
+        eul(-1.20f, 0.03f, 0.49f),
+        eul(-1.24f, 0.05f, 0.47f),
+        eul(-1.21f, 0.04f, 0.48f),
         ohtaniShoulderL()
     });
     pushRot(clip, J("Elbow_L"), t, {
         ohtaniElbowL(),
-        eul(1.00f, 0, 0), eul(0.95f, 0, 0), eul(0.99f, 0, 0), ohtaniElbowL()
+        eul(1.17f, 0, 0), eul(1.12f, 0, 0), eul(1.16f, 0, 0), ohtaniElbowL()
     });
     pushRot(clip, J("Wrist_L"), t, {
         ohtaniWristL(),
-        eul(-0.20f, -0.11f, -0.26f), eul(-0.24f, -0.13f, -0.30f),
-        eul(-0.21f, -0.12f, -0.27f), ohtaniWristL()
+        eul(-0.22f, -0.09f, -0.26f), eul(-0.26f, -0.11f, -0.30f),
+        eul(-0.23f, -0.10f, -0.27f), ohtaniWristL()
     });
 
     pushRot(clip, J("Index_R"), t, {
