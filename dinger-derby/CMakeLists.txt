@@ -50,8 +50,16 @@ add_library(dinger_engine STATIC
 target_include_directories(dinger_engine PUBLIC src)
 target_link_libraries(dinger_engine PUBLIC SFML::Graphics OpenGL::GL)
 
-add_executable(dinger_derby src/main.cpp)
-target_link_libraries(dinger_derby PRIVATE dinger_engine)
+# Product entry: polished launcher (Play HR Derby first; Dev tools secondary).
+add_executable(dinger_derby tests/demo_launcher.cpp)
+target_link_libraries(dinger_derby
+    PRIVATE
+        dinger_engine
+        SFML::Graphics
+        SFML::Window
+        SFML::System
+        SFML::Audio
+)
 
 function(add_dinger_demo target source)
     add_executable(${target} ${source})

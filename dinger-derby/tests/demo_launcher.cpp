@@ -36,55 +36,55 @@ struct DemoEntry {
     std::string name;
     std::string executable;
     std::string description;
-    std::string category; // Featured | Game | Physics | 3D | Tools
+    std::string category; // Play | Dev
     bool featured = false;
 };
 
 std::vector<DemoEntry> makeDemoEntries() {
     return {
-        // Featured first
-        {"Stadium", "stadium_demo",
-         "HR Derby ballpark — field, wall, stands, orbit cameras", "Featured", true},
-        {"HR Derby / Bat", "bat_physics_demo",
-         "Soft toss, fixed swings, HR count + longest", "Featured", true},
-        {"Pitching Simulator", "pitching_simulator_demo",
-         "Aim box, spin, Magnus break, catcher/pitcher cams", "Featured", true},
+        // Product path first
+        {"Play HR Derby", "bat_physics_demo",
+         "Main game — soft toss, difficulty, HR count + longest", "Play", true},
+        {"Stadium Tour", "stadium_demo",
+         "Orbit the ballpark — field, wall, stands, fans", "Play", true},
+        {"Pitching Lab", "pitching_simulator_demo",
+         "Aim, spin, Magnus — tech demo for delivery feel", "Play", true},
+
+        // Dev / engine tools (hidden under Dev category by default)
         {"Character Viewer", "character_viewer_demo",
-         "CharacterModel3D workshop — orbit, clips, bones", "Featured", true},
+         "CharacterModel3D workshop — orbit, clips, bones", "Dev", false},
         {"Baseball 3D", "baseball_3d_demo",
-         "High-poly baseball mesh showcase", "Featured", true},
-
+         "High-poly baseball mesh showcase", "Dev", false},
         {"Physics 3D", "physics3d_demo",
-         "Rigid spheres, collisions, world bounds", "Physics", false},
+         "Rigid spheres, collisions, world bounds", "Dev", false},
         {"Soft Cube 3D", "soft_cube_3d_demo",
-         "Springy deformable mesh body", "Physics", false},
+         "Springy deformable mesh body", "Dev", false},
         {"Bat Test", "bat_test",
-         "2D bat/body contact sandbox", "Physics", false},
+         "2D bat/body contact sandbox", "Dev", false},
         {"Spin Test", "spin_test",
-         "Angular motion and impulses", "Physics", false},
+         "Angular motion and impulses", "Dev", false},
         {"User Ball", "user_ball_test",
-         "2D launch-and-collision sandbox", "Physics", false},
+         "2D launch-and-collision sandbox", "Dev", false},
         {"Random Spawn", "random_spawn_test",
-         "2D physics stress with random balls", "Physics", false},
-
+         "2D physics stress with random balls", "Dev", false},
         {"Rotation 3D", "rotation_3d_demo",
-         "Yaw, pitch, roll, and orbit camera", "3D", false},
+         "Yaw, pitch, roll, and orbit camera", "Dev", false},
         {"Raster Cube 3D", "raster_cube_3d_demo",
-         "Software-rasterized cube", "3D", false},
+         "Software-rasterized cube", "Dev", false},
         {"Raster Depth 3D", "raster_depth_3d_demo",
-         "Depth-buffered raster cubes", "3D", false},
+         "Depth-buffered raster cubes", "Dev", false},
         {"Filled Cube 3D", "filled_cube_3d_demo",
-         "Painter-style filled cube", "3D", false},
+         "Painter-style filled cube", "Dev", false},
         {"Wire Cube 3D", "wire_cube_3d_demo",
-         "Wireframe cube transform demo", "3D", false},
+         "Wireframe cube transform demo", "Dev", false},
         {"Depth Sort 3D", "depth_sort_3d_demo",
-         "Triangle ordering demo", "3D", false},
+         "Triangle ordering demo", "Dev", false},
         {"Point Cloud 3D", "point_cloud_3d_demo",
-         "First 3D projection points", "3D", false},
+         "First 3D projection points", "Dev", false},
         {"Transform Stack 3D", "transform_stack_3d_demo",
-         "Nested transform hierarchy", "3D", false},
+         "Nested transform hierarchy", "Dev", false},
         {"Culling Stress 3D", "culling_stress_3d_demo",
-         "Grid, culling, triangle counters", "3D", false},
+         "Grid, culling, triangle counters", "Dev", false},
     };
 }
 
@@ -334,10 +334,10 @@ int main(int argc, char** argv) {
     window.setVerticalSyncEnabled(true);
 
     std::vector<DemoEntry> demos = makeDemoEntries();
-    std::vector<std::string> categories = uniqueCategories(demos);
-    categories.insert(categories.begin(), "All");
+    // Product-first: Play (HR Derby) then Dev tools. All last.
+    std::vector<std::string> categories = {"Play", "Dev", "All"};
 
-    int filterIndex = 0; // "All"
+    int filterIndex = 0; // Play — main product path
     int selectedLocal = 0; // index into filtered list
     float scrollY = 0.0f;
     float animTime = 0.0f;
@@ -582,7 +582,7 @@ int main(int argc, char** argv) {
             drawText(
                 window,
                 font,
-                "Engine demos  |  Home Run Derby foundation",
+                "Home Run Derby  |  Play first  ·  Dev tools when you need them",
                 15,
                 {84.0f, 66.0f},
                 colMuted
@@ -590,9 +590,9 @@ int main(int argc, char** argv) {
             drawText(
                 window,
                 font,
-                "Up/Down select   Enter launch   Tab category   Esc quit",
+                "Enter play   Tab Play/Dev   Esc quit",
                 13,
-                {winW - 420.0f, 42.0f},
+                {winW - 340.0f, 42.0f},
                 sf::Color(100, 130, 145)
             );
         }
@@ -674,7 +674,7 @@ int main(int argc, char** argv) {
             drawText(
                 window,
                 font,
-                "Featured demos power\nthe HR Derby path.",
+                "Play HR Derby is the main\ngame. Dev lists engine\nsandboxes.",
                 13,
                 {36.0f, static_cast<float>(winH) - 78.0f},
                 sf::Color(90, 120, 130)
