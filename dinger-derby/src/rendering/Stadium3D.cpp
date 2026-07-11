@@ -468,21 +468,21 @@ Mesh3D buildField(const Layout& L) {
         }
 
         const bool fair = std::abs(angM) <= L.foulAngleRad() + 0.02f;
-        float rFence0 = fair ? (L.wallRAtAngle(ang0) - 0.35f) : 0.0f;
-        float rFence1 = fair ? (L.wallRAtAngle(ang1) - 0.35f) : 0.0f;
-        float rBowl0 = L.bowlInnerRadius(ang0) - 0.6f;
-        float rBowl1 = L.bowlInnerRadius(ang1) - 0.6f;
-        // Play surface outer edge: fence in fair territory, bowl in foul.
-        float rOut0 = fair ? rFence0 : rBowl0;
-        float rOut1 = fair ? rFence1 : rBowl1;
-        rOut0 = std::max(rOut0, 2.0f);
-        rOut1 = std::max(rOut1, 2.0f);
+        // Continuous outer edge = bowl apron at every angle (no radial voids
+        // at the foul poles where fence radius ≠ bowl radius).
+        float rBowl0 = std::max(2.0f, L.bowlInnerRadius(ang0) - 0.35f);
+        float rBowl1 = std::max(2.0f, L.bowlInnerRadius(ang1) - 0.35f);
+        float rFence0 = fair ? (L.wallRAtAngle(ang0) - 0.25f) : rBowl0;
+        float rFence1 = fair ? (L.wallRAtAngle(ang1) - 0.25f) : rBowl1;
+        // Grass always fills to bowl so foul/fair seams don't gap.
+        float rOut0 = rBowl0;
+        float rOut1 = rBowl1;
 
         // Base grass (full coverage under dirt diamond).
         addQuad(
             m,
-            L.fromHome(0.25f, ang0, 0.0f),
-            L.fromHome(0.25f, ang1, 0.0f),
+            L.fromHome(0.15f, ang0, 0.0f),
+            L.fromHome(0.15f, ang1, 0.0f),
             L.fromHome(rOut1, ang1, 0.0f),
             L.fromHome(rOut0, ang0, 0.0f),
             grass
@@ -494,10 +494,10 @@ Mesh3D buildField(const Layout& L) {
             for (int s = 0; s < 5; s++) {
                 float u0 = 0.42f + s * 0.09f;
                 float u1 = u0 + 0.045f;
-                float mid0 = std::max(stripeIn, rOut0 * u0);
-                float mid1 = std::max(stripeIn, rOut1 * u0);
-                float mid0b = std::min(rOut0 - 3.8f, rOut0 * u1);
-                float mid1b = std::min(rOut1 - 3.8f, rOut1 * u1);
+                float mid0 = std::max(stripeIn, rFence0 * u0);
+                float mid1 = std::max(stripeIn, rFence1 * u0);
+                float mid0b = std::min(rFence0 - 3.8f, rFence0 * u1);
+                float mid1b = std::min(rFence1 - 3.8f, rFence1 * u1);
                 if (mid0b <= mid0 + 0.4f) {
                     continue;
                 }
@@ -511,21 +511,16 @@ Mesh3D buildField(const Layout& L) {
                     stripe
                 );
             }
-            // Warning track inside fence (banded dirt for read from field)
+            // Warning track just inside the fence (not the bowl edge).
             {
                 const float trackW = 3.8f;
                 for (int b = 0; b < 3; b++) {
                     float t0 = static_cast<float>(b) / 3.0f;
                     float t1 = static_cast<float>(b + 1) / 3.0f;
-                    float ri0 = rOut0 - trackW + trackW * t0;
-                    float ri1 = rOut1 - trackW + trackW * t1;
-                    float ro0 = rOut0 - trackW + trackW * t1;
-                    float ro1 = rOut1 - trackW + trackW * ((b + 1) / 3.0f);
-                    // fix band edges
-                    ri0 = rOut0 - trackW * (1.0f - t0);
-                    ro0 = rOut0 - trackW * (1.0f - t1);
-                    ri1 = rOut1 - trackW * (1.0f - t0);
-                    ro1 = rOut1 - trackW * (1.0f - t1);
+                    float ri0 = rFence0 - trackW * (1.0f - t0);
+                    float ro0 = rFence0 - trackW * (1.0f - t1);
+                    float ri1 = rFence1 - trackW * (1.0f - t0);
+                    float ro1 = rFence1 - trackW * (1.0f - t1);
                     sf::Color tc = shadeColor(track, (b % 2) ? 0.92f : 1.05f);
                     addQuad(
                         m,
@@ -1620,28 +1615,25 @@ float Layout::foulAngleRad() const {
     return foulAngleDegrees * (pi / 180.0f);
 }
 
-// Citizens Bank Park–inspired OF distances (feet) vs angle from CF (deg).
-// Samples from the reference diagram: LF 329 · 374 · 387 · 404 deep · CF ~401 · 398 · 369 · RF 330.
+// OF fence distances (feet) vs angle from CF (deg). Mild asymmetry for park
+// character, but smooth enough that the overhead bowl reads as a diamond —
+// not a heart with a deep LCF pocket.
 float Layout::wallFeetAtAngle(float angleRad) const {
     // Clamp to foul territory angles.
     float aDeg = angleRad * (180.0f / pi);
     aDeg = std::clamp(aDeg, -foulAngleDegrees, foulAngleDegrees);
 
-    // (angleDeg, feet) — sorted by angle LF → RF
+    // (angleDeg, feet) — sorted LF → RF. Corners short, CF deep, no sharp notch.
     static const float samples[][2] = {
-        {-45.0f, 329.0f},
-        {-35.0f, 345.0f},
-        {-25.0f, 360.0f},
-        {-18.0f, 374.0f},
-        {-10.0f, 387.0f},
-        {-4.0f, 404.0f}, // Monty's Angle (deepest)
-        {0.0f, 401.0f},  // CF
-        {6.0f, 398.0f},
-        {18.0f, 369.0f},
-        {30.0f, 350.0f},
+        {-45.0f, 330.0f},
+        {-30.0f, 355.0f},
+        {-15.0f, 385.0f},
+        {0.0f, 400.0f},  // CF
+        {15.0f, 382.0f},
+        {30.0f, 352.0f},
         {45.0f, 330.0f},
     };
-    constexpr int n = 11;
+    constexpr int n = 7;
     if (aDeg <= samples[0][0]) {
         return samples[0][1];
     }
@@ -1651,6 +1643,8 @@ float Layout::wallFeetAtAngle(float angleRad) const {
     for (int i = 0; i < n - 1; i++) {
         if (aDeg >= samples[i][0] && aDeg <= samples[i + 1][0]) {
             float u = (aDeg - samples[i][0]) / (samples[i + 1][0] - samples[i][0]);
+            // Smoothstep so fence doesn't kink at sample points.
+            u = u * u * (3.0f - 2.0f * u);
             return samples[i][1] + (samples[i + 1][1] - samples[i][1]) * u;
         }
     }
@@ -1716,6 +1710,8 @@ float Layout::radiusFromHome(const Vector3& worldPos) const {
 }
 
 float Layout::bowlInnerRadius(float ang) const {
+    // Full 360° seating apron. Overhead should read as a rounded DIAMOND
+    // (baseball field), not a heart/cardioid: no severe pinch behind home.
     while (ang > pi) {
         ang -= 2.0f * pi;
     }
@@ -1723,26 +1719,40 @@ float Layout::bowlInnerRadius(float ang) const {
         ang += 2.0f * pi;
     }
     float fa = foulAngleRad();
-    if (std::abs(ang) <= fa + 0.05f) {
-        // Immediately behind OF fence (walkway + first row).
-        return wallRAtAngle(ang) + 2.2f;
+    float absA = std::abs(ang);
+    float bp = basePath();
+
+    // Fair OF: immediately outside the fence (continuous with wall mesh).
+    if (absA <= fa + 0.02f) {
+        return wallRAtAngle(ang) + 3.0f;
     }
 
-    float foulPoleR = wallRAtAngle(ang >= 0.0f ? fa : -fa) + 2.2f;
-    float backR = 14.0f;
-    float bp = basePath();
-    float dugoutClear = bp * 0.95f + 22.0f;
+    // Foul: rounded diamond envelope — tips toward CF / backstop, flats on
+    // 1B–3B sides. |cos|+|sin| polar form (square rotated 45° from CF axis).
+    float foulPoleR = wallRAtAngle(ang >= 0.0f ? fa : -fa) + 3.0f;
+    // Diamond scale so CF tip ≈ foul-pole radius (matches OF arc).
+    float diamondScale = foulPoleR * (1.0f + 0.12f); // slight outer cushion
+    float c = std::abs(std::cos(ang));
+    float s = std::abs(std::sin(ang));
+    float diamondR = diamondScale / std::max(c + s, 0.35f);
 
-    float fromFoul = std::abs(ang) - fa;
-    float span = pi - fa;
-    float u = std::clamp(fromFoul / std::max(span, 0.01f), 0.0f, 1.0f);
-    const float hold = 0.30f;
-    float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
-    u2 = u2 * u2 * (3.0f - 2.0f * u2);
+    // Keep clear of dugouts / base paths along the lines.
+    float sideClear = bp * 1.05f + 26.0f; // ~1B/3B side depth
+    float backClear = 30.0f;              // backstop stands (was 14 — heart pinch)
 
-    float r = foulPoleR + (backR - foulPoleR) * u2;
-    float minClear = backR + (dugoutClear - backR) * (1.0f - u2);
-    return std::max(r, minClear);
+    // Blend foul-pole → diamond, then enforce side/back minima smoothly.
+    float u = std::clamp((absA - fa) / std::max(pi - fa, 0.01f), 0.0f, 1.0f);
+    float uSm = u * u * (3.0f - 2.0f * u);
+    float r = foulPoleR + (diamondR - foulPoleR) * uSm;
+
+    // Toward the sides (±90°) prefer sideClear; behind home prefer backClear.
+    float sideW = std::clamp(std::sin(absA), 0.0f, 1.0f); // 0 at CF/back, 1 at ±90
+    float backW = std::clamp((-std::cos(ang) + 0.15f) / 1.15f, 0.0f, 1.0f); // 1 behind home
+    r = std::max(r, sideClear * sideW + foulPoleR * (1.0f - sideW) * 0.35f);
+    r = std::max(r, backClear * backW + r * (1.0f - backW));
+    // Never smaller than foul pole (prevents inward notches / gaps at poles).
+    r = std::max(r, foulPoleR * 0.92f);
+    return r;
 }
 
 float Layout::bowlBaseHeight(float ang) const {
@@ -1757,10 +1767,8 @@ float Layout::bowlBaseHeight(float ang) const {
         return wallHeightAtAngle(ang) + 0.5f;
     }
     float u = std::clamp((std::abs(ang) - fa) / (pi - fa), 0.0f, 1.0f);
-    const float hold = 0.30f;
-    float u2 = u < hold ? 0.0f : (u - hold) / (1.0f - hold);
-    u2 = u2 * u2 * (3.0f - 2.0f * u2);
-    return 2.2f + u2 * 5.5f;
+    float u2 = u * u * (3.0f - 2.0f * u);
+    return 2.0f + u2 * 4.5f;
 }
 
 namespace {
@@ -1873,7 +1881,9 @@ BallCollisionHit collideBall(
         hit.wallTopY = wallH;
         hit.fenceFeet = layout.wallFeetAtAngle(ang);
         if (r + radius > wallR) {
-            if (position.y <= wallH + radius * 0.35f) {
+            // Must be clearly above the wall top to count as a clear (matches evaluateWallClear).
+            const float clearY = wallH + std::max(radius, 0.12f);
+            if (position.y <= clearY) {
                 // Hit fence face — push back into the field.
                 Vector3 onWall = layout.fromHome(wallR - radius - 0.02f, ang, position.y);
                 onWall.y = std::clamp(position.y, groundY, wallH - 0.02f);
@@ -2085,15 +2095,19 @@ WallClearResult evaluateWallClear(
             out.heightAtFence = yFence;
             out.marginFeet = (yFence - wallH) * layout.feetPerUnit;
 
-            if (out.fair && yFence >= wallH - 0.05f) {
+            // Must clear the wall TOP by a real margin (~1 ft) — no graze HRs.
+            constexpr float kClearMargin = 0.30f; // world units (~0.6 ft)
+            if (out.fair && yFence >= wallH + kClearMargin) {
                 out.clearsWall = true;
-                // Keep integrating for landing distance past the wall.
+                // Keep integrating for true landing past the wall.
             } else if (out.fair) {
                 out.hitsWallFace = true;
+                out.clearsWall = false;
                 out.landFeet = out.fenceFeet;
                 return out;
             } else {
                 // Foul past the foul line — not an HR clear.
+                out.clearsWall = false;
                 out.landFeet = r * layout.feetPerUnit;
                 return out;
             }
@@ -2107,6 +2121,13 @@ WallClearResult evaluateWallClear(
             out.landFeet = landR * layout.feetPerUnit;
             out.sprayDeg = landA * (180.0f / pi);
             out.fair = std::abs(out.sprayDeg) <= layout.foulAngleDegrees + 0.5f;
+            // Landed short of the fence → never an over-the-wall clear.
+            float wallAtLand = layout.wallRAtAngle(landA);
+            if (landR < wallAtLand - 0.5f) {
+                out.clearsWall = false;
+                out.hitsWallFace = false;
+                out.marginFeet = 0.0f;
+            }
             return out;
         }
 

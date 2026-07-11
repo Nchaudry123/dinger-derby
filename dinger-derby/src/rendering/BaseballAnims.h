@@ -14,4 +14,13 @@ AnimationClip pitcherIdle(const SkinnedModel3D& model);
 // Simple catcher crouch idle.
 AnimationClip catcherIdle(const SkinnedModel3D& model);
 
+// Ohtani-inspired RHB plate stance — upright, high hands, wide base, rhythm loop.
+// Model faces +Z (apply world rotY(π) so batter looks at mound / −Z).
+AnimationClip batterStance(const SkinnedModel3D& model);
+
+// Ohtani-inspired RHB swing: coil → quick toe-tap → plant → contact → high wrap.
+// Duration 0.55s; contact at t_norm ≈ 0.42 (matches BatPose). Drive with
+// applyClipNormalized(clip, bat.swingT).
+AnimationClip batterSwing(const SkinnedModel3D& model);
+
 } // namespace BaseballAnims

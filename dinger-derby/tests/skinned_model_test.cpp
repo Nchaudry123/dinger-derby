@@ -1,3 +1,4 @@
+#include "rendering/BaseballAnims.h"
 #include "rendering/CharacterModel3D.h"
 #include "rendering/SkeletonAnimator.h"
 #include "rendering/SkinnedModel3D.h"
@@ -96,6 +97,61 @@ int main() {
     // Factory wrappers route to CharacterModel3D.
     SkinnedModel3D viaFactory = SkinnedModel3D::makeProceduralPitcher(1);
     expect(viaFactory.findClip("throw_preview") != nullptr, "factory has throw_preview");
+
+    // Ohtani-inspired RHB stance + swing (driven by bat_physics_demo).
+    SkinnedModel3D batter = CharacterModel3D::build(
+        CharacterModel3D::Role::Athlete,
+        CharacterModel3D::Detail::Medium
+    );
+    AnimationClip stance = BaseballAnims::batterStance(batter);
+    AnimationClip swing = BaseballAnims::batterSwing(batter);
+    expect(stance.name == "batter_stance", "stance name");
+    expect(stance.duration > 1.0f, "stance loops");
+    expect(!stance.channels.empty(), "stance channels");
+    expect(swing.name == "batter_swing", "swing name");
+    expect(swing.duration > 0.50f && swing.duration < 0.70f, "swing duration ~0.58");
+    expect(!swing.channels.empty(), "swing channels");
+
+    SkeletonAnimator bAnim;
+    bAnim.setModel(batter);
+    bAnim.applyClip(stance, 0.0f, true);
+    Vector3 stancePalmR = bAnim.jointWorldPosition("Palm_R");
+    Vector3 stancePalmL = bAnim.jointWorldPosition("Palm_L");
+    Vector3 stanceHead = bAnim.jointWorldPosition("Head");
+    Vector3 stanceKneeL = bAnim.jointWorldPosition("Knee_L");
+    // High-hand Ohtani set: hands together near ear/shoulder.
+    float stanceSep = (stancePalmR - stancePalmL).magnitude();
+    expect(stanceSep < 0.55f, "stance hands together on bat");
+    expect(stancePalmR.y > 1.00f, "stance hands high (Ohtani set)");
+    expect(stancePalmR.y < stanceHead.y + 0.25f, "stance hands near head");
+
+    bAnim.applyClipNormalized(swing, 0.0f);
+    Vector3 loadPalm = bAnim.jointWorldPosition("Palm_R");
+    Vector3 loadPalmL = bAnim.jointWorldPosition("Palm_L");
+    Vector3 loadKneeL = bAnim.jointWorldPosition("Knee_L");
+    // Toe-tap peak ~ t=0.15 of clip (0.08s / 0.55s).
+    bAnim.applyClipNormalized(swing, 0.15f);
+    Vector3 tapKneeL = bAnim.jointWorldPosition("Knee_L");
+    expect(tapKneeL.y > loadKneeL.y + 0.04f, "toe-tap elevates lead knee");
+
+    bAnim.applyClipNormalized(swing, 0.42f);
+    Vector3 contactPalm = bAnim.jointWorldPosition("Palm_R");
+    Vector3 contactPalmL = bAnim.jointWorldPosition("Palm_L");
+    Vector3 contactHip = bAnim.jointWorldPosition("Hips");
+    bAnim.applyClipNormalized(swing, 1.0f);
+    Vector3 finishPalm = bAnim.jointWorldPosition("Palm_R");
+    // Grip holds through contact; compact swing travels.
+    expect((loadPalm - loadPalmL).magnitude() < 0.55f, "load hands together");
+    expect((contactPalm - contactPalmL).magnitude() < 0.50f, "contact hands together");
+    float loadToFinish = (finishPalm - loadPalm).magnitude();
+    expect(loadToFinish > 0.20f, "swing finishes with arm travel");
+    expect(contactHip.z > -0.05f, "contact COM driven toward pitcher");
+    expect(finishPalm.y > 0.85f, "high finish wrap");
+    expect(std::isfinite(contactHip.y), "contact hip finite");
+    (void)stanceKneeL;
+
+    Mesh3D swingMesh = batter.skinToMesh(bAnim.skinMatrices());
+    expect(swingMesh.vertices.size() == batter.bindVertices.size(), "swing skin verts");
 
     if (gFails == 0) {
         std::cout << "skinned_model_test OK\n";

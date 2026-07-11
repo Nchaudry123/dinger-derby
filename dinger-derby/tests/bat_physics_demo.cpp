@@ -8,8 +8,7 @@
 // mound (same asset/delivery as pitching_simulator_demo). Practice/Live as before.
 //
 // Controls:
-//   Mouse              aim reticle (PCI / sweet spot)
-//   Q / E / wheel      bat roll (reticle angle)
+//   Mouse              aim reticle (PCI) — height auto-tilts bat silhouette
 //   Z / X / C          Power / Contact / Regular
 //   Space / LMB        swing (3D bat animates)
 //   D                  HR Derby mode (default)
@@ -17,6 +16,7 @@
 //   L                  live AB mode
 //   R                  next pitch / next toss
 //   N                  new derby round (or new at-bat in live)
+//   1 / 2 / 3          Easy / Normal / Hard (derby)
 //   [ ]                pitch speed (live mode)
 //   Esc                quit
 
@@ -338,10 +338,12 @@ struct SwingProfile {
 };
 
 const SwingProfile& profileOf(SwingType t) {
+    // Durations are full load→finish; contact dwell ~0.34–0.52 of the clip.
+    // Tuned for readable, powerful, game-feel swings.
     static const SwingProfile k[] = {
-        {"POWER", 1.25f, 0.20f, 0.68f, 0.05f, 1.12f, 0.055f, sf::Color(255, 130, 90)},
-        {"CONTACT", 0.70f, 0.30f, 1.55f, -0.01f, 0.92f, 0.10f, sf::Color(110, 210, 255)},
-        {"REGULAR", 1.00f, 0.24f, 1.00f, 0.00f, 1.00f, 0.07f, sf::Color(255, 225, 70)},
+        {"POWER", 1.28f, 0.32f, 0.82f, 0.06f, 1.14f, 0.070f, sf::Color(255, 130, 90)},
+        {"CONTACT", 0.72f, 0.40f, 1.70f, 0.00f, 0.94f, 0.13f, sf::Color(110, 210, 255)},
+        {"REGULAR", 1.00f, 0.36f, 1.20f, 0.02f, 1.00f, 0.095f, sf::Color(255, 225, 70)},
     };
     return k[static_cast<int>(t)];
 }
@@ -354,22 +356,43 @@ struct BatConfig {
     float handleR = 0.014f;
     float mass = 0.90f;
     float sweetFromKnob = 0.56f;
-    float sweetWidth = 0.11f;
+    float sweetWidth = 0.14f; // slightly fatter barrel for demo hit rate
     float minCor = 0.40f; // handle / mishit
     float maxCor = 0.55f; // barrel (slightly generous for demo feel)
 };
 
-// Aim reticle — yellow outline on the plate. Never animates with the swing.
+// Aim reticle — yellow silhouette. Tilt is ALWAYS automatic from PCI height.
 struct AimReticle {
     Vector3 pci = strikeZoneCenter;
-    float plateAngle = -0.55f; // bat angle in plate plane (rad)
+    // RHB: barrel toward +X (1B). Fully driven by height — no manual override.
+    float plateAngle = 0.15f;
+    float plateAngleDisplay = 0.15f; // smoothed for silky UI / draw
 };
+
+// Map PCI height → bat silhouette tilt (radians) in the plate plane.
+// Low aim → tip down / plane through (negative angle); high aim → tip up.
+// (Flipped from the earlier uppercut mapping so the silhouette matches the swing plane.)
+float plateAngleFromPciHeight(const Vector3& pci) {
+    float t = (strikeZoneCenter.y - pci.y) / std::max(strikeZoneHalfHeight, 0.01f);
+    t = clampf(t, -1.0f, 1.0f); // +1 bottom, −1 top
+    float shaped = t >= 0.0f ? std::pow(t, 0.85f) : -std::pow(-t, 0.90f);
+    // bottom ≈ −0.72, heart ≈ −0.12, top ≈ +0.48
+    return -(shaped * 0.60f + 0.12f);
+}
+
+void updateReticleAngle(AimReticle& reticle, float dt = 1.0f / 60.0f) {
+    float target = clampf(plateAngleFromPciHeight(reticle.pci), -0.85f, 0.95f);
+    reticle.plateAngle = target; // snap for gameplay / swing bake
+    // Smooth display angle so the yellow silhouette eases, not snaps.
+    float a = 1.0f - std::exp(-clampf(dt, 0.0f, 0.05f) * 18.0f);
+    reticle.plateAngleDisplay += (target - reticle.plateAngleDisplay) * a;
+}
 
 // Animated 3D bat used for swing mesh + collision.
 struct BatPose {
-    // RHB at plate, facing pitcher (toward −Z / mound)
-    Vector3 hands{0.42f, 1.05f, plateZ - 0.35f};
-    Vector3 axis{-0.35f, 0.05f, -0.93f};
+    // RHB on 3B side (−X), facing pitcher (toward −Z / mound)
+    Vector3 hands{-0.55f, 1.05f, plateZ - 0.25f};
+    Vector3 axis{0.55f, 0.08f, -0.82f};
     float roll = 0.0f;
     float swingT = -1.0f; // <0 = not swinging (no mesh anim)
     float omega = 0.0f;
@@ -427,12 +450,15 @@ Vector3 slerpDir(const Vector3& a, const Vector3& b, float t) {
 }
 
 // Snap animated bat pose to the aim reticle (used as contact key when swing starts).
+// Uses the auto height tilt (gameplay angle, not smoothed display).
 void orientBatFromReticle(BatPose& bat, const AimReticle& reticle, const BatConfig& cfg) {
     bat.pci = reticle.pci;
-    Vector3 dir(std::cos(reticle.plateAngle), std::sin(reticle.plateAngle), -0.12f);
+    // Slight forward lean of the barrel toward the pitcher for depth read.
+    float ang = reticle.plateAngle;
+    Vector3 dir(std::cos(ang), std::sin(ang), -0.10f - 0.04f * std::abs(ang));
     bat.axis = safeNorm(dir);
     bat.hands = reticle.pci - bat.axis * cfg.sweetFromKnob;
-    bat.hands.z = plateZ - 0.20f;
+    bat.hands.z = plateZ - 0.18f;
     Vector3 up(0, 1, 0);
     Vector3 side = safeNorm(up.cross(bat.axis), Vector3(1, 0, 0));
     bat.swingAxis = safeNorm(bat.axis.cross(side), up);
@@ -465,26 +491,37 @@ void closestOnBat(
     outS = t * cfg.length;
 }
 
-// Build a level-ish RHB path: load → contact (square) → finish through the zone.
-// Flatter plane so exit launch isn't artificially sky-high.
+// RHB path (body on 3B / −X): load → square at PCI angle → high wrap.
+// Load/finish vertical shape follows contact attack angle (auto tilt).
 void bakeSwingKeys(BatPose& bat) {
     bat.contactHands = bat.hands;
     bat.contactAxis = bat.axis;
 
-    // Load: tip cocked up/back, hands load — not extreme uppercut.
-    bat.loadHands = bat.contactHands + Vector3(0.10f, 0.10f, 0.18f);
+    // tipUp > 0 = uppercut (low pitch); tipUp < 0 = down through (high pitch).
+    float tipUp = clampf(bat.contactAxis.y, -0.65f, 0.75f);
+
+    // Load: hands back toward batter/foul, tip cocked high (higher for uppercuts).
+    bat.loadHands = bat.contactHands + Vector3(
+        -0.24f,
+        0.14f + std::max(0.0f, tipUp) * 0.16f,
+        0.28f
+    );
     bat.loadAxis = slerpDir(
         bat.contactAxis,
-        safeNorm(Vector3(0.55f, 0.38f, 0.22f)),
-        0.72f
+        safeNorm(Vector3(-0.38f, 0.78f + tipUp * 0.12f, 0.32f)),
+        0.82f
     );
 
-    // Finish: drive through toward the field, slight downward follow-through.
-    bat.finishHands = bat.contactHands + Vector3(-0.26f, -0.04f, -0.42f);
+    // Finish: drive through to 1B / field; wrap rises with attack angle.
+    bat.finishHands = bat.contactHands + Vector3(
+        0.38f,
+        0.08f + tipUp * 0.14f,
+        -0.44f
+    );
     bat.finishAxis = slerpDir(
         bat.contactAxis,
-        safeNorm(Vector3(-0.72f, 0.08f, -0.52f)),
-        0.82f
+        safeNorm(Vector3(0.52f, 0.48f + tipUp * 0.18f, -0.48f)),
+        0.88f
     );
 
     bat.swingAxis = safeNorm(bat.loadAxis.cross(bat.finishAxis), Vector3(0, 1, 0));
@@ -493,7 +530,7 @@ void bakeSwingKeys(BatPose& bat) {
     }
 }
 
-// Evaluate swing pose at t∈[0,1]: load (0) → contact (~0.42) → finish (1).
+// Evaluate swing pose at t∈[0,1]: load → whip accelerate → dwell square → finish.
 void sampleSwingPose(
     const BatPose& keys,
     float t01,
@@ -501,21 +538,29 @@ void sampleSwingPose(
     Vector3& outAxis
 ) {
     t01 = clampf(t01, 0.0f, 1.0f);
-    // Contact window centered ~0.40–0.48 so the barrel is square at the PCI.
-    const float tContact = 0.42f;
-    if (t01 <= tContact) {
-        float u = t01 / tContact;
-        // Ease-in to contact (accelerate)
-        u = u * u * (1.2f - 0.2f * u);
+    // Longer square dwell for forgiving, premium contact feel.
+    const float tApproachEnd = 0.34f;
+    const float tContactHold = 0.52f;
+    if (t01 <= tApproachEnd) {
+        float u = t01 / tApproachEnd;
+        // Strong ease-in (slow load → violent whip into the zone)
+        u = u * u * u * (1.6f - 0.6f * u);
         u = clampf(u, 0.0f, 1.0f);
         outHands = keys.loadHands + (keys.contactHands - keys.loadHands) * u;
         outAxis = slerpDir(keys.loadAxis, keys.contactAxis, u);
-    } else {
-        float u = (t01 - tContact) / (1.0f - tContact);
-        // Ease-out after contact
-        u = smooth01(u);
+    } else if (t01 <= tContactHold) {
+        float u = (t01 - tApproachEnd) / (tContactHold - tApproachEnd);
+        u = smooth01(u) * 0.10f;
         outHands = keys.contactHands + (keys.finishHands - keys.contactHands) * u;
         outAxis = slerpDir(keys.contactAxis, keys.finishAxis, u);
+    } else {
+        float u = (t01 - tContactHold) / (1.0f - tContactHold);
+        // Ease-out finish (barrel stays on plane, then wraps)
+        u = 1.0f - (1.0f - u) * (1.0f - u);
+        float u0 = 0.10f;
+        float uu = u0 + (1.0f - u0) * u;
+        outHands = keys.contactHands + (keys.finishHands - keys.contactHands) * uu;
+        outAxis = slerpDir(keys.contactAxis, keys.finishAxis, uu);
     }
 }
 
@@ -720,20 +765,23 @@ HitInfo tryHit(
     Vector3 closest;
     closestOnBat(bat, cfg, ball.position, s, closest);
 
-    // Slightly easier contact: fatter collision + wider timing magnet in practice.
-    contactEase = clampf(contactEase, 0.55f, 1.45f);
-    float rScale = practiceMode ? (2.8f * contactEase) : 1.55f;
+    // Fatter collision + sweet magnet. contactEase scales both practice and derby.
+    contactEase = clampf(contactEase, 0.55f, 1.55f);
+    float rScale = (practiceMode ? 2.9f : 1.95f) * contactEase;
     float rBat = batRadius(cfg, s) * rScale;
     Vector3 delta = ball.position - closest;
     float dist = delta.magnitude();
     float minD = ball.radius + rBat;
 
-    if (practiceMode) {
-        Vector3 sweetPt = batPoint(bat, cfg.sweetFromKnob);
-        float dSweet = (ball.position - sweetPt).magnitude();
-        float nearPlate = std::abs(ball.position.z - plateZ);
-        bool contactWindow = bat.swingT >= 0.22f && bat.swingT <= 0.65f;
-        if (contactWindow && nearPlate < 0.55f && dSweet < 0.30f) {
+    // Timing window aligns with barrel dwell (~0.36–0.50 sampleSwingPose).
+    Vector3 sweetPt = batPoint(bat, cfg.sweetFromKnob);
+    float dSweet = (ball.position - sweetPt).magnitude();
+    float nearPlate = std::abs(ball.position.z - plateZ);
+    bool contactWindow = bat.swingT >= 0.20f && bat.swingT <= 0.68f;
+    float magnetR = (practiceMode ? 0.34f : 0.24f) * contactEase;
+    float plateBand = (practiceMode ? 0.62f : 0.50f) * contactEase;
+    if (contactWindow && nearPlate < plateBand && dSweet < magnetR) {
+        if (practiceMode) {
             closest = sweetPt;
             s = cfg.sweetFromKnob;
             delta = ball.position - closest;
@@ -743,16 +791,11 @@ HitInfo tryHit(
             ball.position = closest + nSnap * (ball.radius + batRadius(cfg, s));
             delta = ball.position - closest;
             dist = delta.magnitude();
-        }
-    } else {
-        // Non-practice: small sweet magnet in the contact window.
-        Vector3 sweetPt = batPoint(bat, cfg.sweetFromKnob);
-        float dSweet = (ball.position - sweetPt).magnitude();
-        float nearPlate = std::abs(ball.position.z - plateZ);
-        bool contactWindow = bat.swingT >= 0.28f && bat.swingT <= 0.58f;
-        if (contactWindow && nearPlate < 0.40f && dSweet < 0.16f) {
-            closest = closest * 0.45f + sweetPt * 0.55f;
-            s = lerp(s, cfg.sweetFromKnob, 0.55f);
+        } else {
+            // Pull contact toward the sweet spot without fully snapping.
+            float pull = clampf(0.55f + 0.20f * contactEase, 0.45f, 0.80f);
+            closest = closest * (1.0f - pull) + sweetPt * pull;
+            s = lerp(s, cfg.sweetFromKnob, pull);
             delta = ball.position - closest;
             dist = std::max(delta.magnitude(), 1e-4f);
             minD = ball.radius + rBat;
@@ -776,27 +819,28 @@ HitInfo tryHit(
         n = n * -1.0f;
     }
 
-    // Vertical contact quality: hitting under the ball (contact low on ball)
-    // adds loft; hitting on top drives it down. Derived from geometry, not free juice.
+    // Vertical contact quality: geometry + bat attack angle (auto tilt from aim height).
+    // Low aim (uppercut axis) → more loft; high aim → more line drive / top spin.
     float undercut = clampf((ball.position.y - closest.y) / std::max(ball.radius, 0.02f), -1.2f, 1.2f);
-    // undercut > 0 → bat below ball center → more launch
-    // undercut < 0 → bat above center → more ground ball
+    undercut = clampf(undercut + bat.axis.y * 0.55f, -1.3f, 1.4f);
 
     Vector3 vRel = ball.velocity - vBat;
     float approach = vRel.dot(n);
-    // Small grace so near-zero approach still registers (easier timing).
-    if (approach >= (practiceMode ? 2.0f : 0.8f)) {
+    // Grace so near-zero approach still registers (friendlier timing).
+    if (approach >= (practiceMode ? 2.5f : 1.4f)) {
         return h;
     }
-    if (approach > -3.0f) {
-        approach = -std::max(5.0f, vBat.magnitude() * 0.30f);
+    if (approach > -4.0f) {
+        approach = -std::max(5.0f, vBat.magnitude() * 0.32f);
         vRel = n * approach + (vRel - n * vRel.dot(n));
     }
 
-    float sweetScale = practiceMode ? prof.sweetScale * 1.55f : prof.sweetScale * 1.15f;
+    float sweetScale = practiceMode ? prof.sweetScale * 1.60f : prof.sweetScale * 1.28f;
     float sweet = sweetFactor(cfg, s, sweetScale);
     if (practiceMode) {
-        sweet = clampf(sweet + 0.12f, 0.0f, 1.0f);
+        sweet = clampf(sweet + 0.14f, 0.0f, 1.0f);
+    } else {
+        sweet = clampf(sweet + 0.06f * contactEase, 0.0f, 1.0f);
     }
     float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus * 0.5f, sweet), 0.32f, 0.56f);
     float tip = clampf(s / cfg.length, 0.0f, 1.0f);
@@ -1086,8 +1130,10 @@ void drawBatReticle(
     float sw = static_cast<float>(window.getSize().x);
     float sh = static_cast<float>(window.getSize().y);
 
+    // Use smoothed display angle so the yellow bat eases with aim height.
+    float ang = reticle.plateAngleDisplay;
     Vector3 axisFlat = safeNorm(
-        Vector3(std::cos(reticle.plateAngle), std::sin(reticle.plateAngle), 0.0f),
+        Vector3(std::cos(ang), std::sin(ang), 0.0f),
         Vector3(1, 0, 0)
     );
     Vector3 side(-axisFlat.y, axisFlat.x, 0.0f);
@@ -1268,12 +1314,9 @@ int main() {
     } else {
         idleClip = BaseballAnims::pitcherIdle(pitcherModel);
     }
-    AnimationClip batterIdleClip;
-    if (const AnimationClip* c = batterModel.findClip("idle")) {
-        batterIdleClip = *c;
-    } else if (const AnimationClip* c = batterModel.findClip("rest")) {
-        batterIdleClip = *c;
-    }
+    // RHB stance loop + swing keyed to bat.swingT (contact ≈ 0.42).
+    AnimationClip batterStanceClip = BaseballAnims::batterStance(batterModel);
+    AnimationClip batterSwingClip = BaseballAnims::batterSwing(batterModel);
 
     SkeletonAnimator pitcherAnim;
     pitcherAnim.setModel(pitcherModel);
@@ -1282,13 +1325,13 @@ int main() {
 
     SkeletonAnimator batterAnim;
     batterAnim.setModel(batterModel);
-    if (batterIdleClip.duration > 0.0f) {
-        batterAnim.applyClip(batterIdleClip, 0.0f, true);
-    }
+    batterAnim.applyClip(batterStanceClip, 0.0f, true);
     Mesh3D batterMesh = batterModel.skinToMesh(batterAnim.skinMatrices());
 
     BatConfig batCfg;
     AimReticle reticle;
+    updateReticleAngle(reticle, 1.0f);
+    reticle.plateAngleDisplay = reticle.plateAngle;
     BatPose bat;
     orientBatFromReticle(bat, reticle, batCfg);
     Mesh3D batMesh = makeBatMesh(batCfg);
@@ -1401,11 +1444,11 @@ int main() {
     auto derbyContactEase = [&]() {
         switch (derbyDiff) {
             case DerbyDiff::Easy:
-                return 1.25f;
+                return 1.40f;
             case DerbyDiff::Hard:
-                return 0.78f;
+                return 0.92f;
             default:
-                return 1.0f;
+                return 1.20f; // premium game-feel hit rate
         }
     };
     constexpr float kPracticeMph = 52.0f;
@@ -1453,7 +1496,7 @@ int main() {
     float poseClock = 0.0f;
     float rebuildTimer = 0.0f;
     float practiceRepitchTimer = -1.0f;
-    std::string status = "HR DERBY  ·  soft toss  ·  aim yellow circle  ·  Space swing";
+    std::string status = "HR DERBY  ·  aim reticle (height = bat tilt)  ·  Space swing";
     sf::Color statusCol(255, 220, 80);
     std::vector<Vector3> trail;
     float spinX = 0, spinY = 0, spinZ = 0;
@@ -1944,14 +1987,6 @@ int main() {
                         pitchMph = std::min(105.0f, pitchMph + 2.0f);
                         normalPitchMph = pitchMph;
                     }
-                } else if (key->code == K::Q) {
-                    if (!bat.swinging() && !followBallCam) {
-                        reticle.plateAngle -= 0.10f;
-                    }
-                } else if (key->code == K::E) {
-                    if (!bat.swinging() && !followBallCam) {
-                        reticle.plateAngle += 0.10f;
-                    }
                 } else if (key->code == K::Space) {
                     // Swing only on press — reticle stays put; 3D bat animates.
                     if (!bat.swinging() && !pitchResolved && ballReleased &&
@@ -1974,11 +2009,6 @@ int main() {
                     hasHit = false;
                     status = std::string(prof.name) + " swing!  ·  " + countString();
                     statusCol = prof.color;
-                }
-            }
-            if (const auto* wh = event->getIf<sf::Event::MouseWheelScrolled>()) {
-                if (!bat.swinging() && !followBallCam) {
-                    reticle.plateAngle += wh->delta * 0.08f;
                 }
             }
         }
@@ -2027,7 +2057,8 @@ int main() {
         }
 
         // Reticle: mouse aims the yellow silhouette (never swings).
-        // 3D bat: only updates while swinging (load → contact → finish).
+        // Tilt auto-follows PCI height (low = +uppercut, high = flatter).
+        // 3D bat: stance load pose when idle; animated path while swinging.
         if (!bat.swinging() && !followBallCam) {
             sf::Vector2i mp = sf::Mouse::getPosition(window);
             reticle.pci = mouseToPci(
@@ -2037,8 +2068,11 @@ int main() {
                 static_cast<float>(window.getSize().x),
                 static_cast<float>(window.getSize().y)
             );
-            // Keep contact pose ready so swing keys match reticle.
+            updateReticleAngle(reticle, dt);
+            // Contact keys locked to reticle; load pose ready for Space/LMB.
             orientBatFromReticle(bat, reticle, batCfg);
+            bakeSwingKeys(bat);
+            sampleSwingPose(bat, 0.0f, bat.hands, bat.axis);
         } else if (bat.swinging()) {
             updateSwing(bat, prof, dt);
         }
@@ -2068,14 +2102,18 @@ int main() {
                     );
                     if (hasHit && !ballSettled) {
                         if (col.surface == Stadium3D::HitSurface::FenceTopClear) {
-                            wallResolved = true;
-                            lastHit.clearsWall = true;
-                            lastHit.hitsWallFace = false;
-                            lastHit.heightAtFence = col.impactY;
-                            lastHit.wallMarginFeet =
-                                (col.impactY - col.wallTopY) * feetPerWorldUnit;
-                            lastHit.fenceFeet = col.fenceFeet;
-                            lastHit.sprayDeg = col.sprayDeg;
+                            // Only arm "out" if live height actually cleared the wall top.
+                            float margin = (col.impactY - col.wallTopY) * feetPerWorldUnit;
+                            if (margin >= 0.5f) {
+                                wallResolved = true;
+                                lastHit.clearsWall = true;
+                                lastHit.hitsWallFace = false;
+                                lastHit.heightAtFence = col.impactY;
+                                lastHit.wallMarginFeet = margin;
+                                lastHit.fenceFeet = col.fenceFeet;
+                                lastHit.sprayDeg = col.sprayDeg;
+                            }
+                            // else: graze — let face collision resolve as wall ball next steps
                         } else if (col.surface == Stadium3D::HitSurface::Fence ||
                                    col.surface == Stadium3D::HitSurface::FoulPole ||
                                    col.surface == Stadium3D::HitSurface::Scoreboard ||
@@ -2103,6 +2141,29 @@ int main() {
                                     (lastHit.exitMph >= 95.0f) ? "Wall Ball" : "Off the Wall";
                                 if (playMode == PlayMode::Derby && wasDinger && derby.hrCount > 0) {
                                     derby.hrCount -= 1;
+                                }
+                            } else if (col.surface == Stadium3D::HitSurface::Stands) {
+                                // Seats are past the fence — only a true over-the-wall flight counts.
+                                // If we never got FenceTopClear with margin, this is not "out".
+                                if (!lastHit.clearsWall || lastHit.wallMarginFeet < 0.5f) {
+                                    const bool wasDinger = isDingerQuality(lastHit.quality);
+                                    lastHit.clearsWall = false;
+                                    lastHit.hitsWallFace = true;
+                                    lastHit.quality =
+                                        (lastHit.exitMph >= 95.0f) ? "Wall Ball" : "Off the Wall";
+                                    lastHit.distanceFeet = lastHit.fenceFeet > 1.0f
+                                        ? lastHit.fenceFeet
+                                        : col.fenceFeet;
+                                    if (playMode == PlayMode::Derby && wasDinger &&
+                                        derby.hrCount > 0) {
+                                        derby.hrCount -= 1;
+                                    }
+                                } else {
+                                    // Confirmed clear into the seats = HR distance at seat row.
+                                    float landR = stadiumLayout.radiusFromHome(baseball.position);
+                                    lastHit.distanceFeet = landR * feetPerWorldUnit;
+                                    lastHit.clearsWall = true;
+                                    lastHit.hitsWallFace = false;
                                 }
                             }
                             if (col.stuck) {
@@ -2133,15 +2194,45 @@ int main() {
                             if (!landingLogged) {
                                 landingLogged = true;
                                 const bool wasDinger = isDingerQuality(lastHit.quality);
-                                classifyHit(
-                                    lastHit, lastHit.exitVel, lastHit.exitPos, stadiumLayout
-                                );
-                                if (wallResolved && lastHit.clearsWall) {
-                                    // keep live clear
-                                }
                                 float landR = stadiumLayout.radiusFromHome(baseball.position);
-                                lastHit.distanceFeet = landR * feetPerWorldUnit;
-                                const bool isDinger = isDingerQuality(lastHit.quality);
+                                float landAng = 0.0f;
+                                float landR2 = 0.0f;
+                                stadiumLayout.polarFromHome(baseball.position, landR2, landAng);
+                                float wallAtLand = stadiumLayout.wallRAtAngle(landAng);
+                                // Truth from where the ball actually is: inside fence = not a HR.
+                                const bool landedBeyondFence =
+                                    lastHit.fair && landR > wallAtLand + 0.75f;
+                                if (wallResolved && lastHit.clearsWall && landedBeyondFence) {
+                                    // Confirmed over-the-wall — keep clear, use live distance.
+                                    lastHit.distanceFeet = landR * feetPerWorldUnit;
+                                    if (!isDingerQuality(lastHit.quality) && lastHit.exitMph >= 95.0f) {
+                                        lastHit.quality = "Home Run";
+                                    }
+                                } else {
+                                    // Never left the yard — reclassify from exit (no false HR).
+                                    classifyHit(
+                                        lastHit, lastHit.exitVel, lastHit.exitPos, stadiumLayout
+                                    );
+                                    lastHit.clearsWall = false;
+                                    lastHit.hitsWallFace =
+                                        lastHit.hitsWallFace ||
+                                        (lastHit.fair && landR >= wallAtLand - 1.5f);
+                                    lastHit.distanceFeet = landR * feetPerWorldUnit;
+                                    if (lastHit.hitsWallFace && lastHit.fair) {
+                                        lastHit.quality =
+                                            (lastHit.exitMph >= 95.0f) ? "Wall Ball" : "Off the Wall";
+                                        lastHit.distanceFeet = lastHit.fenceFeet > 1.0f
+                                            ? lastHit.fenceFeet
+                                            : wallAtLand * feetPerWorldUnit;
+                                    } else if (isDingerQuality(lastHit.quality)) {
+                                        // Predicted HR but ball is inside — downgrade.
+                                        lastHit.quality =
+                                            lastHit.exitMph >= 90.0f ? "Fly Ball" : "Flare";
+                                    }
+                                }
+                                const bool isDinger =
+                                    isDingerQuality(lastHit.quality) && lastHit.clearsWall &&
+                                    landedBeyondFence;
                                 if (playMode == PlayMode::Derby && lastHit.fair) {
                                     if (isDinger && !wasDinger) {
                                         derby.hrCount += 1;
@@ -2360,9 +2451,11 @@ int main() {
             // (beginPitch already snaps catcher view)
         }
 
-        // Skin pitcher + plate batter (idle)
-        if (batterIdleClip.duration > 0.0f) {
-            batterAnim.applyClip(batterIdleClip, poseClock, true);
+        // Skin pitcher + plate batter (stance loop, or swing synced to bat.swingT).
+        if (bat.swinging() && batterSwingClip.duration > 0.0f) {
+            batterAnim.applyClipNormalized(batterSwingClip, bat.swingT);
+        } else {
+            batterAnim.applyClip(batterStanceClip, poseClock, true);
         }
         rebuildTimer += dt;
         if (rebuildTimer >= 1.0f / 60.0f) {
@@ -2376,17 +2469,41 @@ int main() {
         }
 
         Matrix4 pitcherXform = pitcherWorldTransform();
-        // RHB-ish stance left of plate, facing mound (−Z).
+        // RHB stands in the 3B-side batter's box (stadium chalk at x≈−1.65).
+        // 1B/RF = +X, 3B = −X. Inner half of the box, next to the plate —
+        // not out in foul dirt and not inside the strike-zone volume.
+        // Box center (−1.65, plateZ−0.35), half-size 1.0 × 1.5.
+        constexpr float kBatterBoxX = -1.05f;
+        constexpr float kBatterBoxZ = plateZ - 0.28f;
         Matrix4 batterXform =
-            Matrix4::translation(Vector3(-0.42f, 0.0f, plateZ + 0.05f)) *
-            Matrix4::rotationY(pi);
+            Matrix4::translation(Vector3(kBatterBoxX, 0.0f, kBatterBoxZ)) *
+            Matrix4::rotationY(pi); // model +Z faces mound (−Z)
+
+        // Stance: glue wooden bat to Palm_R so grip reads on the body.
+        // Swing: keep physics bat path (collision / exit vel).
+        if (!bat.swinging()) {
+            Vector3 palmLocal = batterAnim.jointWorldPosition("Palm_R");
+            Vector3 palmLLocal = batterAnim.jointWorldPosition("Palm_L");
+            Vector3 palmW = batterXform.transformPoint(palmLocal);
+            Vector3 palmLW = batterXform.transformPoint(palmLLocal);
+            // RHB load: barrel tip high, slightly toward plate/catcher.
+            Vector3 grip = safeNorm(palmW - palmLW, Vector3(0.2f, 0.0f, 0.0f));
+            Vector3 tipDir = safeNorm(
+                Vector3(0.08f, 0.90f, 0.22f) + grip * 0.15f,
+                Vector3(0.10f, 0.92f, 0.25f)
+            );
+            bat.hands = palmW;
+            bat.axis = tipDir;
+        }
+
         const float ballDrawR = baseballRadius * baseballVisualScale;
         Matrix4 ballXform =
             Matrix4::translation(baseball.position) *
             Matrix4::rotationY(spinY) *
             Matrix4::scale(Vector3(ballDrawR, ballDrawR, ballDrawR));
-        // 3D bat mesh only while swinging; yellow silhouette is the aim reticle.
-        const bool drawBatMesh = bat.swinging();
+        // Wooden bat always visible at the plate (stance load + swing path).
+        // Yellow silhouette reticle is the aim PCI; 3D bat is the physical swing.
+        const bool drawBatMesh = !followBallCam || broadcastCam == BroadcastCam::Plate;
         Matrix4 batXform = batModelMatrix(bat);
 
         Matrix4 stadiumXform = Matrix4::identity();
@@ -2496,8 +2613,9 @@ int main() {
         }
 
         if (!followBallCam) {
-            drawStrikeZone(window, camera, sf::Color(200, 215, 220, 180));
-            // Yellow silhouette reticle — stays put even while the 3D bat swings.
+            // Soft zone — reticle is the focus, not a heavy box.
+            drawStrikeZone(window, camera, sf::Color(200, 215, 220, 110));
+            // Yellow silhouette reticle — tilt follows PCI height.
             drawBatReticle(window, camera, reticle, batCfg);
         }
         for (size_t i = 1; i < trail.size(); i++) {
@@ -2553,8 +2671,9 @@ int main() {
             }
         }
 
-        // Live stats projected onto the CF 3D scoreboard (park board, not just HUD).
-        if (fontOk && playMode == PlayMode::Derby) {
+        // Live stats on CF board — hide while aiming so the reticle stays clear.
+        if (fontOk && playMode == PlayMode::Derby &&
+            (followBallCam || bat.swinging() || broadcastCam != BroadcastCam::Plate)) {
             Vector3 boardWorld = stadiumLayout.scoreboardCenter() + Vector3(0.0f, 0.0f, 2.2f);
             ProjectedPoint3D bp = camera.projectPoint(
                 boardWorld,
@@ -2709,7 +2828,6 @@ int main() {
             const bool chasing = followBallCam || broadcastCam == BroadcastCam::Chase ||
                 broadcastCam == BroadcastCam::HoldLand ||
                 broadcastCam == BroadcastCam::ReturnPlate;
-
             // Compact title + one status line (no duplicated count spam).
             sf::Color titleCol = playMode == PlayMode::Derby ? sf::Color(255, 220, 80)
                 : (playMode == PlayMode::Practice ? sf::Color(120, 255, 160) : sf::Color(240, 245, 240));
@@ -2717,6 +2835,8 @@ int main() {
             if (playMode == PlayMode::Derby) {
                 title += std::string("  ·  ") + derbyDiffName(derbyDiff);
             }
+            // Show active swing type without a separate tilt panel.
+            title += std::string("  ·  ") + prof.name;
             drawText(window, font, title, 20, {22, 12}, titleCol);
             // Truncate long status so it doesn't cover the park.
             std::string statusLine = status;
@@ -2727,9 +2847,9 @@ int main() {
 
             // Scoreboard panel (top-right) — primary stats for Derby.
             if (playMode == PlayMode::Derby && !chasing) {
-                const float pw = 200.0f;
-                const float ph = 132.0f;
-                const float px = W - pw - 16.0f;
+                const float pw = 188.0f;
+                const float ph = 118.0f;
+                const float px = W - pw - 14.0f;
                 const float py = 12.0f;
                 sf::RectangleShape panel({pw, ph});
                 panel.setPosition({px, py});
@@ -2745,22 +2865,22 @@ int main() {
                 );
                 std::ostringstream s1;
                 s1 << "Swings  " << derby.swingsLeft << "/" << kDerbySwings;
-                drawText(window, font, s1.str(), 15, {px + 12, py + 30}, sf::Color(230, 240, 235));
+                drawText(window, font, s1.str(), 14, {px + 12, py + 28}, sf::Color(230, 240, 235));
                 std::ostringstream s2;
                 s2 << "HR  " << derby.hrCount;
-                drawText(window, font, s2.str(), 18, {px + 12, py + 52}, sf::Color(120, 255, 160));
+                drawText(window, font, s2.str(), 18, {px + 12, py + 48}, sf::Color(120, 255, 160));
                 std::ostringstream s3;
                 s3 << std::fixed << std::setprecision(0) << "Long  ";
                 s3 << (derby.longestHrFeet > 0.5f
                            ? std::to_string(static_cast<int>(derby.longestHrFeet)) + " ft"
                            : std::string("--"));
-                drawText(window, font, s3.str(), 14, {px + 12, py + 78}, sf::Color(255, 230, 140));
+                drawText(window, font, s3.str(), 13, {px + 12, py + 72}, sf::Color(255, 230, 140));
                 std::ostringstream s4;
                 s4 << std::fixed << std::setprecision(0) << "EV  ";
                 s4 << (derby.bestExitMph > 0.5f
                            ? std::to_string(static_cast<int>(derby.bestExitMph)) + " mph"
                            : std::string("--"));
-                drawText(window, font, s4.str(), 14, {px + 12, py + 100}, sf::Color(180, 220, 255));
+                drawText(window, font, s4.str(), 13, {px + 12, py + 92}, sf::Color(180, 220, 255));
 
                 // Career bests (persistent)
                 std::ostringstream cb;
@@ -2769,7 +2889,7 @@ int main() {
                    << (careerBests.longestHrFeet > 0.5f
                            ? std::to_string(static_cast<int>(careerBests.longestHrFeet)) + "ft"
                            : "--");
-                drawText(window, font, cb.str(), 11, {px + 12, py + ph + 8}, sf::Color(150, 170, 160));
+                drawText(window, font, cb.str(), 11, {px + 12, py + ph + 6}, sf::Color(150, 170, 160));
             }
 
             if (careerFlashTimer > 0.0f && !careerFlash.empty()) {

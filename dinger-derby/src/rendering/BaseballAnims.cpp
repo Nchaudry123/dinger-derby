@@ -521,4 +521,405 @@ AnimationClip catcherIdle(const SkinnedModel3D& model) {
     return clip;
 }
 
+// ── Batter: Ohtani-inspired RHB (hang-bind) ────────────────────────────
+// Model faces +Z (pitcher after world rotY(π)). RHB: rear = R, lead = L.
+//
+// ANTI-NOODLE RULE (same as throw_preview):
+//   Drive ONLY Shoulder + Elbow (hinge rx) + Wrist.
+//   UpperArm / HumTwist / Forearm / ProTwist stay ~identity.
+//   Prefer modest shoulder ry (twist) — large ry is what melts the mesh.
+// Hang-bind: −rx raise, +rz open R, −rz open L, elbow +rx flexes.
+namespace {
+
+// Upright closed set — tall, not crouchy.
+Quaternion ohtaniHipSet() { return eul(0.04f, -0.55f, 0.02f); }
+Quaternion ohtaniSpineSet() { return eul(0.05f, -0.36f, 0.02f); }
+Quaternion ohtaniChestSet() { return eul(0.04f, -0.38f, 0.02f); }
+Quaternion ohtaniHeadSet() { return eul(-0.02f, 0.55f, 0.0f); }
+
+// Ready set: hands together high-chest, elbows up, rigid mid-chain.
+// Tuned for clean silhouette (no noodle melt).
+Quaternion ohtaniShoulderR() { return eul(-1.22f, 0.70f, 0.32f); }
+Quaternion ohtaniElbowR() { return eul(1.46f, 0.0f, 0.0f); } // pure hinge
+Quaternion ohtaniWristR() { return eul(0.10f, 0.04f, 0.05f); }
+Quaternion ohtaniShoulderL() { return eul(-0.70f, 0.52f, 0.62f); }
+Quaternion ohtaniElbowL() { return eul(1.30f, 0.0f, 0.0f); }
+Quaternion ohtaniWristL() { return eul(0.08f, 0.0f, 0.0f); }
+
+// Wide athletic base, soft knees.
+Quaternion ohtaniHipL() { return eul(0.16f, 0.12f, 0.16f); }
+Quaternion ohtaniHipR() { return eul(0.22f, -0.06f, -0.12f); }
+Quaternion ohtaniKneeL() { return eul(0.32f, 0.0f, 0.0f); }
+Quaternion ohtaniKneeR() { return eul(0.40f, 0.0f, 0.0f); }
+
+// Contact: tight hands mid-body (sep ≈ 0.25).
+Quaternion ohtaniContactShR() { return eul(-1.00f, -0.50f, -0.05f); }
+Quaternion ohtaniContactElR() { return eul(0.45f, 0.0f, 0.0f); }
+Quaternion ohtaniContactShL() { return eul(-0.80f, -0.35f, 0.10f); }
+Quaternion ohtaniContactElL() { return eul(0.50f, 0.0f, 0.0f); }
+
+// Finish wrap (sep ≈ 0.25).
+Quaternion ohtaniFinishShR() { return eul(-0.60f, -0.30f, -0.75f); }
+Quaternion ohtaniFinishElR() { return eul(1.05f, 0.0f, 0.0f); }
+Quaternion ohtaniFinishShL() { return eul(-0.60f, -0.15f, 0.40f); }
+Quaternion ohtaniFinishElL() { return eul(1.10f, 0.0f, 0.0f); }
+
+// Zero multi-bone arm mid-chain so limbs stay rigid tubes.
+void pushArmStiff(
+    AnimationClip& clip,
+    const SkinnedModel3D& model,
+    const std::vector<float>& times
+) {
+    auto J = [&](const char* n) { return model.findJoint(n); };
+    auto zero = std::vector<Quaternion>(times.size(), eul(0, 0, 0));
+    for (const char* n : {
+             "UpperArm_R", "HumTwist_R", "Forearm_R", "ProTwist_R",
+             "UpperArm_L", "HumTwist_L", "Forearm_L", "ProTwist_L"}) {
+        pushRot(clip, J(n), times, zero);
+    }
+}
+
+} // namespace
+
+AnimationClip batterStance(const SkinnedModel3D& model) {
+    // Ohtani ready: upright, high hands, wide base, quiet eyes, bat-tip waggle.
+    AnimationClip clip;
+    clip.name = "batter_stance";
+    clip.duration = 2.6f;
+    auto J = [&](const char* n) { return model.findJoint(n); };
+    const Vector3 hipRest = model.joints[J("Hips")].restTranslation;
+    // Rhythm: weight rock + subtle hand/bat settle (not a big leg kick in the box).
+    std::vector<float> t = {0.0f, 0.65f, 1.30f, 1.95f, 2.6f};
+
+    pushPos(clip, J("Hips"), t, {
+        hipRest + Vector3(0.0f, 0.0f, 0.0f),
+        hipRest + Vector3(0.006f, 0.010f, 0.0f),   // slight rear load
+        hipRest + Vector3(0.0f, 0.014f, 0.0f),
+        hipRest + Vector3(-0.005f, 0.008f, 0.0f),
+        hipRest
+    });
+    pushRot(clip, J("Hips"), t, {
+        ohtaniHipSet(),
+        eul(0.05f, -0.60f, 0.02f),
+        eul(0.03f, -0.64f, 0.01f),
+        eul(0.05f, -0.61f, 0.03f),
+        ohtaniHipSet()
+    });
+    pushRot(clip, J("Spine"), t, {
+        ohtaniSpineSet(),
+        eul(0.06f, -0.40f, 0.02f),
+        eul(0.07f, -0.44f, 0.02f),
+        eul(0.05f, -0.41f, 0.01f),
+        ohtaniSpineSet()
+    });
+    pushRot(clip, J("Chest"), t, {
+        ohtaniChestSet(),
+        eul(0.05f, -0.44f, 0.02f),
+        eul(0.06f, -0.48f, 0.02f),
+        eul(0.04f, -0.45f, 0.01f),
+        ohtaniChestSet()
+    });
+    // Quiet head — track pitcher, minimal noise.
+    pushRot(clip, J("Head"), t, {
+        ohtaniHeadSet(),
+        eul(-0.02f, 0.55f, 0.0f),
+        eul(-0.03f, 0.60f, 0.0f),
+        eul(-0.02f, 0.56f, 0.0f),
+        ohtaniHeadSet()
+    });
+
+    pushRot(clip, J("Clavicle_R"), t, {
+        eul(0.04f, 0, 0.08f), eul(0.05f, 0, 0.09f), eul(0.04f, 0, 0.08f),
+        eul(0.05f, 0, 0.09f), eul(0.04f, 0, 0.08f)
+    });
+    pushRot(clip, J("Clavicle_L"), t, {
+        eul(0.03f, 0, -0.06f), eul(0.04f, 0, -0.07f), eul(0.03f, 0, -0.06f),
+        eul(0.04f, 0, -0.07f), eul(0.03f, 0, -0.06f)
+    });
+
+    // Stiff mid-chain — no noodle twist on multi-bone arms.
+    pushArmStiff(clip, model, t);
+
+    // High-hand set: shoulders + elbows only; micro wrist waggle for bat tip.
+    pushRot(clip, J("Shoulder_R"), t, {
+        ohtaniShoulderR(),
+        eul(-1.23f, 0.74f, 0.30f),
+        eul(-1.27f, 0.76f, 0.26f),
+        eul(-1.24f, 0.75f, 0.29f),
+        ohtaniShoulderR()
+    });
+    pushRot(clip, J("Elbow_R"), t, {
+        ohtaniElbowR(),
+        eul(1.50f, 0, 0), eul(1.46f, 0, 0), eul(1.49f, 0, 0), ohtaniElbowR()
+    });
+    pushRot(clip, J("Wrist_R"), t, {
+        ohtaniWristR(),
+        eul(0.16f, 0.06f, 0.08f),  // tip back (wrist only)
+        eul(0.08f, 0.03f, 0.03f),
+        eul(0.14f, 0.05f, 0.06f),
+        ohtaniWristR()
+    });
+    pushRot(clip, J("Palm_R"), t, {
+        eul(0.08f, 0.02f, 0), eul(0.10f, 0.03f, 0), eul(0.06f, 0.02f, 0),
+        eul(0.09f, 0.02f, 0), eul(0.08f, 0.02f, 0)
+    });
+    pushRot(clip, J("Shoulder_L"), t, {
+        ohtaniShoulderL(),
+        eul(-0.70f, 0.54f, 0.66f),
+        eul(-0.74f, 0.56f, 0.64f),
+        eul(-0.71f, 0.55f, 0.65f),
+        ohtaniShoulderL()
+    });
+    pushRot(clip, J("Elbow_L"), t, {
+        ohtaniElbowL(),
+        eul(1.30f, 0, 0), eul(1.26f, 0, 0), eul(1.29f, 0, 0), ohtaniElbowL()
+    });
+    pushRot(clip, J("Wrist_L"), t, {
+        ohtaniWristL(),
+        eul(0.10f, 0, 0), eul(0.06f, 0, 0), eul(0.09f, 0, 0), ohtaniWristL()
+    });
+
+    // Firm two-hand grip.
+    pushRot(clip, J("Index_R"), t, {
+        eul(0.58f, 0, 0), eul(0.59f, 0, 0), eul(0.57f, 0, 0), eul(0.58f, 0, 0), eul(0.58f, 0, 0)
+    });
+    pushRot(clip, J("Middle_R"), t, {
+        eul(0.60f, 0, 0), eul(0.61f, 0, 0), eul(0.59f, 0, 0), eul(0.60f, 0, 0), eul(0.60f, 0, 0)
+    });
+    pushRot(clip, J("Ring_R"), t, {
+        eul(0.57f, 0, 0), eul(0.58f, 0, 0), eul(0.56f, 0, 0), eul(0.57f, 0, 0), eul(0.57f, 0, 0)
+    });
+    pushRot(clip, J("Pinky_R"), t, {
+        eul(0.52f, 0, 0), eul(0.53f, 0, 0), eul(0.51f, 0, 0), eul(0.52f, 0, 0), eul(0.52f, 0, 0)
+    });
+    pushRot(clip, J("Thumb_R"), t, {
+        eul(0.30f, 0.20f, 0.30f), eul(0.31f, 0.20f, 0.30f), eul(0.29f, 0.20f, 0.30f),
+        eul(0.30f, 0.20f, 0.30f), eul(0.30f, 0.20f, 0.30f)
+    });
+
+    // Wide base, soft knees, gentle rock onto rear side.
+    pushRot(clip, J("Hip_L"), t, {
+        ohtaniHipL(),
+        eul(0.18f, 0.12f, 0.19f), eul(0.14f, 0.11f, 0.17f),
+        eul(0.17f, 0.12f, 0.18f), ohtaniHipL()
+    });
+    pushRot(clip, J("Hip_R"), t, {
+        ohtaniHipR(),
+        eul(0.25f, -0.06f, -0.15f), eul(0.20f, -0.05f, -0.13f),
+        eul(0.24f, -0.06f, -0.14f), ohtaniHipR()
+    });
+    pushRot(clip, J("Knee_L"), t, {
+        ohtaniKneeL(), eul(0.34f, 0, 0), eul(0.30f, 0, 0), eul(0.33f, 0, 0), ohtaniKneeL()
+    });
+    pushRot(clip, J("Knee_R"), t, {
+        ohtaniKneeR(), eul(0.43f, 0, 0), eul(0.38f, 0, 0), eul(0.41f, 0, 0), ohtaniKneeR()
+    });
+    pushRot(clip, J("Ankle_L"), t, {
+        eul(-0.06f, 0, 0), eul(-0.07f, 0, 0), eul(-0.05f, 0, 0),
+        eul(-0.06f, 0, 0), eul(-0.06f, 0, 0)
+    });
+    pushRot(clip, J("Ankle_R"), t, {
+        eul(-0.10f, 0, 0), eul(-0.12f, 0, 0), eul(-0.09f, 0, 0),
+        eul(-0.11f, 0, 0), eul(-0.10f, 0, 0)
+    });
+    return clip;
+}
+
+AnimationClip batterSwing(const SkinnedModel3D& model) {
+    // Premium RHB swing — 7 keys for smooth kinetic chain:
+    // 0 load coil · 1 toe-tap · 2 stride · 3 plant · 4 CONTACT · 5 extend · 6 high wrap
+    // Contact at t_norm ≈ 0.42 to match bat.swingT / PCI.
+    AnimationClip clip;
+    clip.name = "batter_swing";
+    clip.duration = 0.58f;
+    auto J = [&](const char* n) { return model.findJoint(n); };
+    const Vector3 hipRest = model.joints[J("Hips")].restTranslation;
+
+    // Absolute times (s) → t_norm: 0 · 0.12 · 0.24 · 0.34 · 0.42 · 0.62 · 1.0
+    std::vector<float> t = {0.00f, 0.07f, 0.14f, 0.20f, 0.245f, 0.36f, 0.58f};
+
+    pushPos(clip, J("Hips"), t, {
+        hipRest + Vector3(0.04f, -0.03f, -0.04f),  // coil into rear hip
+        hipRest + Vector3(0.03f, -0.01f, -0.02f),  // toe-tap balance
+        hipRest + Vector3(0.01f, -0.04f,  0.04f),  // stride
+        hipRest + Vector3(-0.01f, -0.06f, 0.08f),  // plant sit
+        hipRest + Vector3(-0.03f, -0.05f, 0.12f),  // CONTACT drive
+        hipRest + Vector3(-0.05f, -0.02f, 0.08f),  // extension
+        hipRest + Vector3(-0.06f,  0.02f, 0.02f)   // finish tall
+    });
+
+    // Hips: closed coil → explosive open (power source).
+    pushRot(clip, J("Hips"), t, {
+        eul(0.07f, -0.85f, 0.02f),
+        eul(0.08f, -0.78f, 0.02f),
+        eul(0.10f, -0.40f, 0.04f),
+        eul(0.13f, -0.05f, 0.06f),
+        eul(0.15f,  0.48f, 0.08f),  // CONTACT
+        eul(0.12f,  1.00f, 0.05f),
+        eul(0.06f,  1.32f, 0.02f)
+    });
+    // Separation: torso lags hips, then snaps.
+    pushRot(clip, J("Spine"), t, {
+        eul(0.09f, -0.58f, 0.02f),
+        eul(0.10f, -0.52f, 0.02f),
+        eul(0.12f, -0.28f, 0.03f),
+        eul(0.13f, -0.05f, 0.05f),
+        eul(0.11f,  0.24f, 0.06f),
+        eul(0.08f,  0.82f, 0.05f),
+        eul(0.05f,  1.10f, 0.02f)
+    });
+    pushRot(clip, J("Chest"), t, {
+        eul(0.06f, -0.62f, 0.02f),
+        eul(0.07f, -0.55f, 0.02f),
+        eul(0.09f, -0.30f, 0.03f),
+        eul(0.10f, -0.08f, 0.04f),
+        eul(0.09f,  0.30f, 0.06f),
+        eul(0.06f,  0.90f, 0.05f),
+        eul(0.04f,  1.20f, 0.02f)
+    });
+    pushRot(clip, J("Head"), t, {
+        eul(-0.03f, 0.60f, 0.0f),
+        eul(-0.03f, 0.52f, 0.0f),
+        eul(-0.02f, 0.32f, 0.0f),
+        eul(0.00f,  0.12f, 0.0f),
+        eul(0.03f,  0.02f, 0.0f),  // eyes on ball
+        eul(0.05f, -0.28f, 0.0f),
+        eul(0.02f, -0.70f, 0.0f)   // track flight
+    });
+
+    pushRot(clip, J("Clavicle_R"), t, {
+        eul(0.05f, 0, 0.10f), eul(0.05f, 0, 0.10f), eul(0.03f, -0.02f, 0.11f),
+        eul(0.02f, -0.03f, 0.10f), eul(0.06f, 0.03f, 0.06f), eul(0.04f, 0.04f, 0.03f),
+        eul(0.02f, 0.02f, 0.02f)
+    });
+    pushRot(clip, J("Clavicle_L"), t, {
+        eul(0.03f, 0, -0.07f), eul(0.03f, 0, -0.07f), eul(0.04f, 0.02f, -0.08f),
+        eul(0.05f, 0.03f, -0.08f), eul(0.03f, 0.01f, -0.04f), eul(0.02f, 0, -0.03f),
+        eul(0.02f, 0, -0.02f)
+    });
+
+    pushArmStiff(clip, model, t);
+
+    // Arms: high load → keep connected → short path → contact → wrap.
+    pushRot(clip, J("Shoulder_R"), t, {
+        ohtaniShoulderR(),
+        eul(-1.30f, 0.65f, 0.28f),
+        eul(-1.22f, 0.30f, 0.20f),
+        eul(-1.08f, -0.05f, 0.12f),
+        ohtaniContactShR(),
+        eul(-0.70f, -0.42f, -0.40f),
+        ohtaniFinishShR()
+    });
+    pushRot(clip, J("Elbow_R"), t, {
+        ohtaniElbowR(),
+        eul(1.50f, 0, 0),
+        eul(1.35f, 0, 0),
+        eul(0.95f, 0, 0),
+        ohtaniContactElR(),
+        eul(0.32f, 0, 0),
+        ohtaniFinishElR()
+    });
+    pushRot(clip, J("Wrist_R"), t, {
+        eul(0.14f, 0.06f, 0.08f),
+        eul(0.16f, 0.07f, 0.10f),
+        eul(0.12f, 0.05f, 0.06f),
+        eul(0.06f, 0.02f, 0.03f),
+        eul(-0.02f, -0.02f, -0.02f),
+        eul(-0.14f, -0.08f, -0.06f),
+        eul(-0.04f, -0.02f, -0.02f)
+    });
+    pushRot(clip, J("Palm_R"), t, {
+        eul(0.08f, 0.02f, 0), eul(0.10f, 0.03f, 0), eul(0.07f, 0.02f, 0),
+        eul(0.04f, 0.01f, 0), eul(0.01f, 0, 0), eul(-0.05f, -0.02f, 0),
+        eul(-0.02f, 0, 0)
+    });
+
+    pushRot(clip, J("Shoulder_L"), t, {
+        ohtaniShoulderL(),
+        eul(-0.78f, 0.50f, 0.55f),
+        eul(-0.82f, 0.20f, 0.35f),
+        eul(-0.82f, -0.02f, 0.18f),
+        ohtaniContactShL(),
+        eul(-0.62f, -0.22f, 0.28f),
+        ohtaniFinishShL()
+    });
+    pushRot(clip, J("Elbow_L"), t, {
+        ohtaniElbowL(),
+        eul(1.30f, 0, 0),
+        eul(1.15f, 0, 0),
+        eul(0.90f, 0, 0),
+        ohtaniContactElL(),
+        eul(0.78f, 0, 0),
+        ohtaniFinishElL()
+    });
+    pushRot(clip, J("Wrist_L"), t, {
+        eul(0.08f, 0, 0), eul(0.08f, 0, 0), eul(0.06f, 0, 0), eul(0.04f, 0, 0),
+        eul(0.02f, 0, 0), eul(-0.03f, 0.02f, 0.02f), eul(-0.01f, 0.01f, 0.01f)
+    });
+
+    auto grip = [&](const char* name, float g0, float gContact, float gFinish) {
+        pushRot(clip, J(name), t, {
+            eul(g0, 0, 0), eul(g0, 0, 0), eul(g0 * 0.98f, 0, 0), eul(g0 * 0.95f, 0, 0),
+            eul(gContact, 0, 0), eul(gFinish * 1.4f, 0, 0), eul(gFinish, 0, 0)
+        });
+    };
+    grip("Index_R", 0.58f, 0.50f, 0.16f);
+    grip("Middle_R", 0.60f, 0.52f, 0.18f);
+    grip("Ring_R", 0.57f, 0.48f, 0.16f);
+    grip("Pinky_R", 0.52f, 0.44f, 0.14f);
+    pushRot(clip, J("Thumb_R"), t, {
+        eul(0.30f, 0.20f, 0.30f), eul(0.30f, 0.20f, 0.30f), eul(0.29f, 0.19f, 0.29f),
+        eul(0.27f, 0.17f, 0.26f), eul(0.24f, 0.14f, 0.22f), eul(0.12f, 0.07f, 0.10f),
+        eul(0.06f, 0.03f, 0.05f)
+    });
+
+    // Lead leg: modern low toe-tap → stride → plant brace.
+    pushRot(clip, J("Hip_L"), t, {
+        eul(0.14f, 0.12f, 0.16f),
+        eul(-0.90f, 0.12f, 0.14f),  // toe-tap lift
+        eul(-0.35f, 0.06f, 0.08f),
+        eul(-0.08f, -0.02f, 0.04f),
+        eul(-0.03f, -0.05f, 0.02f), // plant at contact
+        eul(0.08f, -0.06f, 0.0f),
+        eul(0.14f, -0.04f, 0.0f)
+    });
+    pushRot(clip, J("Knee_L"), t, {
+        eul(0.30f, 0, 0), eul(1.28f, 0, 0), eul(0.70f, 0, 0), eul(0.42f, 0, 0),
+        eul(0.50f, 0, 0), eul(0.36f, 0, 0), eul(0.26f, 0, 0)
+    });
+    pushRot(clip, J("Ankle_L"), t, {
+        eul(-0.06f, 0, 0), eul(0.38f, 0, 0), eul(0.05f, 0, 0), eul(-0.10f, 0, 0),
+        eul(-0.22f, 0, 0), eul(-0.12f, 0, 0), eul(-0.06f, 0, 0)
+    });
+    pushRot(clip, J("Toe_L"), t, {
+        eul(0.04f, 0, 0), eul(0.22f, 0, 0), eul(0.08f, 0, 0), eul(0.0f, 0, 0),
+        eul(-0.06f, 0, 0), eul(-0.02f, 0, 0), eul(0.02f, 0, 0)
+    });
+
+    // Rear leg: load → drive → trail.
+    pushRot(clip, J("Hip_R"), t, {
+        eul(0.32f, -0.08f, -0.15f),
+        eul(0.36f, -0.07f, -0.13f),
+        eul(0.44f, -0.04f, -0.08f),
+        eul(0.50f, 0.00f, -0.02f),
+        eul(0.55f, 0.06f, 0.06f),  // drive
+        eul(0.34f, 0.08f, 0.08f),
+        eul(0.14f, 0.05f, 0.05f)
+    });
+    pushRot(clip, J("Knee_R"), t, {
+        eul(0.44f, 0, 0), eul(0.48f, 0, 0), eul(0.58f, 0, 0), eul(0.60f, 0, 0),
+        eul(0.50f, 0, 0), eul(0.34f, 0, 0), eul(0.40f, 0, 0)
+    });
+    pushRot(clip, J("Ankle_R"), t, {
+        eul(-0.15f, 0, 0), eul(-0.17f, 0, 0), eul(-0.10f, 0, 0), eul(-0.04f, 0, 0),
+        eul(0.12f, 0, 0), eul(0.20f, 0, 0), eul(0.04f, 0, 0)
+    });
+    pushRot(clip, J("Toe_R"), t, {
+        eul(0.05f, 0, 0), eul(0.08f, 0, 0), eul(0.06f, 0, 0), eul(0.04f, 0, 0),
+        eul(-0.06f, 0, 0), eul(-0.16f, 0, 0), eul(-0.04f, 0, 0)
+    });
+
+    return clip;
+}
+
 } // namespace BaseballAnims
