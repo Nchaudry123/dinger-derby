@@ -175,8 +175,8 @@ BallCollisionHit collideBallSubsteps(
     int substeps = 4
 );
 
-constexpr int kFanSectorCount = 24;
-constexpr int kFlagCount = 8;
+constexpr int kFanSectorCount = 32;
+constexpr int kFlagCount = 12;
 
 struct Meshes {
     Mesh3D field;
