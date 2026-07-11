@@ -585,9 +585,9 @@ Mesh3D buildField(const Layout& L) {
         );
     }
 
-    // Under-seat floor (navy, not beige) so no sky under the bowl — starts at seats.
+    // Under-seat floor to the shell so overhead views never show sky under the bowl.
     {
-        const int underSegs = 120;
+        const int underSegs = 140;
         for (int i = 0; i < underSegs; i++) {
             float t0 = static_cast<float>(i) / underSegs;
             float t1 = static_cast<float>(i + 1) / underSegs;
@@ -595,15 +595,15 @@ Mesh3D buildField(const Layout& L) {
             float ang1 = -pi + t1 * 2.0f * pi;
             float r0 = L.bowlInnerRadius(ang0);
             float r1 = L.bowlInnerRadius(ang1);
-            float rOut0 = L.clampRadiusInDome(ang0, r0 + 55.0f, 10.0f);
-            float rOut1 = L.clampRadiusInDome(ang1, r1 + 55.0f, 10.0f);
+            float rOut0 = L.clampRadiusInDome(ang0, L.maxRadiusFromHome(ang0), 8.0f);
+            float rOut1 = L.clampRadiusInDome(ang1, L.maxRadiusFromHome(ang1), 8.0f);
             addQuad(
                 m,
                 L.fromHome(r0, ang0, 0.002f),
                 L.fromHome(r1, ang1, 0.002f),
                 L.fromHome(rOut1, ang1, 0.002f),
                 L.fromHome(rOut0, ang0, 0.002f),
-                sf::Color(28, 36, 52) // dark under seats (reads as bowl, not field)
+                sf::Color(22, 30, 46) // dark under seats (reads as bowl, not field)
             );
         }
     }
@@ -1263,20 +1263,18 @@ Mesh3D buildStands(const Layout& L) {
     sf::Color concourse = concourseColor();
     sf::Color rail(200, 205, 210);
 
-    // Full horseshoe bowl around the diamond (except narrow CF board cutout).
-    // Moderate rise + enough radial depth so overhead views show continuous rings.
-    const int angSegs = 160;
-    const int rows0 = 16; // field level
-    const int rows1 = 12; // mid
-    const int rows2 = 14; // upper
-    const float dRow = 1.65f;
-    const float rise0 = 1.15f;
-    const float rise1 = 1.25f;
-    const float rise2 = 1.35f;
-    const float gap01 = 2.8f;
-    const float gap12 = 3.0f;
-    const float facadeH01 = 4.2f;
-    const float facadeH12 = 4.8f;
+    // Continuous 3-tier bowl around the ENTIRE diamond (same density as behind
+    // home). Fixed row counts used to stop early on the foul sides (longer
+    // shell radius) and leave sky-blue voids — now we fill rIn → rCap always.
+    const int angSegs = 200;
+    const float dRow = 1.55f;
+    const float rise0 = 1.10f;
+    const float rise1 = 1.20f;
+    const float rise2 = 1.30f;
+    const float gap01 = 2.4f;
+    const float gap12 = 2.6f;
+    const float facadeH01 = 3.8f;
+    const float facadeH12 = 4.2f;
 
     for (int i = 0; i < angSegs; i++) {
         float t0 = static_cast<float>(i) / angSegs;
@@ -1293,19 +1291,33 @@ Mesh3D buildStands(const Layout& L) {
         float rIn = bowlInnerRadius(L, angM);
         float yBase = bowlBaseHeight(L, angM);
         const float rCap =
-            L.closedDome ? L.clampRadiusInDome(angM, L.maxRadiusFromHome(angM), 12.0f) : 1.0e6f;
+            L.closedDome ? L.clampRadiusInDome(angM, L.maxRadiusFromHome(angM), 10.0f) : 1.0e6f;
+        if (rCap <= rIn + dRow * 2.0f) {
+            continue;
+        }
         bool isAisle = (i % 8) == 0;
+
+        // Budget all radial depth from diamond edge to dome shell across 3 tiers.
+        const float span = std::max(dRow * 6.0f, rCap - rIn);
+        // ~42% field / 28% mid / 30% upper (matches dense behind-home look).
+        int rows0 = std::max(6, static_cast<int>(span * 0.42f / dRow));
+        int rows1 = std::max(4, static_cast<int>(span * 0.28f / dRow));
+        int rows2 = std::max(4, static_cast<int>(span * 0.30f / dRow));
+        // Hard cap so OF wall slices (short span) stay reasonable.
+        rows0 = std::min(rows0, 48);
+        rows1 = std::min(rows1, 36);
+        rows2 = std::min(rows2, 40);
 
         auto emitTier = [&](int rows, float rStart, float yStart, float rise, sf::Color a,
                             sf::Color b, float& rOut, float& yOut) {
             float rCursor = rStart;
             float yCursor = yStart;
             for (int row = 0; row < rows; row++) {
-                if (rCursor > rCap - dRow) {
+                if (rCursor > rCap - dRow * 0.5f) {
                     break;
                 }
-                float r0 = L.clampRadiusInDome(angM, rCursor, 12.0f);
-                float r1 = L.clampRadiusInDome(angM, r0 + dRow * 0.90f, 12.0f);
+                float r0 = L.clampRadiusInDome(angM, rCursor, 10.0f);
+                float r1 = L.clampRadiusInDome(angM, r0 + dRow * 0.92f, 10.0f);
                 if (r1 <= r0 + 0.05f) {
                     break;
                 }
@@ -1323,28 +1335,28 @@ Mesh3D buildStands(const Layout& L) {
                     m, L.fromHome(r0, ang0, y0), L.fromHome(r0, ang1, y0), L.fromHome(r0, ang1, y1),
                     L.fromHome(r0, ang0, y1), riser
                 );
-                rCursor = r1 + dRow * 0.06f;
+                rCursor = r1 + dRow * 0.05f;
                 yCursor = y0 + rise;
             }
             rOut = rCursor;
             yOut = yCursor;
         };
 
-        // ── Level 0: field bowl ──────────────────────────────────────
+        // ── Level 0: field bowl (starts at diamond perimeter) ────────
         float rAfter0 = rIn;
         float yAfter0 = yBase;
         emitTier(rows0, rIn, yBase, rise0, seat0, seat0b, rAfter0, yAfter0);
 
-        // Tall mid-deck facade
+        // Mid-deck facade + concourse
         float yMidBase = yAfter0 + facadeH01;
-        float rMidIn = L.clampRadiusInDome(angM, rAfter0 + 0.35f, 12.0f);
+        float rMidIn = L.clampRadiusInDome(angM, rAfter0 + 0.25f, 10.0f);
         addQuad(
             m, L.fromHome(rAfter0, ang0, yAfter0), L.fromHome(rAfter0, ang1, yAfter0),
             L.fromHome(rAfter0, ang1, yMidBase), L.fromHome(rAfter0, ang0, yMidBase),
             shadeColor(riser, 0.85f)
         );
-        float rC0 = L.clampRadiusInDome(angM, rMidIn + gap01, 12.0f);
-        if (rC0 > rMidIn + 0.3f) {
+        float rC0 = L.clampRadiusInDome(angM, rMidIn + gap01, 10.0f);
+        if (rC0 > rMidIn + 0.25f) {
             addQuad(
                 m, L.fromHome(rMidIn, ang0, yMidBase), L.fromHome(rMidIn, ang1, yMidBase),
                 L.fromHome(rC0, ang1, yMidBase), L.fromHome(rC0, ang0, yMidBase), concourse
@@ -1359,28 +1371,32 @@ Mesh3D buildStands(const Layout& L) {
 
         // ── Level 1: mid ─────────────────────────────────────────────
         float rAfter1 = rC0;
-        float yAfter1 = yMidBase + 0.9f;
-        emitTier(rows1, rC0, yMidBase + 0.9f, rise1, seat1, seat1b, rAfter1, yAfter1);
+        float yAfter1 = yMidBase + 0.85f;
+        emitTier(rows1, rC0, yMidBase + 0.85f, rise1, seat1, seat1b, rAfter1, yAfter1);
 
         float yUpBase = yAfter1 + facadeH12;
-        float rUpIn = L.clampRadiusInDome(angM, rAfter1 + 0.35f, 12.0f);
+        float rUpIn = L.clampRadiusInDome(angM, rAfter1 + 0.25f, 10.0f);
         addQuad(
             m, L.fromHome(rAfter1, ang0, yAfter1), L.fromHome(rAfter1, ang1, yAfter1),
             L.fromHome(rAfter1, ang1, yUpBase), L.fromHome(rAfter1, ang0, yUpBase),
             shadeColor(riser, 0.78f)
         );
-        float rC1 = L.clampRadiusInDome(angM, rUpIn + gap12, 12.0f);
-        if (rC1 > rUpIn + 0.3f) {
+        float rC1 = L.clampRadiusInDome(angM, rUpIn + gap12, 10.0f);
+        if (rC1 > rUpIn + 0.25f) {
             addQuad(
                 m, L.fromHome(rUpIn, ang0, yUpBase), L.fromHome(rUpIn, ang1, yUpBase),
                 L.fromHome(rC1, ang1, yUpBase), L.fromHome(rC1, ang0, yUpBase), concourse
             );
         }
 
-        // ── Level 2: upper deck ──────────────────────────────────────
+        // ── Level 2: upper deck (runs out to the shell) ──────────────
         float rAfter2 = rC1;
-        float yAfter2 = yUpBase + 1.0f;
-        emitTier(rows2, rC1, yUpBase + 1.0f, rise2, seat2, seat2b, rAfter2, yAfter2);
+        float yAfter2 = yUpBase + 0.9f;
+        emitTier(rows2, rC1, yUpBase + 0.9f, rise2, seat2, seat2b, rAfter2, yAfter2);
+        // If anything short of the shell remains, keep packing upper rows.
+        if (rAfter2 < rCap - dRow) {
+            emitTier(64, rAfter2, yAfter2, rise2, seat2, seat2b, rAfter2, yAfter2);
+        }
         addQuad(
             m, L.fromHome(rAfter2, ang0, yAfter2 + 0.15f),
             L.fromHome(rAfter2, ang1, yAfter2 + 0.15f),
@@ -1581,17 +1597,15 @@ Mesh3D buildStructure(const Layout& L) {
 // Build low-poly fans in angular wedges. Skips CF scoreboard / hotel zone.
 std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     std::vector<Mesh3D> sectors(kFanSectorCount);
-    // Dense continuous bowl — fans hug the diamond perimeter (where beige was).
-    const int angSamples = 280;
-    const int rows0 = 16;
-    const int rows1 = 11;
-    const int rows2 = 12;
+    // Same continuous bowl as stands: fans from diamond edge out to the shell
+    // on every spray angle (except CF board cutout).
+    const int angSamples = 320;
     const float dRow = 1.55f;
-    const float rise0 = 1.12f;
-    const float rise1 = 1.22f;
-    const float rise2 = 1.32f;
-    const float facadeH01 = 4.2f;
-    const float facadeH12 = 4.8f;
+    const float rise0 = 1.10f;
+    const float rise1 = 1.20f;
+    const float rise2 = 1.30f;
+    const float facadeH01 = 3.8f;
+    const float facadeH12 = 4.2f;
     int fanId = 0;
     auto maybePlace = [&](Mesh3D& sec, float r, float ang, float y, float fillChance) {
         float h = hash01(fanId * 17 + 3);
@@ -1599,22 +1613,22 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             fanId++;
             return;
         }
-        if (hash01(fanId * 9 + 1) < 0.04f) {
+        if (hash01(fanId * 9 + 1) < 0.03f) {
             fanId++;
             return;
         }
-        r = L.clampRadiusInDome(ang, r, 14.0f);
+        r = L.clampRadiusInDome(ang, r, 12.0f);
         Vector3 seat = L.fromHome(r, ang, y);
         {
             Vector3 c = L.domeCenter();
             float hh = std::sqrt((seat.x - c.x) * (seat.x - c.x) + (seat.z - c.z) * (seat.z - c.z));
-            if (hh > L.domeHorizR() - 10.0f) {
+            if (hh > L.domeHorizR() - 8.0f) {
                 fanId++;
                 return;
             }
         }
-        seat.x += (hash01(fanId) - 0.5f) * 0.40f;
-        seat.z += (hash01(fanId + 3) - 0.5f) * 0.40f;
+        seat.x += (hash01(fanId) - 0.5f) * 0.38f;
+        seat.z += (hash01(fanId + 3) - 0.5f) * 0.38f;
         seat.y += (hash01(fanId + 5) - 0.5f) * 0.08f;
         float scale = 0.84f + 0.26f * hash01(fanId + 11);
         addLowPolyFan(sec, seat, scale, fanShirtColor(fanId), fanSkinColor(fanId + 3));
@@ -1628,53 +1642,64 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
         float rIn = bowlInnerRadius(L, ang);
         float yBase = bowlBaseHeight(L, ang);
         const float rCap =
-            L.closedDome ? L.clampRadiusInDome(ang, L.maxRadiusFromHome(ang), 14.0f) : 1.0e6f;
+            L.closedDome ? L.clampRadiusInDome(ang, L.maxRadiusFromHome(ang), 12.0f) : 1.0e6f;
 
         // CF board zone: only ONE elevated fan row above the scoreboard.
         if (L.isCfScoreboardZone(ang)) {
             float wallR = L.wallRAtAngle(ang);
             float yBoardTop = L.wallHeightAtAngle(ang) + 22.0f;
-            float rFan = L.clampRadiusInDome(ang, wallR + 20.0f, 14.0f);
-            float fill = 0.80f + 0.18f * hash01(i * 11);
+            float rFan = L.clampRadiusInDome(ang, wallR + 20.0f, 12.0f);
+            float fill = 0.82f + 0.16f * hash01(i * 11);
             maybePlace(sectors[sector], rFan, ang, yBoardTop, fill);
             continue;
         }
 
-        // Field level — densest on the diamond perimeter (first rows).
+        if (rCap <= rIn + dRow * 2.0f) {
+            continue;
+        }
+
+        // Match stands: budget rows from diamond edge → shell.
+        const float span = std::max(dRow * 6.0f, rCap - rIn);
+        int rows0 = std::min(48, std::max(6, static_cast<int>(span * 0.42f / dRow)));
+        int rows1 = std::min(36, std::max(4, static_cast<int>(span * 0.28f / dRow)));
+        int rows2 = std::min(48, std::max(4, static_cast<int>(span * 0.30f / dRow)));
+
+        // Field level — densest on the diamond perimeter.
         float r = rIn;
         float y = yBase;
         for (int row = 0; row < rows0; row++) {
-            if (r > rCap - dRow) {
+            if (r > rCap - dRow * 0.5f) {
                 break;
             }
-            float fill = (row < 4) ? (0.88f + 0.12f * hash01(i * 3 + row))
-                                   : (0.72f + 0.24f * hash01(i * 3 + row));
+            float fill = (row < 5) ? (0.90f + 0.10f * hash01(i * 3 + row))
+                                   : (0.74f + 0.22f * hash01(i * 3 + row));
             maybePlace(sectors[sector], r + dRow * 0.35f, ang, y + rise0 * 0.7f, fill);
             r += dRow;
             y += rise0;
         }
 
         // Mid level
-        float yMid = y + facadeH01 + 0.9f;
+        float yMid = y + facadeH01 + 0.85f;
         float rMid = r + 2.0f;
         for (int row = 0; row < rows1; row++) {
-            if (rMid > rCap - dRow) {
+            if (rMid > rCap - dRow * 0.5f) {
                 break;
             }
-            float fill = 0.68f + 0.28f * hash01(i * 5 + row + 40);
+            float fill = 0.70f + 0.26f * hash01(i * 5 + row + 40);
             maybePlace(sectors[sector], rMid + dRow * 0.35f, ang, yMid + rise1 * 0.7f, fill);
             rMid += dRow;
             yMid += rise1;
         }
 
-        // Upper level
-        float yUp = yMid + facadeH12 + 1.0f;
-        float rUp = rMid + 2.2f;
-        for (int row = 0; row < rows2; row++) {
-            if (rUp > rCap - dRow) {
+        // Upper level — keep packing until the shell (kills side sky voids).
+        float yUp = yMid + facadeH12 + 0.9f;
+        float rUp = rMid + 2.0f;
+        int upperBudget = rows2 + 32;
+        for (int row = 0; row < upperBudget; row++) {
+            if (rUp > rCap - dRow * 0.5f) {
                 break;
             }
-            float fill = 0.62f + 0.30f * hash01(i * 7 + row + 90);
+            float fill = 0.64f + 0.28f * hash01(i * 7 + row + 90);
             maybePlace(sectors[sector], rUp + dRow * 0.35f, ang, yUp + rise2 * 0.7f, fill);
             rUp += dRow;
             yUp += rise2;
@@ -1683,14 +1708,14 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
 
     // Straight row of fans directly behind the batter (first perimeter row).
     {
-        const int nBack = 40;
+        const int nBack = 44;
         const float rBack = std::max(14.0f, L.bowlInnerRadius(pi) + 0.4f);
         const float yBack = L.bowlBaseHeight(pi) + 1.5f;
         for (int k = 0; k < nBack; k++) {
             float u = (static_cast<float>(k) + 0.5f) / static_cast<float>(nBack);
-            float x = (u - 0.5f) * 22.0f; // straight line across behind plate
+            float x = (u - 0.5f) * 24.0f;
             Vector3 seat(x, yBack, L.plateZ() + rBack);
-            if (hash01(k * 13 + 2) > 0.92f) {
+            if (hash01(k * 13 + 2) > 0.93f) {
                 continue;
             }
             seat.x += (hash01(k * 3) - 0.5f) * 0.12f;
@@ -2191,10 +2216,11 @@ float Layout::radiusFromHome(const Vector3& worldPos) const {
 }
 
 float Layout::bowlInnerRadius(float ang) const {
-    // First seat row = offset curve of the fair diamond pie only.
-    // Fair OF: just past the fence. Foul: parallel to each foul line at a
-    // small clearance (no wide blend to foulPoleR — that created heart lobes).
-    // Behind home: tight backstop radius. Result: seats fill former beige.
+    // First seat row = continuous offset of the fair diamond pie.
+    // Same “behind home” horseshoe start, all the way around:
+    //   fair  → just past OF wall
+    //   foul  → parallel to foul lines (thin walkway), joins poles + backstop
+    // Stands/fans then fill from here out to the dome shell (no sky voids).
     while (ang > pi) {
         ang -= 2.0f * pi;
     }
@@ -2205,23 +2231,19 @@ float Layout::bowlInnerRadius(float ang) const {
     float absA = std::abs(ang);
     float r = 0.0f;
     if (absA <= fa + 0.02f) {
-        // Fair: seats right behind the OF wall / fence.
-        r = wallRAtAngle(ang) + 1.4f;
+        r = wallRAtAngle(ang) + 1.35f;
     } else {
-        // Points at fixed perpendicular distance from the foul line:
-        //   r * sin(|ang| - fa) = clearance
-        // Cap at foul-pole seat radius so the row joins OF seats cleanly
-        // without a 20°+ balloon (the old heart-lobe artifact).
-        const float clearance = 3.2f; // ~6 ft walkway — then seats
-        const float backMin = 13.5f;  // first row behind the batter
+        // r * sin(delta) = clearance  → line parallel to foul line
+        const float clearance = 2.8f; // ~5–6 ft ribbon, then seats
+        const float backMin = 13.0f;  // first row behind batter
         float delta = std::max(absA - fa, 1.0e-3f);
-        float foulPoleR = wallRAtAngle(ang >= 0.0f ? fa : -fa) + 1.4f;
+        float foulPoleR = wallRAtAngle(ang >= 0.0f ? fa : -fa) + 1.35f;
         float rParallel = clearance / std::sin(delta);
         r = std::min(rParallel, foulPoleR);
         r = std::clamp(r, backMin, foulPoleR);
     }
     if (closedDome) {
-        r = clampRadiusInDome(ang, r, 12.0f);
+        r = clampRadiusInDome(ang, r, 10.0f);
     }
     return r;
 }
