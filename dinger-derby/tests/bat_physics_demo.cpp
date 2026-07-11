@@ -134,16 +134,15 @@ void lookAt(Camera3D& cam, const Vector3& pos, const Vector3& target) {
 }
 
 void applyCatcherCamera(Camera3D& cam) {
-    // Elevated plate cam so Rogers Centre fills the frame: lower bowl left/right,
-    // CF hotel + board, and arched roof trusses at the top (photo composition).
-    // fieldOfView is a projection scale (smaller = wider angle in GlRenderer).
+    // Plate-scale camera: lower + slightly closer so the diamond (90 ft paths,
+    // 26 ft plate circle, 18 ft mound circle) reads correctly from catcher view.
     lookAt(
         cam,
-        Vector3(0.0f, 4.6f, plateZ + 4.8f),
-        Vector3(0.0f, 12.0f, plateZ - 95.0f) // toward CF board / roof arch
+        Vector3(0.0f, 1.72f, plateZ + 1.85f),
+        Vector3(0.0f, 1.05f, plateZ - 22.0f) // through plate toward mound / 2B
     );
-    cam.fieldOfView = 460.0f;
-    cam.nearPlane = 0.12f;
+    cam.fieldOfView = 680.0f;
+    cam.nearPlane = 0.08f;
     cam.farPlane = Stadium3D::recommendedFarPlane();
 }
 
@@ -205,7 +204,7 @@ void applyReturnToPlateCamera(Camera3D& cam, const Vector3& landPos, float t01) 
     Vector3 plateT(0.0f, 1.55f, plateZ - 14.0f);
     Vector3 target = holdT * (1.0f - t01) + plateT * t01;
     lookAt(cam, cam.position, target);
-    cam.fieldOfView = lerp(780.0f, 460.0f, t01);
+    cam.fieldOfView = lerp(780.0f, 680.0f, t01);
     cam.nearPlane = 0.12f;
     cam.farPlane = Stadium3D::recommendedFarPlane();
 }

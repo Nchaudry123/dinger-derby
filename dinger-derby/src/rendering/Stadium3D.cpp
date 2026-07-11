@@ -1230,18 +1230,20 @@ Mesh3D buildStands(const Layout& L) {
     sf::Color concourse = concourseColor();
     sf::Color rail(200, 205, 210);
 
-    // Three floors: field (100s) / mid (200s) / upper (500s).
-    // Tall, dense rows so plate-cam sees walls of navy seats left/right.
+    // Three floors stacked more VERTICALLY than radially so a low plate cam
+    // can read field / mid / upper as three distinct rings (not 1.5 flattened).
     const int angSegs = 140;
-    const int rows0 = 26;
-    const int rows1 = 16;
-    const int rows2 = 18;
-    const float dRow = 1.55f;
-    const float rise0 = 0.95f;
-    const float rise1 = 1.05f;
-    const float rise2 = 1.12f;
-    const float gap01 = 3.2f;
-    const float gap12 = 3.6f;
+    const int rows0 = 20; // field level
+    const int rows1 = 14; // mid
+    const int rows2 = 16; // upper
+    const float dRow = 1.15f;   // short radial step
+    const float rise0 = 1.45f;  // steep risers
+    const float rise1 = 1.55f;
+    const float rise2 = 1.65f;
+    const float gap01 = 2.2f;   // radial lip of mid deck
+    const float gap12 = 2.4f;
+    const float facadeH01 = 5.5f; // tall vertical face between field & mid
+    const float facadeH12 = 6.2f; // tall vertical face between mid & upper
 
     for (int i = 0; i < angSegs; i++) {
         float t0 = static_cast<float>(i) / angSegs;
@@ -1250,17 +1252,17 @@ Mesh3D buildStands(const Layout& L) {
         float ang1 = -pi + t1 * 2.0f * pi;
         float angM = 0.5f * (ang0 + ang1);
 
-        // CF hotel cutout: skip upper decks behind board (open to hotel face).
+        // CF hotel cutout: skip mid/upper behind board only.
         float aAbs = std::abs(angM);
-        bool cfHotelCut = aAbs < 0.28f; // ~±16° around CF
+        bool cfHotelCut = aAbs < 0.24f;
 
         float rIn = bowlInnerRadius(L, angM);
         float yBase = bowlBaseHeight(L, angM);
-        const float rCap = L.closedDome ? (L.maxRadiusFromHome(angM) - 5.0f) : 1.0e6f;
+        const float rCap = L.closedDome ? (L.maxRadiusFromHome(angM) - 3.0f) : 1.0e6f;
         bool isAisle = (i % 8) == 0;
 
         auto emitTier = [&](int rows, float rStart, float yStart, float rise, sf::Color a,
-                            sf::Color b) {
+                            sf::Color b, float& rOut, float& yOut) {
             float rCursor = rStart;
             float yCursor = yStart;
             for (int row = 0; row < rows; row++) {
@@ -1268,62 +1270,89 @@ Mesh3D buildStands(const Layout& L) {
                     break;
                 }
                 float r0 = rCursor;
-                float r1 = std::min(r0 + dRow * 0.92f, rCap);
+                float r1 = std::min(r0 + dRow * 0.90f, rCap);
                 float y0 = yCursor;
-                float y1 = y0 + rise * 0.82f;
+                float y1 = y0 + rise * 0.88f;
                 sf::Color sc = isAisle ? aisle : ((row + i) % 2 ? a : b);
                 sc = shadeColor(sc, 0.94f + 0.06f * static_cast<float>((row + i) % 3) / 2.0f);
+                // Seat tread
                 addQuad(
                     m, L.fromHome(r0, ang0, y1), L.fromHome(r0, ang1, y1), L.fromHome(r1, ang1, y1),
                     L.fromHome(r1, ang0, y1), sc
                 );
+                // Riser face (what plate-cam mostly sees)
                 addQuad(
                     m, L.fromHome(r0, ang0, y0), L.fromHome(r0, ang1, y0), L.fromHome(r0, ang1, y1),
                     L.fromHome(r0, ang0, y1), riser
                 );
-                rCursor = r1 + dRow * 0.08f;
+                rCursor = r1 + dRow * 0.06f;
                 yCursor = y0 + rise;
             }
-            return std::pair<float, float>(rCursor, yCursor);
+            rOut = rCursor;
+            yOut = yCursor;
         };
 
         // ── Level 0: field bowl ──────────────────────────────────────
-        auto t0r = emitTier(rows0, rIn, yBase, rise0, seat0, seat0b);
-        float rAfter0 = t0r.first;
-        float yAfter0 = t0r.second;
+        float rAfter0 = rIn;
+        float yAfter0 = yBase;
+        emitTier(rows0, rIn, yBase, rise0, seat0, seat0b, rAfter0, yAfter0);
 
-        // Concourse 1
-        float rC0 = std::min(rAfter0 + gap01, rCap - 1.0f);
-        float yC0 = yAfter0 + 0.25f;
-        if (rC0 > rAfter0 + 0.4f) {
+        // Tall mid-deck facade (dark ring — makes "floor 2" obvious).
+        float yMidBase = yAfter0 + facadeH01;
+        float rMidIn = std::min(rAfter0 + 0.35f, rCap - gap01 - 4.0f);
+        addQuad(
+            m, L.fromHome(rAfter0, ang0, yAfter0), L.fromHome(rAfter0, ang1, yAfter0),
+            L.fromHome(rAfter0, ang1, yMidBase), L.fromHome(rAfter0, ang0, yMidBase),
+            shadeColor(riser, 0.85f)
+        );
+        // Concourse shelf
+        float rC0 = std::min(rMidIn + gap01, rCap - 1.0f);
+        if (rC0 > rMidIn + 0.3f) {
             addQuad(
-                m, L.fromHome(rAfter0, ang0, yC0), L.fromHome(rAfter0, ang1, yC0),
-                L.fromHome(rC0, ang1, yC0), L.fromHome(rC0, ang0, yC0), concourse
+                m, L.fromHome(rMidIn, ang0, yMidBase), L.fromHome(rMidIn, ang1, yMidBase),
+                L.fromHome(rC0, ang1, yMidBase), L.fromHome(rC0, ang0, yMidBase), concourse
             );
-            // Rail
             addQuad(
-                m, L.fromHome(rAfter0, ang0, yC0 + 0.55f), L.fromHome(rAfter0, ang1, yC0 + 0.55f),
-                L.fromHome(rAfter0 + 0.15f, ang1, yC0 + 0.55f),
-                L.fromHome(rAfter0 + 0.15f, ang0, yC0 + 0.55f), rail
+                m, L.fromHome(rMidIn, ang0, yMidBase + 0.7f),
+                L.fromHome(rMidIn, ang1, yMidBase + 0.7f),
+                L.fromHome(rMidIn + 0.18f, ang1, yMidBase + 0.7f),
+                L.fromHome(rMidIn + 0.18f, ang0, yMidBase + 0.7f), rail
             );
         }
 
-        // ── Level 1: mid / club ──────────────────────────────────────
         if (!cfHotelCut) {
-            auto t1r = emitTier(rows1, rC0, yC0 + 1.1f, rise1, seat1, seat1b);
-            float rAfter1 = t1r.first;
-            float yAfter1 = t1r.second;
-            float rC1 = std::min(rAfter1 + gap12, rCap - 1.0f);
-            float yC1 = yAfter1 + 0.25f;
-            if (rC1 > rAfter1 + 0.4f) {
+            // ── Level 1: mid ─────────────────────────────────────────
+            float rAfter1 = rC0;
+            float yAfter1 = yMidBase + 0.9f;
+            emitTier(rows1, rC0, yMidBase + 0.9f, rise1, seat1, seat1b, rAfter1, yAfter1);
+
+            // Tall upper-deck facade
+            float yUpBase = yAfter1 + facadeH12;
+            float rUpIn = std::min(rAfter1 + 0.35f, rCap - gap12 - 4.0f);
+            addQuad(
+                m, L.fromHome(rAfter1, ang0, yAfter1), L.fromHome(rAfter1, ang1, yAfter1),
+                L.fromHome(rAfter1, ang1, yUpBase), L.fromHome(rAfter1, ang0, yUpBase),
+                shadeColor(riser, 0.78f)
+            );
+            float rC1 = std::min(rUpIn + gap12, rCap - 1.0f);
+            if (rC1 > rUpIn + 0.3f) {
                 addQuad(
-                    m, L.fromHome(rAfter1, ang0, yC1), L.fromHome(rAfter1, ang1, yC1),
-                    L.fromHome(rC1, ang1, yC1), L.fromHome(rC1, ang0, yC1), concourse
+                    m, L.fromHome(rUpIn, ang0, yUpBase), L.fromHome(rUpIn, ang1, yUpBase),
+                    L.fromHome(rC1, ang1, yUpBase), L.fromHome(rC1, ang0, yUpBase), concourse
                 );
             }
 
             // ── Level 2: upper deck ──────────────────────────────────
-            emitTier(rows2, rC1, yC1 + 1.2f, rise2, seat2, seat2b);
+            float rAfter2 = rC1;
+            float yAfter2 = yUpBase + 1.0f;
+            emitTier(rows2, rC1, yUpBase + 1.0f, rise2, seat2, seat2b, rAfter2, yAfter2);
+            // Crown rail on upper lip
+            addQuad(
+                m, L.fromHome(rAfter2, ang0, yAfter2 + 0.15f),
+                L.fromHome(rAfter2, ang1, yAfter2 + 0.15f),
+                L.fromHome(rAfter2, ang1, yAfter2 + 1.1f),
+                L.fromHome(rAfter2, ang0, yAfter2 + 1.1f), rail
+            );
         }
     }
 
@@ -1872,10 +1901,12 @@ float Layout::domeRoofYAtWorld(float worldX, float worldZ) const {
     float dz = worldZ - c.z;
     float u2 = (dx * dx + dz * dz) / (Rh * Rh);
     if (u2 >= 0.999f) {
-        // At the ring wall the roof meets a high side shell (~suite level).
-        return H * 0.12f;
+        // Side shell stays high enough that the upper deck is never crushed.
+        return std::max(H * 0.22f, 38.0f);
     }
-    return H * std::sqrt(std::max(0.0f, 1.0f - u2));
+    float y = H * std::sqrt(std::max(0.0f, 1.0f - u2));
+    // Floor the roof so mid/upper seating always has headroom under the shell.
+    return std::max(y, 36.0f + (1.0f - std::sqrt(u2)) * 40.0f);
 }
 
 float Layout::domeRoofYAtRadius(float radiusFromHome) const {
@@ -1910,27 +1941,28 @@ float Layout::maxRadiusFromHome(float angleRad) const {
 }
 
 float Layout::seatDeckYAtRadius(float radiusFromHome, float angleRad) const {
-    // Three seating decks (field / mid / upper) matching Rogers bowl profile.
-    float wallR = wallRAtAngle(angleRad);
-    float past = radiusFromHome - wallR;
+    // Three steep decks so plate-cam reads full field / mid / upper layers.
+    float r0 = bowlInnerRadius(angleRad);
+    float past = radiusFromHome - r0;
     if (past < 0.0f) {
         return 0.0f;
     }
     float yBase = bowlBaseHeight(angleRad);
-    const float d0 = 22.0f; // field level depth
-    const float d1 = 14.0f; // mid level depth
-    const float rise0 = 0.36f;
-    const float rise1 = 0.40f;
-    const float rise2 = 0.44f;
+    // Match buildStands vertical profile (steep, short radial depth).
+    const float d0 = 18.0f;
+    const float d1 = 12.0f;
+    const float rise0 = 0.72f;
+    const float rise1 = 0.78f;
+    const float rise2 = 0.82f;
     if (past < d0) {
         return yBase + past * rise0;
     }
-    float y1 = yBase + d0 * rise0 + 2.0f; // concourse step
+    float y1 = yBase + d0 * rise0 + 4.5f; // tall mid facade
     float p1 = past - d0;
     if (p1 < d1) {
         return y1 + p1 * rise1;
     }
-    float y2 = y1 + d1 * rise1 + 2.4f;
+    float y2 = y1 + d1 * rise1 + 5.0f; // tall upper facade
     return y2 + (p1 - d1) * rise2;
 }
 
@@ -2661,14 +2693,14 @@ WallClearResult evaluateWallClear(
 }
 
 Layout defaultPlayLayout() {
-    // Rogers Centre (Toronto) — circular 700' building, 282' roof, closed.
+    // Rogers Centre (Toronto) — circular shell, tall roof for 3 seat decks.
     Layout L;
     L.wallDistanceFeet = 400.0f;
     L.wallHeightFeet = 10.0f;
     L.closedDome = true;
-    L.roofPeakFeet = 282.0f;
-    L.buildingRadiusFeet = 350.0f;
-    L.domeCenterOffsetFeet = 175.0f;
+    L.roofPeakFeet = 310.0f;
+    L.buildingRadiusFeet = 360.0f;
+    L.domeCenterOffsetFeet = 170.0f;
     return L;
 }
 
