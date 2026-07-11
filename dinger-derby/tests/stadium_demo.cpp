@@ -1,5 +1,6 @@
-// Stadium Demo — showcase the shared Stadium3D ballpark (same world as
-// pitching + bat demos: plate at plateZ, mound at 0, CF toward -Z).
+// Stadium Demo — blank play-space scaffold (stadium model removed).
+// Same world frame as pitching + bat demos: plate at plateZ, mound at 0, CF −Z.
+// Rebuild the park from scratch when ready.
 //
 // Controls:
 //   Mouse drag        orbit
@@ -173,34 +174,10 @@ int main() {
     bool fontOk = loadUiFont(font);
 
     Stadium3D::Layout layout = Stadium3D::defaultPlayLayout();
-    Stadium3D::Meshes meshes = Stadium3D::build(layout);
+    // Stadium meshes intentionally empty (build returns blank).
 
     GlRenderer gl;
     bool useGL = gl.initialize(window);
-    GlMesh glField;
-    GlMesh glWalls;
-    GlMesh glStands;
-    GlMesh glLines;
-    GlMesh glBoard;
-    GlMesh glSky;
-    GlMesh glHotel;
-    GlMesh glStructure;
-    std::vector<GlMesh> glFans(Stadium3D::kFanSectorCount);
-    if (useGL) {
-        glField.upload(meshes.field);
-        glWalls.upload(meshes.walls);
-        glStands.upload(meshes.stands);
-        glLines.upload(meshes.lines);
-        glBoard.upload(meshes.scoreboardScreen);
-        glSky.upload(meshes.skyDome);
-        glHotel.upload(meshes.hotel);
-        glStructure.upload(meshes.structure);
-        for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
-            if (i < static_cast<int>(meshes.fanSectors.size())) {
-                glFans[i].upload(meshes.fanSectors[i]);
-            }
-        }
-    }
 
     Camera3D camera;
     CamPreset preset = CamPreset::Overview;
@@ -213,12 +190,11 @@ int main() {
     bool dragging = false;
     sf::Vector2i lastMouse;
     bool showLabels = true;
-    float cheerTime = 0.0f;
 
     sf::Clock clock;
     while (window.isOpen()) {
         float dt = std::min(clock.restart().asSeconds(), 0.05f);
-        cheerTime += dt;
+        (void)dt;
 
         while (auto event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) {
@@ -302,31 +278,12 @@ int main() {
             updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
         }
 
-        Matrix4 id = Matrix4::identity();
         if (useGL) {
-            // Closed Rogers Centre: no city/clouds; field stays visible through open roof.
+            // Blank slate: sky + ground plane only. No stadium model.
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            Vector3 domeC = layout.domeCenter();
-            const float gr = layout.domeHorizR() + 2.0f;
-            gl.drawMesh(glSky, id); // outer roof ring + shell wall
-            gl.drawMesh(glStructure, id);
-            // Concrete under-floor (not grass) — field mesh owns the diamond green.
-            gl.drawGround(gr, domeC.z - gr, domeC.z + gr, Stadium3D::concreteFloorColor());
-            gl.drawMesh(glField, id);
-            gl.drawMesh(glStands, id);
-            gl.drawMesh(glWalls, id);
-            gl.drawMesh(glHotel, id);
-            gl.drawMesh(glLines, id);
-            float boardA = Stadium3D::scoreboardPulse(cheerTime, 0.35f);
-            gl.drawMesh(glBoard, id, 0.55f + 0.45f * boardA);
-            for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
-                if (!glFans[i].valid()) {
-                    continue;
-                }
-                float bob = Stadium3D::fanCheerOffsetY(i, cheerTime, 1.25f);
-                float sway = Stadium3D::fanCheerOffsetX(i, cheerTime, 1.25f);
-                gl.drawMesh(glFans[i], Matrix4::translation(Vector3(sway, bob, 0.0f)));
-            }
+            const float gr = layout.maxWallR() + 80.0f;
+            const float plateZ = layout.plateZ();
+            gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::concreteFloorColor());
             gl.endFrame(window);
         } else {
             window.clear(Stadium3D::skyColor());
@@ -336,7 +293,7 @@ int main() {
             drawText(
                 window,
                 font,
-                "Stadium Demo | shared park with pitching + bat demos",
+                "Stadium Demo | BLANK — model removed, ready to rebuild",
                 20,
                 {22, 14},
                 sf::Color(240, 245, 250)
