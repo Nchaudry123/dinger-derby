@@ -5,55 +5,64 @@
 #include "Mesh3D.h"
 #include "../math/Vector3.h"
 
-// Shared play-space frame for HR Derby / pitching / batting.
+// Shared open-air ballpark for HR Derby / pitching / batting.
+// Style: minor-league outdoor horseshoe (Fredericksburg-class reference) —
+// striped grass, dirt diamond, blue OF wall, blue lower bowl + red club seats,
+// light towers, suite facade behind home. No closed dome.
 //
 // Play coordinate frame:
 //   Mound at (0, 0, 0)
 //   Home plate at (0, 0, plateZ) with plateZ = 60.5 ft / feetPerUnit
 //   Pitcher throws toward +Z; batter faces −Z (toward mound / CF)
-//   Center field is −Z from home (past the mound)
-//   +X = first-base side when facing CF from home
-//
-// Visual stadium model: intentionally empty — rebuild from scratch.
-// Layout + fence math remain so bat/pitch demos still have a play space.
+//   Center field is −Z from home; +X = first-base / RF side
 //
 // 1 world unit ≈ feetPerUnit feet (default 2).
 
 namespace Stadium3D {
 
-inline sf::Color skyColor() { return sf::Color(120, 165, 210); }
-inline sf::Color skyZenithColor() { return sf::Color(70, 130, 190); }
-inline sf::Color groundClearColor() { return sf::Color(22, 30, 40); }
-inline sf::Color concreteFloorColor() { return sf::Color(95, 98, 104); }
-// Legacy palette stubs (no mesh uses these until the park is rebuilt).
-inline sf::Color grassColor() { return sf::Color(48, 140, 58); }
-inline sf::Color grassDarkColor() { return sf::Color(36, 112, 48); }
-inline sf::Color dirtColor() { return sf::Color(188, 118, 62); }
-inline sf::Color warningTrackColor() { return sf::Color(160, 105, 58); }
-inline sf::Color domePanelColor() { return sf::Color(215, 222, 232); }
-inline sf::Color domeRibColor() { return sf::Color(48, 58, 72); }
-inline sf::Color seatBlueColor() { return sf::Color(18, 42, 98); }
-inline sf::Color seatBlueAltColor() { return sf::Color(14, 34, 82); }
-inline sf::Color seatMidColor() { return sf::Color(16, 38, 90); }
-inline sf::Color seatUpperColor() { return sf::Color(20, 48, 108); }
-inline sf::Color concourseColor() { return sf::Color(95, 98, 104); }
-inline sf::Color hotelFacadeColor() { return sf::Color(232, 228, 218); }
-inline sf::Color ofWallColor() { return sf::Color(18, 42, 78); }
-inline sf::Color boardChassisColor() { return sf::Color(12, 18, 28); }
+// Outdoor daylight sky.
+inline sf::Color skyColor() { return sf::Color(135, 175, 215); }
+inline sf::Color skyZenithColor() { return sf::Color(90, 140, 195); }
+inline sf::Color groundClearColor() { return sf::Color(55, 70, 55); }
+inline sf::Color concreteFloorColor() { return sf::Color(145, 138, 125); }
+
+// FieldTurf-ish green + classic dirt.
+inline sf::Color grassColor() { return sf::Color(42, 130, 55); }
+inline sf::Color grassDarkColor() { return sf::Color(34, 112, 48); }
+inline sf::Color dirtColor() { return sf::Color(185, 125, 70); }
+inline sf::Color warningTrackColor() { return sf::Color(168, 112, 62); }
+
+// Reference: royal blue lower seats, red club / corner seats, blue OF padding.
+inline sf::Color seatBlueColor() { return sf::Color(28, 70, 150); }
+inline sf::Color seatBlueAltColor() { return sf::Color(22, 58, 130); }
+inline sf::Color seatRedColor() { return sf::Color(185, 45, 45); }
+inline sf::Color seatRedAltColor() { return sf::Color(160, 35, 38); }
+inline sf::Color seatMidColor() { return sf::Color(28, 70, 150); }
+inline sf::Color seatUpperColor() { return sf::Color(185, 45, 45); }
+inline sf::Color concourseColor() { return sf::Color(150, 145, 135); }
+inline sf::Color facadeTanColor() { return sf::Color(175, 160, 140); }
+inline sf::Color facadeGrayColor() { return sf::Color(155, 155, 158); }
+inline sf::Color ofWallColor() { return sf::Color(18, 55, 120); }
+inline sf::Color ofWallTopColor() { return sf::Color(25, 70, 145); }
+inline sf::Color boardChassisColor() { return sf::Color(240, 240, 245); }
+inline sf::Color railColor() { return sf::Color(210, 215, 220); }
+// Legacy aliases used by older call sites.
+inline sf::Color domePanelColor() { return facadeGrayColor(); }
+inline sf::Color domeRibColor() { return sf::Color(90, 95, 100); }
+inline sf::Color hotelFacadeColor() { return facadeTanColor(); }
 
 struct Layout {
     float feetPerUnit = 2.0f;
     float pitchingDistanceFeet = 60.5f;
     float wallDistanceFeet = 400.0f;
-    float wallHeightFeet = 10.0f;
+    float wallHeightFeet = 8.0f; // padded OF wall ~8 ft
     float foulAngleDegrees = 45.0f;
     float infieldRadiusFeet = 95.0f;
     float basePathFeet = 90.0f;
-    // Kept for API compatibility; no dome mesh is drawn.
-    bool closedDome = false;
-    float roofPeakFeet = 300.0f;
-    float buildingRadiusFeet = 430.0f;
-    float domeCenterOffsetFeet = 200.0f;
+    bool closedDome = false; // open-air park
+    float roofPeakFeet = 120.0f;
+    float buildingRadiusFeet = 280.0f;
+    float domeCenterOffsetFeet = 140.0f;
 
     float plateZ() const { return pitchingDistanceFeet / feetPerUnit; }
     float wallR() const { return wallDistanceFeet / feetPerUnit; }
@@ -99,9 +108,11 @@ struct Layout {
     void polarFromHome(const Vector3& worldPos, float& radiusOut, float& angleRadOut) const;
     float radiusFromHome(const Vector3& worldPos) const;
 
-    // Stubs — no bowl geometry until the park is rebuilt.
+    // First seat row / bowl base (horseshoe around diamond).
     float bowlInnerRadius(float angleRad) const;
     float bowlBaseHeight(float angleRad) const;
+    // True if angle is in the main seating horseshoe (not open OF).
+    bool isSeatingArc(float angleRad) const;
 };
 
 struct WallClearResult {
@@ -147,7 +158,6 @@ struct BallCollisionHit {
     float fenceFeet = 0.0f;
 };
 
-// Ground-only collision until stadium geometry is rebuilt.
 BallCollisionHit collideBall(
     const Layout& layout,
     Vector3& position,
@@ -165,28 +175,26 @@ BallCollisionHit collideBallSubsteps(
     int substeps = 4
 );
 
-constexpr int kFanSectorCount = 32;
-constexpr int kFlagCount = 12;
+constexpr int kFanSectorCount = 24;
+constexpr int kFlagCount = 8;
 
-// Empty mesh bundle — rebuild from scratch.
 struct Meshes {
     Mesh3D field;
     Mesh3D walls;
     Mesh3D stands;
     Mesh3D lines;
-    Mesh3D city;
-    Mesh3D scoreboardScreen;
-    Mesh3D skyDome;
-    Mesh3D clouds;
-    Mesh3D hotel;
-    Mesh3D structure;
+    Mesh3D city;              // exterior berm / grass apron
+    Mesh3D scoreboardScreen;  // CF / OF boards
+    Mesh3D skyDome;           // unused (open air)
+    Mesh3D clouds;            // unused
+    Mesh3D hotel;             // suite / club facade behind home
+    Mesh3D structure;         // light towers, poles, rails
     std::vector<Mesh3D> fanSectors;
     std::vector<Mesh3D> flagMeshes;
     std::vector<Vector3> flagBases;
 };
 
 Layout defaultPlayLayout();
-// Returns empty meshes (no stadium model).
 Meshes build(const Layout& layout = defaultPlayLayout());
 
 float recommendedFarPlane(const Layout& layout = defaultPlayLayout());

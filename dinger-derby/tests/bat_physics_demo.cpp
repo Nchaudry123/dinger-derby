@@ -1557,13 +1557,35 @@ int main() {
     GlMesh glBatter;
     GlMesh glBall;
     GlMesh glBat;
+    GlMesh glStadiumField;
+    GlMesh glStadiumWalls;
+    GlMesh glStadiumStands;
+    GlMesh glStadiumLines;
+    GlMesh glStadiumBoard;
+    GlMesh glStadiumHotel;
+    GlMesh glStadiumStructure;
+    GlMesh glStadiumCity;
+    std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
-    Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout); // empty park
+    Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useGL) {
         glPitcher.upload(pitcherMesh);
         glBatter.upload(batterMesh);
         glBall.upload(baseballMesh);
         glBat.upload(batMesh);
+        glStadiumField.upload(stadiumMeshes.field);
+        glStadiumWalls.upload(stadiumMeshes.walls);
+        glStadiumStands.upload(stadiumMeshes.stands);
+        glStadiumLines.upload(stadiumMeshes.lines);
+        glStadiumBoard.upload(stadiumMeshes.scoreboardScreen);
+        glStadiumHotel.upload(stadiumMeshes.hotel);
+        glStadiumStructure.upload(stadiumMeshes.structure);
+        glStadiumCity.upload(stadiumMeshes.city);
+        for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
+            if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
+                glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
+            }
+        }
     }
     float stadiumCheerTime = 0.0f;
     float crowdCheerBoost = 1.15f; // visual crowd surge after SFX events
@@ -3175,16 +3197,14 @@ int main() {
 
         Matrix4 stadiumXform = Matrix4::identity();
         if (useGL) {
-            // Blank park: sky + ground only (stadium model removed).
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            const float gr = stadiumLayout.maxWallR() + 80.0f;
+            const float gr = stadiumLayout.maxWallR() + 90.0f;
             const float plateZGround = stadiumLayout.plateZ();
             gl.drawGround(
-                gr,
-                plateZGround - gr,
-                plateZGround + gr,
-                Stadium3D::concreteFloorColor()
+                gr, plateZGround - gr, plateZGround + gr, Stadium3D::concreteFloorColor()
             );
+            gl.drawMesh(glStadiumCity, stadiumXform);
+            gl.drawMesh(glStadiumField, stadiumXform);
             {
                 float ballShadowR = 0.38f + baseball.position.y * 0.055f;
                 ballShadowR = clampf(ballShadowR, 0.30f, 1.15f);
@@ -3192,9 +3212,30 @@ int main() {
                 gl.drawGroundShadow(baseball.position, ballShadowR, ballAlpha);
                 gl.drawGroundShadow(Vector3(0.0f, 0.0f, moundZ), 0.55f, 0.28f);
             }
-            (void)stadiumXform;
-            (void)stadiumCheerTime;
-            (void)crowdCheerBoost;
+            gl.drawMesh(glStadiumStands, stadiumXform);
+            gl.drawMesh(glStadiumWalls, stadiumXform);
+            gl.drawMesh(glStadiumHotel, stadiumXform);
+            gl.drawMesh(glStadiumStructure, stadiumXform);
+            gl.drawMesh(glStadiumLines, stadiumXform);
+            float excitement = (hrBannerTimer > 0.0f) ? 1.0f : 0.12f;
+            excitement = std::min(1.0f, excitement + static_cast<float>(derby.hrCount) * 0.08f);
+            float boardA = Stadium3D::scoreboardPulse(stadiumCheerTime, excitement);
+            gl.drawMesh(glStadiumBoard, stadiumXform, 0.55f + 0.45f * boardA);
+            float cheerBoost = crowdCheerBoost;
+            if (hrBannerTimer > 0.0f) {
+                cheerBoost = std::max(cheerBoost, 1.9f);
+            }
+            for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
+                if (!glStadiumFans[i].valid()) {
+                    continue;
+                }
+                float bob = Stadium3D::fanCheerOffsetY(i, stadiumCheerTime, cheerBoost);
+                float sway = Stadium3D::fanCheerOffsetX(i, stadiumCheerTime, cheerBoost);
+                gl.drawMesh(
+                    glStadiumFans[i],
+                    Matrix4::translation(Vector3(sway, bob, 0.0f)) * stadiumXform
+                );
+            }
             gl.drawMesh(glPitcher, pitcherXform);
             if (!followBallCam || broadcastCam == BroadcastCam::Plate) {
                 gl.drawMesh(glBatter, batterXform);

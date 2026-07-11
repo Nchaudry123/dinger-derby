@@ -174,10 +174,40 @@ int main() {
     bool fontOk = loadUiFont(font);
 
     Stadium3D::Layout layout = Stadium3D::defaultPlayLayout();
-    // Stadium meshes intentionally empty (build returns blank).
+    Stadium3D::Meshes meshes = Stadium3D::build(layout);
 
     GlRenderer gl;
     bool useGL = gl.initialize(window);
+    GlMesh glField;
+    GlMesh glWalls;
+    GlMesh glStands;
+    GlMesh glLines;
+    GlMesh glBoard;
+    GlMesh glHotel;
+    GlMesh glStructure;
+    GlMesh glCity;
+    std::vector<GlMesh> glFans(Stadium3D::kFanSectorCount);
+    std::vector<GlMesh> glFlags(Stadium3D::kFlagCount);
+    if (useGL) {
+        glField.upload(meshes.field);
+        glWalls.upload(meshes.walls);
+        glStands.upload(meshes.stands);
+        glLines.upload(meshes.lines);
+        glBoard.upload(meshes.scoreboardScreen);
+        glHotel.upload(meshes.hotel);
+        glStructure.upload(meshes.structure);
+        glCity.upload(meshes.city);
+        for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
+            if (i < static_cast<int>(meshes.fanSectors.size())) {
+                glFans[i].upload(meshes.fanSectors[i]);
+            }
+        }
+        for (int i = 0; i < Stadium3D::kFlagCount; i++) {
+            if (i < static_cast<int>(meshes.flagMeshes.size())) {
+                glFlags[i].upload(meshes.flagMeshes[i]);
+            }
+        }
+    }
 
     Camera3D camera;
     CamPreset preset = CamPreset::Overview;
@@ -190,11 +220,12 @@ int main() {
     bool dragging = false;
     sf::Vector2i lastMouse;
     bool showLabels = true;
+    float cheerTime = 0.0f;
 
     sf::Clock clock;
     while (window.isOpen()) {
         float dt = std::min(clock.restart().asSeconds(), 0.05f);
-        (void)dt;
+        cheerTime += dt;
 
         while (auto event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) {
@@ -278,12 +309,40 @@ int main() {
             updateOrbitCamera(camera, orbitYaw, orbitPitch, orbitDist, orbitTarget);
         }
 
+        Matrix4 id = Matrix4::identity();
         if (useGL) {
-            // Blank slate: sky + ground plane only. No stadium model.
+            // Open-air minor-league park (reference silhouette).
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            const float gr = layout.maxWallR() + 80.0f;
+            const float gr = layout.maxWallR() + 90.0f;
             const float plateZ = layout.plateZ();
             gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::concreteFloorColor());
+            gl.drawMesh(glCity, id);
+            gl.drawMesh(glField, id);
+            gl.drawMesh(glStands, id);
+            gl.drawMesh(glWalls, id);
+            gl.drawMesh(glHotel, id);
+            gl.drawMesh(glStructure, id);
+            gl.drawMesh(glLines, id);
+            float boardA = Stadium3D::scoreboardPulse(cheerTime, 0.25f);
+            gl.drawMesh(glBoard, id, 0.6f + 0.4f * boardA);
+            for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
+                if (!glFans[i].valid()) {
+                    continue;
+                }
+                float bob = Stadium3D::fanCheerOffsetY(i, cheerTime, 1.15f);
+                float sway = Stadium3D::fanCheerOffsetX(i, cheerTime, 1.15f);
+                gl.drawMesh(glFans[i], Matrix4::translation(Vector3(sway, bob, 0.0f)));
+            }
+            for (int i = 0; i < Stadium3D::kFlagCount; i++) {
+                if (!glFlags[i].valid() || i >= static_cast<int>(meshes.flagBases.size())) {
+                    continue;
+                }
+                float yaw = Stadium3D::flagSwayYaw(i, cheerTime);
+                gl.drawMesh(
+                    glFlags[i],
+                    Matrix4::translation(meshes.flagBases[i]) * Matrix4::rotationY(yaw)
+                );
+            }
             gl.endFrame(window);
         } else {
             window.clear(Stadium3D::skyColor());
@@ -293,7 +352,7 @@ int main() {
             drawText(
                 window,
                 font,
-                "Stadium Demo | BLANK — model removed, ready to rebuild",
+                "Stadium Demo | open-air horseshoe park (rebuild from reference)",
                 20,
                 {22, 14},
                 sf::Color(240, 245, 250)
