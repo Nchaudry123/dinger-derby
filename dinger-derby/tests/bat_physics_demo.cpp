@@ -2427,70 +2427,65 @@ int main() {
                         nearGroundStick
                     );
                     if (hasHit && !ballSettled) {
-                        if (col.surface == Stadium3D::HitSurface::FenceTopClear) {
-                            // Only arm "out" if live height actually cleared the wall top.
+                        // Once the ball has cleared the wall (live flight), never
+                        // reclassify as Wall Ball. Prevents line-drive-over-crowd →
+                        // teleport-to-wall / "Wall Ball" on landing.
+                        const bool alreadyCleared = lastHit.clearsWall;
+
+                        float rNow = stadiumLayout.radiusFromHome(baseball.position);
+                        float angNow = 0.0f;
+                        float rPolar = 0.0f;
+                        stadiumLayout.polarFromHome(baseball.position, rPolar, angNow);
+                        float wallRNow = stadiumLayout.wallRAtAngle(angNow);
+                        const bool deepPast = lastHit.fair && rNow > wallRNow + 0.75f;
+
+                        if (col.surface == Stadium3D::HitSurface::FenceTopClear ||
+                            (deepPast && !lastHit.hitsWallFace)) {
                             float margin = (col.impactY - col.wallTopY) * feetPerWorldUnit;
-                            if (margin >= 0.5f) {
+                            // Live clear: over top with margin, already past fence, or
+                            // previously locked clear this flight.
+                            if (margin >= 0.25f || deepPast || alreadyCleared ||
+                                col.surface == Stadium3D::HitSurface::FenceTopClear) {
                                 wallResolved = true;
                                 lastHit.clearsWall = true;
                                 lastHit.hitsWallFace = false;
-                                lastHit.heightAtFence = col.impactY;
-                                lastHit.wallMarginFeet = margin;
-                                lastHit.fenceFeet = col.fenceFeet;
-                                lastHit.sprayDeg = col.sprayDeg;
-                            }
-                            // else: graze — let face collision resolve as wall ball next steps
-                        } else if (col.surface == Stadium3D::HitSurface::Fence ||
-                                   col.surface == Stadium3D::HitSurface::FoulPole ||
-                                   col.surface == Stadium3D::HitSurface::Scoreboard ||
-                                   col.surface == Stadium3D::HitSurface::Stands ||
-                                   col.surface == Stadium3D::HitSurface::Dugout ||
-                                   col.surface == Stadium3D::HitSurface::Backstop) {
-                            wallResolved = true;
-                            if (col.surface == Stadium3D::HitSurface::Fence ||
-                                col.surface == Stadium3D::HitSurface::Scoreboard ||
-                                col.surface == Stadium3D::HitSurface::FoulPole) {
-                                sfx.playWallBang(lastHit.exitMph);
-                            }
-                            if (col.surface == Stadium3D::HitSurface::Fence) {
-                                const bool wasDinger = isDingerQuality(lastHit.quality);
-                                lastHit.hitsWallFace = true;
-                                lastHit.clearsWall = false;
-                                lastHit.fair = true;
-                                lastHit.fenceFeet = col.fenceFeet;
-                                lastHit.distanceFeet = col.fenceFeet;
-                                lastHit.heightAtFence = col.impactY;
-                                lastHit.wallMarginFeet =
-                                    (col.impactY - col.wallTopY) * feetPerWorldUnit;
-                                lastHit.sprayDeg = col.sprayDeg;
-                                lastHit.quality =
-                                    (lastHit.exitMph >= 95.0f) ? "Wall Ball" : "Off the Wall";
-                                if (playMode == PlayMode::Derby && wasDinger && derby.hrCount > 0) {
-                                    derby.hrCount -= 1;
+                                if (col.surface == Stadium3D::HitSurface::FenceTopClear &&
+                                    margin > lastHit.wallMarginFeet) {
+                                    lastHit.heightAtFence = col.impactY;
+                                    lastHit.wallMarginFeet =
+                                        std::max(margin, lastHit.wallMarginFeet);
                                 }
-                            } else if (col.surface == Stadium3D::HitSurface::Stands) {
-                                // Seats are past the fence — only a true over-the-wall flight counts.
-                                // If we never got FenceTopClear with margin, this is not "out".
-                                if (!lastHit.clearsWall || lastHit.wallMarginFeet < 0.5f) {
-                                    const bool wasDinger = isDingerQuality(lastHit.quality);
-                                    lastHit.clearsWall = false;
-                                    lastHit.hitsWallFace = true;
-                                    lastHit.quality =
-                                        (lastHit.exitMph >= 95.0f) ? "Wall Ball" : "Off the Wall";
-                                    lastHit.distanceFeet = lastHit.fenceFeet > 1.0f
-                                        ? lastHit.fenceFeet
-                                        : col.fenceFeet;
-                                    if (playMode == PlayMode::Derby && wasDinger &&
-                                        derby.hrCount > 0) {
-                                        derby.hrCount -= 1;
-                                    }
-                                } else {
-                                    // Confirmed clear into the seats = HR distance at seat row.
-                                    float landR = stadiumLayout.radiusFromHome(baseball.position);
-                                    lastHit.distanceFeet = landR * feetPerWorldUnit;
-                                    lastHit.clearsWall = true;
-                                    lastHit.hitsWallFace = false;
+                                // Deep past without a measured margin still counts as out.
+                                if (deepPast && lastHit.wallMarginFeet < 0.25f) {
+                                    lastHit.wallMarginFeet =
+                                        std::max(lastHit.wallMarginFeet, 0.5f);
                                 }
+                                if (col.fenceFeet > 1.0f) {
+                                    lastHit.fenceFeet = col.fenceFeet;
+                                }
+                                lastHit.sprayDeg = col.sprayDeg;
+                                lastHit.distanceFeet = std::max(
+                                    lastHit.distanceFeet, rNow * feetPerWorldUnit
+                                );
+                                // Upgrade line drives / soft contact that actually go out.
+                                if (!isDingerQuality(lastHit.quality) &&
+                                    lastHit.exitMph >= 95.0f && lastHit.fair) {
+                                    lastHit.quality = "Home Run";
+                                }
+                            }
+                        } else if (alreadyCleared &&
+                                   (col.surface == Stadium3D::HitSurface::Stands ||
+                                    col.surface == Stadium3D::HitSurface::Fence ||
+                                    col.surface == Stadium3D::HitSurface::Scoreboard ||
+                                    col.surface == Stadium3D::HitSurface::FoulPole)) {
+                            // Cleared flight: update distance only, keep HR / clear call.
+                            // Never snap quality to Wall Ball after a true clear.
+                            lastHit.distanceFeet =
+                                std::max(lastHit.distanceFeet, rNow * feetPerWorldUnit);
+                            lastHit.clearsWall = true;
+                            lastHit.hitsWallFace = false;
+                            if (!isDingerQuality(lastHit.quality) && lastHit.exitMph >= 95.0f) {
+                                lastHit.quality = "Home Run";
                             }
                             if (col.stuck) {
                                 baseball.angularVelocity = Vector3();
@@ -2498,7 +2493,8 @@ int main() {
                                 ballSettled = true;
                                 if (!landingLogged) {
                                     landingLogged = true;
-                                    if (playMode == PlayMode::Derby && lastHit.exitMph > derby.bestExitMph) {
+                                    if (playMode == PlayMode::Derby &&
+                                        lastHit.exitMph > derby.bestExitMph) {
                                         derby.bestExitMph = lastHit.exitMph;
                                     }
                                     if (lastHit.quality) {
@@ -2513,6 +2509,81 @@ int main() {
                                     statusCol = sf::Color(255, 170, 90);
                                 }
                             }
+                        } else if (!alreadyCleared &&
+                                   (col.surface == Stadium3D::HitSurface::Fence ||
+                                    col.surface == Stadium3D::HitSurface::FoulPole ||
+                                    col.surface == Stadium3D::HitSurface::Scoreboard ||
+                                    col.surface == Stadium3D::HitSurface::Stands ||
+                                    col.surface == Stadium3D::HitSurface::Dugout ||
+                                    col.surface == Stadium3D::HitSurface::Backstop)) {
+                            wallResolved = true;
+                            if (col.surface == Stadium3D::HitSurface::Fence ||
+                                col.surface == Stadium3D::HitSurface::Scoreboard ||
+                                col.surface == Stadium3D::HitSurface::FoulPole) {
+                                sfx.playWallBang(lastHit.exitMph);
+                            }
+                            if (col.surface == Stadium3D::HitSurface::Fence) {
+                                // If the ball is already past the wall plane, this is not
+                                // a face hit — treat as clear (defense against residual snaps).
+                                if (deepPast) {
+                                    lastHit.clearsWall = true;
+                                    lastHit.hitsWallFace = false;
+                                    lastHit.distanceFeet =
+                                        std::max(lastHit.distanceFeet, rNow * feetPerWorldUnit);
+                                    if (lastHit.wallMarginFeet < 0.25f) {
+                                        lastHit.wallMarginFeet = 0.5f;
+                                    }
+                                    if (!isDingerQuality(lastHit.quality) &&
+                                        lastHit.exitMph >= 95.0f && lastHit.fair) {
+                                        lastHit.quality = "Home Run";
+                                    }
+                                } else {
+                                    const bool wasDinger = isDingerQuality(lastHit.quality);
+                                    lastHit.hitsWallFace = true;
+                                    lastHit.clearsWall = false;
+                                    lastHit.fair = true;
+                                    lastHit.fenceFeet = col.fenceFeet;
+                                    lastHit.distanceFeet = col.fenceFeet;
+                                    lastHit.heightAtFence = col.impactY;
+                                    lastHit.wallMarginFeet =
+                                        (col.impactY - col.wallTopY) * feetPerWorldUnit;
+                                    lastHit.sprayDeg = col.sprayDeg;
+                                    lastHit.quality =
+                                        (lastHit.exitMph >= 95.0f) ? "Wall Ball" : "Off the Wall";
+                                    if (playMode == PlayMode::Derby && wasDinger &&
+                                        derby.hrCount > 0) {
+                                        derby.hrCount -= 1;
+                                    }
+                                }
+                            } else if (col.surface == Stadium3D::HitSurface::Stands) {
+                                // Seats past the fence: live radius decides out vs wall.
+                                if (deepPast || rNow > wallRNow) {
+                                    lastHit.clearsWall = true;
+                                    lastHit.hitsWallFace = false;
+                                    lastHit.distanceFeet =
+                                        std::max(lastHit.distanceFeet, rNow * feetPerWorldUnit);
+                                    if (lastHit.wallMarginFeet < 0.25f) {
+                                        lastHit.wallMarginFeet = 0.5f;
+                                    }
+                                    if (!isDingerQuality(lastHit.quality) &&
+                                        lastHit.exitMph >= 95.0f && lastHit.fair) {
+                                        lastHit.quality = "Home Run";
+                                    }
+                                } else {
+                                    const bool wasDinger = isDingerQuality(lastHit.quality);
+                                    lastHit.clearsWall = false;
+                                    lastHit.hitsWallFace = true;
+                                    lastHit.quality =
+                                        (lastHit.exitMph >= 95.0f) ? "Wall Ball" : "Off the Wall";
+                                    lastHit.distanceFeet = lastHit.fenceFeet > 1.0f
+                                        ? lastHit.fenceFeet
+                                        : col.fenceFeet;
+                                    if (playMode == PlayMode::Derby && wasDinger &&
+                                        derby.hrCount > 0) {
+                                        derby.hrCount -= 1;
+                                    }
+                                }
+                            }
                         } else if (col.surface == Stadium3D::HitSurface::Ground && col.stuck) {
                             baseball.angularVelocity = Vector3();
                             baseball.acceleration = Vector3();
@@ -2525,15 +2596,31 @@ int main() {
                                 float landR2 = 0.0f;
                                 stadiumLayout.polarFromHome(baseball.position, landR2, landAng);
                                 float wallAtLand = stadiumLayout.wallRAtAngle(landAng);
-                                // Truth from where the ball actually is: inside fence = not a HR.
+                                // Truth from where the ball actually lands.
                                 const bool landedBeyondFence =
-                                    lastHit.fair && landR > wallAtLand + 0.75f;
-                                if (wallResolved && lastHit.clearsWall && landedBeyondFence) {
-                                    // Confirmed over-the-wall — keep clear, use live distance.
+                                    lastHit.fair && landR > wallAtLand + 0.5f;
+                                if (landedBeyondFence ||
+                                    (lastHit.clearsWall && landR > wallAtLand - 0.25f)) {
+                                    // Physically past the fence (or confirmed clear) — out.
+                                    // Never reclassify as Wall Ball after over-the-crowd flight.
+                                    lastHit.clearsWall = true;
+                                    lastHit.hitsWallFace = false;
                                     lastHit.distanceFeet = landR * feetPerWorldUnit;
-                                    if (!isDingerQuality(lastHit.quality) && lastHit.exitMph >= 95.0f) {
+                                    if (lastHit.wallMarginFeet < 0.25f) {
+                                        lastHit.wallMarginFeet = 0.5f;
+                                    }
+                                    if (!isDingerQuality(lastHit.quality) &&
+                                        lastHit.exitMph >= 95.0f) {
+                                        lastHit.quality = "Home Run";
+                                    } else if (
+                                        !isDingerQuality(lastHit.quality) &&
+                                        lastHit.exitMph >= 90.0f &&
+                                        lastHit.launchDeg < 18.0f
+                                    ) {
+                                        // Laser that still left the yard.
                                         lastHit.quality = "Home Run";
                                     }
+                                    wallResolved = true;
                                 } else {
                                     // Never left the yard — reclassify from exit (no false HR).
                                     classifyHit(

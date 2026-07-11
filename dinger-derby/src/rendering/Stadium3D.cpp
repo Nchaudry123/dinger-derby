@@ -1920,6 +1920,9 @@ BallCollisionHit collideBall(
     bool fair = std::abs(ang) <= fa + 0.02f;
 
     // ── Asymmetric OF fence (solid face below wall top) ────────────────
+    // IMPORTANT: once the ball is past the fence (over the top OR already deep
+    // beyond the plane), do NOT pull it back to the wall face when it drops.
+    // That caused "line drive over the crowd → teleport to wall → Wall Ball".
     bool clearedFenceTop = false;
     if (fair && r > 1.0f) {
         float wallR = layout.wallRAtAngle(ang);
@@ -1927,15 +1930,40 @@ BallCollisionHit collideBall(
         hit.wallTopY = wallH;
         hit.fenceFeet = layout.wallFeetAtAngle(ang);
         if (r + radius > wallR) {
-            // Must be clearly above the wall top to count as a clear.
             const float clearY = wallH + std::max(radius, 0.35f);
-            if (position.y <= clearY) {
-                // Hit fence face — soft-push back into the field (no teleport).
+            // pastDepth in world units (~2 ft/unit): how far beyond the fence plane.
+            const float pastDepth = r - wallR;
+            // Radial outward speed: positive = flying further into seats/street.
+            Vector3 nOut(std::sin(ang), 0.0f, -std::cos(ang));
+            const float vOut =
+                velocity.x * nOut.x + velocity.y * nOut.y + velocity.z * nOut.z;
+
+            if (position.y > clearY) {
+                // Over the top — free flight (HR path).
+                clearedFenceTop = true;
+                hit.surface = HitSurface::FenceTopClear;
+                hit.impactY = position.y;
+            } else if (pastDepth > 0.75f) {
+                // Already past the wall plane (seats / street air / just cleared).
+                // Free flight even when the ball has dropped below wall height —
+                // never teleport back onto the fence face.
+                clearedFenceTop = true;
+                hit.surface = HitSurface::FenceTopClear;
+                hit.impactY = position.y;
+                hit.wallTopY = wallH;
+            } else if (pastDepth > 0.15f && vOut >= -1.0f) {
+                // Thin tunnel past the plane while still flying outward — let it
+                // finish going out rather than yanking back to the wall.
+                clearedFenceTop = true;
+                hit.surface = HitSurface::FenceTopClear;
+                hit.impactY = position.y;
+                hit.wallTopY = wallH;
+            } else {
+                // Near the fence plane and at/below wall top — solid face hit.
                 Vector3 onWall = layout.fromHome(wallR - radius - 0.05f, ang, position.y);
                 onWall.y = std::clamp(position.y, groundY, wallH - 0.02f);
-                Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
-                softSnapPosition(position, onWall, 0.85f);
-                killOutwardVelocity(velocity, n, false); // bounce, don't stick mid-air
+                softSnapPosition(position, onWall, 0.55f);
+                killOutwardVelocity(velocity, nOut, false);
                 velocity = velocity * 0.45f;
                 velocity.y = std::min(velocity.y, 2.0f);
                 hit.surface = HitSurface::Fence;
@@ -1944,11 +1972,6 @@ BallCollisionHit collideBall(
                     velocity = Vector3();
                     hit.stuck = true;
                 }
-            } else {
-                // Over the top — free flight, mark clear (do NOT stick in stands).
-                clearedFenceTop = true;
-                hit.surface = HitSurface::FenceTopClear;
-                hit.impactY = position.y;
             }
         }
     }
@@ -2006,20 +2029,24 @@ BallCollisionHit collideBall(
     }
 
     // ── Lower bowl / stands face ───────────────────────────────────────
-    // Skip when the ball has cleared the fence top (true HR flight over seats)
-    // or is still high in the air — only collide with the bowl face near ground.
+    // Skip when the ball has cleared the fence (true HR flight over seats)
+    // or is deep past the wall — only collide with the bowl face near ground
+    // for balls still in the apron / inside the yard.
     {
         float rBowl = layout.bowlInnerRadius(ang) - 0.4f;
         float yTop = layout.bowlBaseHeight(ang) + 4.0f; // only lower bowl face
         float wallR = fair ? layout.wallRAtAngle(ang) : layout.bowlInnerRadius(ang) * 0.5f;
         bool pastFence = !fair || r > wallR - 0.5f;
-        // High fly overs: free air above the wall — never stick into seats.
-        bool highClear = clearedFenceTop || (fair && r > wallR && position.y > layout.wallHeightAtAngle(ang) + 1.5f);
+        // Free air once over/past the wall — never yank seats back toward home.
+        bool highClear =
+            clearedFenceTop ||
+            (fair && r > wallR + 0.75f) ||
+            (fair && r > wallR && position.y > layout.wallHeightAtAngle(ang) + 1.0f);
         if (!highClear && pastFence && r + radius > rBowl && position.y < yTop && position.y > -0.1f) {
             Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
             Vector3 target = layout.fromHome(rBowl - radius - 0.05f, ang, position.y);
             target.y = std::max(target.y, groundY);
-            softSnapPosition(position, target, 0.75f);
+            softSnapPosition(position, target, 0.55f);
             killOutwardVelocity(velocity, n, false);
             velocity = velocity * 0.35f;
             hit.surface = HitSurface::Stands;
