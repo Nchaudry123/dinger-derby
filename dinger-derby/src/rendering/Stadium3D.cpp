@@ -1223,9 +1223,10 @@ sf::Color fanSkin(int id) {
 
 std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     std::vector<Mesh3D> sectors(kFanSectorCount);
-    const int angSamples = 360;
-    const float dRow = 1.35f;
-    const float rise = 0.88f;
+    // Keep crowd dense enough to read, light enough to upload reliably on macOS GL.
+    const int angSamples = 120;
+    const float dRow = 1.55f;
+    const float rise = 0.95f;
     int fanId = 0;
 
     for (int i = 0; i < angSamples; i++) {
@@ -1237,24 +1238,13 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
         int sector = static_cast<int>(t * kFanSectorCount) % kFanSectorCount;
         bool ofBleach = isOfBleacher(L, ang);
         bool club = isClubZone(ang);
-        int rows = ofBleach ? 7 : (club ? 18 : 14);
+        int rows = ofBleach ? 5 : (club ? 10 : 9);
         float r = seatInnerR(L, ang) + 0.5f;
         float y = seatBaseY(L, ang) + 0.65f;
 
         for (int row = 0; row < rows; row++) {
-            // High fill — denser in lower rows and OF
-            float fill = ofBleach ? 0.88f : (row < 4 ? 0.92f : 0.78f);
-            if (club && row > 14) {
-                fill = 0.85f;
-            }
+            float fill = ofBleach ? 0.72f : (row < 3 ? 0.78f : 0.58f);
             if (hash01(fanId * 13 + row * 3) > fill) {
-                fanId++;
-                r += dRow;
-                y += rise;
-                continue;
-            }
-            // Occasional empty seat
-            if (hash01(fanId * 7 + 2) < 0.04f) {
                 fanId++;
                 r += dRow;
                 y += rise;
@@ -1270,21 +1260,18 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             y += rise;
         }
 
-        // Club upper deck fans
         if (club) {
-            float rU = seatInnerR(L, ang) + 22.0f;
-            float yU = seatBaseY(L, ang) + 16.0f;
-            for (int row = 0; row < 6; row++) {
-                if (hash01(fanId * 17 + row) > 0.86f) {
+            float rU = seatInnerR(L, ang) + 20.0f;
+            float yU = seatBaseY(L, ang) + 14.0f;
+            for (int row = 0; row < 4; row++) {
+                if (hash01(fanId * 17 + row) > 0.7f) {
                     fanId++;
                     rU += dRow;
                     yU += rise;
                     continue;
                 }
                 Vector3 seat = L.fromHome(rU, ang, yU);
-                seat.x += (hash01(fanId) - 0.5f) * 0.3f;
-                float sc = 0.88f + 0.2f * hash01(fanId + 2);
-                addFan(sectors[sector], seat, sc, fanShirt(fanId + 50), fanSkin(fanId));
+                addFan(sectors[sector], seat, 0.9f, fanShirt(fanId + 50), fanSkin(fanId));
                 fanId++;
                 rU += dRow;
                 yU += rise;
@@ -1292,9 +1279,9 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
         }
     }
 
-    // Extra OF bleacher density pass (crowds along outfield)
-    for (int i = 0; i < 180; i++) {
-        float t = (static_cast<float>(i) + 0.5f) / 180.0f;
+    // OF bleacher pass
+    for (int i = 0; i < 80; i++) {
+        float t = (static_cast<float>(i) + 0.5f) / 80.0f;
         float ang = -L.foulAngleRad() + t * 2.0f * L.foulAngleRad();
         if (std::abs(ang) < 0.12f) {
             continue;
@@ -1306,16 +1293,14 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
         }
         float r0 = seatInnerR(L, ang);
         float y0 = seatBaseY(L, ang);
-        for (int row = 0; row < 6; row++) {
-            if (hash01(i * 31 + row * 5) > 0.90f) {
+        for (int row = 0; row < 4; row++) {
+            if (hash01(i * 31 + row * 5) > 0.8f) {
                 continue;
             }
             float r = r0 + 1.0f + row * dRow;
             float y = y0 + 0.7f + row * rise;
             Vector3 seat = L.fromHome(r, ang, y);
-            seat.x += (hash01(i * 3 + row) - 0.5f) * 0.5f;
-            float sc = 0.8f + 0.25f * hash01(i + row + 20);
-            addFan(sectors[sector], seat, sc, fanShirt(i * 3 + row), fanSkin(i + row));
+            addFan(sectors[sector], seat, 0.85f, fanShirt(i * 3 + row), fanSkin(i + row));
         }
     }
 

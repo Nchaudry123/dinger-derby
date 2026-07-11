@@ -524,10 +524,18 @@ void GlRenderer::drawGround(float halfWidth, float zNear, float zFar, sf::Color 
     if (!ready_ || !groundVbo_) {
         return;
     }
-    (void)halfWidth;
-    (void)zNear;
-    (void)zFar;
-    (void)color;
+    // Rebuild from caller extents each frame (old path used a tiny hardcoded slab).
+    const float hw = std::max(halfWidth, 50.0f);
+    const float y = -0.05f;
+    const float cr = color.r / 255.0f;
+    const float cg = color.g / 255.0f;
+    const float cb = color.b / 255.0f;
+    float ground[] = {
+        -hw, y, zNear, 0, 1, 0, cr, cg, cb, hw,  y, zNear, 0, 1, 0, cr, cg, cb,
+        hw,  y, zFar,  0, 1, 0, cr, cg, cb, -hw, y, zNear, 0, 1, 0, cr, cg, cb,
+        hw,  y, zFar,  0, 1, 0, cr, cg, cb, -hw, y, zFar,  0, 1, 0, cr, cg, cb,
+    };
+
     Matrix4 model = Matrix4::identity();
     Matrix4 mvp = proj_ * view_ * model;
     uploadMat4(locMvp_, mvp);
@@ -539,6 +547,7 @@ void GlRenderer::drawGround(float halfWidth, float zNear, float zFar, sf::Color 
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, groundVbo_);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(ground), ground, GL_DYNAMIC_DRAW);
     const GLsizei stride = 9 * static_cast<GLsizei>(sizeof(float));
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));

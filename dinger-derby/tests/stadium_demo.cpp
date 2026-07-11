@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <sstream>
 #include <string>
 
@@ -174,10 +175,16 @@ int main() {
     bool fontOk = loadUiFont(font);
 
     Stadium3D::Layout layout = Stadium3D::defaultPlayLayout();
+    std::cerr << "Building stadium meshes..." << std::endl;
     Stadium3D::Meshes meshes = Stadium3D::build(layout);
+    std::cerr << "Stadium tris: field=" << meshes.field.triangles.size()
+              << " stands=" << meshes.stands.triangles.size()
+              << " city=" << meshes.city.triangles.size()
+              << " walls=" << meshes.walls.triangles.size() << std::endl;
 
     GlRenderer gl;
     bool useGL = gl.initialize(window);
+    std::cerr << "OpenGL path: " << (useGL ? "ON" : "OFF (software clear only)") << std::endl;
     GlMesh glField;
     GlMesh glWalls;
     GlMesh glStands;
@@ -209,6 +216,10 @@ int main() {
                 glFlags[i].upload(meshes.flagMeshes[i]);
             }
         }
+        std::cerr << "Uploaded GL meshes: field=" << glField.valid()
+                  << " stands=" << glStands.valid()
+                  << " city=" << glCity.valid()
+                  << " walls=" << glWalls.valid() << std::endl;
     }
 
     Camera3D camera;
@@ -313,20 +324,19 @@ int main() {
 
         Matrix4 id = Matrix4::identity();
         if (useGL) {
-            // Open-air park + full suburb backdrop for out-of-park fly balls.
+            // Draw park first (field/stands), then exterior, so the diamond always reads.
             gl.beginFrame(window, camera, Stadium3D::skyColor());
             const float gr = layout.maxWallR() + 620.0f;
             const float plateZ = layout.plateZ();
-            gl.drawMesh(glSky, id);
-            // Dark grass underlay — never shows as bare concrete if a gap exists.
             gl.drawGround(gr, plateZ - gr, plateZ + gr, sf::Color(38, 72, 40));
-            gl.drawMesh(glCity, id);
             gl.drawMesh(glField, id);
-            gl.drawMesh(glStands, id);
+            gl.drawMesh(glLines, id);
             gl.drawMesh(glWalls, id);
+            gl.drawMesh(glStands, id);
             gl.drawMesh(glHotel, id);
             gl.drawMesh(glStructure, id);
-            gl.drawMesh(glLines, id);
+            gl.drawMesh(glCity, id);
+            gl.drawMesh(glSky, id);
             float boardA = Stadium3D::scoreboardPulse(cheerTime, 0.25f);
             gl.drawMesh(glBoard, id, 0.6f + 0.4f * boardA);
             for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
@@ -356,10 +366,11 @@ int main() {
             drawText(
                 window,
                 font,
-                "Stadium Demo | open-air horseshoe park (rebuild from reference)",
+                useGL ? "Stadium Demo | open-air horseshoe park"
+                      : "Stadium Demo | GL OFF — rebuild / check console",
                 20,
                 {22, 14},
-                sf::Color(240, 245, 250)
+                useGL ? sf::Color(240, 245, 250) : sf::Color(255, 120, 100)
             );
             std::ostringstream info;
             info << "View: " << presetName(preset)
