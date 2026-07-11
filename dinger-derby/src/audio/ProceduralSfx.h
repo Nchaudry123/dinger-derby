@@ -229,6 +229,37 @@ inline bool makeCrowdPop(sf::SoundBuffer& buffer) {
     );
 }
 
+// Soft looping park bed (not a cheer pop) — low rumble + distant murmur.
+inline bool makeCrowdBed(sf::SoundBuffer& buffer) {
+    constexpr unsigned sampleRate = 44100;
+    constexpr float duration = 4.0f;
+    const std::size_t n = static_cast<std::size_t>(sampleRate * duration);
+    std::vector<std::int16_t> samples(n, 0);
+    std::uint32_t rng = 0xBEDBEEFu;
+    float lp = 0.0f;
+    float lp2 = 0.0f;
+    for (std::size_t i = 0; i < n; i++) {
+        float t = static_cast<float>(i) / static_cast<float>(sampleRate);
+        // Crossfade edges so loop is seamless.
+        float edge = 1.0f;
+        if (t < 0.25f) {
+            edge = t / 0.25f;
+        } else if (t > duration - 0.25f) {
+            edge = (duration - t) / 0.25f;
+        }
+        float n1 = frand(rng);
+        float n2 = frand(rng);
+        lp = lp * 0.965f + n1 * 0.035f;
+        lp2 = lp2 * 0.90f + n2 * 0.10f;
+        float swell = 0.85f + 0.15f * std::sin(2.0f * kPi * 0.17f * t);
+        float v = softClip((lp * 0.75f + lp2 * 0.35f) * swell * edge) * 7200.0f;
+        samples[i] = static_cast<std::int16_t>(std::clamp(v, -16000.0f, 16000.0f));
+    }
+    return buffer.loadFromSamples(
+        samples.data(), samples.size(), 1, sampleRate, {sf::SoundChannel::Mono}
+    );
+}
+
 } // namespace
 
 struct BatParkSfx {
@@ -236,22 +267,27 @@ struct BatParkSfx {
     sf::SoundBuffer crackSolidBuf;
     sf::SoundBuffer crackSoftBuf;
     sf::SoundBuffer crowdBuf;
+    sf::SoundBuffer bedBuf;
     sf::SoundBuffer wallBuf;
     sf::SoundBuffer tipBuf;
     sf::Sound crackBarrel;
     sf::Sound crackSolid;
     sf::Sound crackSoft;
     sf::Sound crowd;
+    sf::Sound bed;
     sf::Sound wall;
     sf::Sound tip;
     bool ok = false;
     bool usedFileSample = false;
+    float masterSfx = 0.85f;
+    float masterMusic = 0.45f;
 
     BatParkSfx()
         : crackBarrel(crackBarrelBuf)
         , crackSolid(crackSolidBuf)
         , crackSoft(crackSoftBuf)
         , crowd(crowdBuf)
+        , bed(bedBuf)
         , wall(wallBuf)
         , tip(tipBuf) {
         // Prefer shipped / user WAVs (modal wood cracks in assets/sfx/).
@@ -280,26 +316,54 @@ struct BatParkSfx {
         }
         makeWallBang(wallBuf);
         makeFoulTip(tipBuf);
+        makeCrowdBed(bedBuf);
 
         crackBarrel = sf::Sound(crackBarrelBuf);
         crackSolid = sf::Sound(crackSolidBuf);
         crackSoft = sf::Sound(crackSoftBuf);
         crowd = sf::Sound(crowdBuf);
+        bed = sf::Sound(bedBuf);
         wall = sf::Sound(wallBuf);
         tip = sf::Sound(tipBuf);
+        bed.setLooping(true);
         ok = true;
 
-        // Wooden cracks read a bit hot; keep headroom.
-        crackBarrel.setVolume(96.0f);
-        crackSolid.setVolume(88.0f);
-        crackSoft.setVolume(70.0f);
-        crowd.setVolume(72.0f);
-        wall.setVolume(80.0f);
-        tip.setVolume(55.0f);
+        applyMasterVolumes();
 
         std::cerr << "ProceduralSfx: bat crack "
                   << (usedFileSample ? "from assets/sfx/*.wav" : "modal wood synthesis")
                   << std::endl;
+    }
+
+    void setMasterVolumes(float sfx01, float music01) {
+        masterSfx = std::clamp(sfx01, 0.0f, 1.0f);
+        masterMusic = std::clamp(music01, 0.0f, 1.0f);
+        applyMasterVolumes();
+    }
+
+    void applyMasterVolumes() {
+        // Base levels * master (SFML volume 0..100).
+        crackBarrel.setVolume(96.0f * masterSfx);
+        crackSolid.setVolume(88.0f * masterSfx);
+        crackSoft.setVolume(70.0f * masterSfx);
+        tip.setVolume(55.0f * masterSfx);
+        wall.setVolume(80.0f * masterSfx);
+        crowd.setVolume(72.0f * masterSfx);
+        bed.setVolume(38.0f * masterMusic);
+    }
+
+    void startParkBed() {
+        if (!ok) {
+            return;
+        }
+        bed.setVolume(38.0f * masterMusic);
+        if (bed.getStatus() != sf::Sound::Status::Playing) {
+            bed.play();
+        }
+    }
+
+    void stopParkBed() {
+        bed.stop();
     }
 
     // sweet01 0..1, exitMph for pitch/volume, barrelHr for loudest tier.
@@ -311,23 +375,28 @@ struct BatParkSfx {
         float mphNorm = std::clamp((exitMph - 70.0f) / 50.0f, 0.0f, 1.0f);
 
         // Foul tip / weak handle: thin tick, not full wood.
-        if (!barrelHr && (sweet01 < 0.32f || exitMph < 72.0f)) {
-            tip.setPitch(1.05f + sweet01 * 0.15f);
-            tip.setVolume(40.0f + sweet01 * 25.0f + mphNorm * 10.0f);
+        if (!barrelHr && (sweet01 < 0.28f || exitMph < 70.0f)) {
+            tip.setPitch(1.08f + sweet01 * 0.18f);
+            tip.setVolume((38.0f + sweet01 * 28.0f + mphNorm * 12.0f) * masterSfx);
             tip.play();
             return;
         }
 
         sf::Sound* s = &crackSoft;
-        if (barrelHr || (sweet01 > 0.82f && exitMph >= 100.0f)) {
+        float baseVol = 62.0f;
+        if (barrelHr || (sweet01 > 0.78f && exitMph >= 98.0f)) {
             s = &crackBarrel;
-        } else if (sweet01 > 0.55f || exitMph >= 90.0f) {
+            baseVol = 92.0f;
+        } else if (sweet01 > 0.48f || exitMph >= 88.0f) {
             s = &crackSolid;
+            baseVol = 78.0f;
+        } else {
+            baseVol = 58.0f;
         }
 
-        // Faster / harder contact reads slightly brighter.
-        s->setPitch(0.94f + sweet01 * 0.10f + mphNorm * 0.06f);
-        s->setVolume(58.0f + sweet01 * 28.0f + mphNorm * 14.0f);
+        // Harder / sweeter contact → brighter + louder.
+        s->setPitch(0.90f + sweet01 * 0.14f + mphNorm * 0.08f);
+        s->setVolume((baseVol + sweet01 * 22.0f + mphNorm * 12.0f) * masterSfx);
         s->play();
     }
 
@@ -335,7 +404,7 @@ struct BatParkSfx {
         if (!ok) {
             return;
         }
-        crowd.setVolume(big ? 92.0f : 58.0f);
+        crowd.setVolume((big ? 92.0f : 58.0f) * masterSfx);
         crowd.setPitch(big ? 1.0f : 0.94f);
         crowd.play();
     }
@@ -346,7 +415,7 @@ struct BatParkSfx {
         }
         float n = std::clamp((exitMph - 70.0f) / 50.0f, 0.0f, 1.0f);
         wall.setPitch(0.88f + n * 0.18f);
-        wall.setVolume(65.0f + n * 30.0f);
+        wall.setVolume((65.0f + n * 30.0f) * masterSfx);
         wall.play();
     }
 };

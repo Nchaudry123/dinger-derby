@@ -7,9 +7,13 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include "game/DerbyBests.h"
+#include "game/GameSettings.h"
 
 namespace {
 
@@ -341,6 +345,12 @@ int main(int argc, char** argv) {
     int selectedLocal = 0; // index into filtered list
     float scrollY = 0.0f;
     float animTime = 0.0f;
+    bool showHelp = false;
+    GameSettings::Data gameSettings = GameSettings::load();
+    DerbyBests::Stats career = DerbyBests::load();
+    if (gameSettings.showHelpOnLaunch) {
+        showHelp = true;
+    }
 
     std::filesystem::path buildDirectory =
         executableDirectory(argc > 0 ? argv[0] : "./demo_launcher");
@@ -401,7 +411,20 @@ int main(int argc, char** argv) {
 
             if (const auto* key = event->getIf<sf::Event::KeyPressed>()) {
                 if (key->code == sf::Keyboard::Key::Escape) {
-                    window.close();
+                    if (showHelp) {
+                        showHelp = false;
+                        gameSettings.showHelpOnLaunch = false;
+                        GameSettings::save(gameSettings);
+                    } else {
+                        window.close();
+                    }
+                }
+                if (key->code == sf::Keyboard::Key::H) {
+                    showHelp = !showHelp;
+                    if (!showHelp) {
+                        gameSettings.showHelpOnLaunch = false;
+                        GameSettings::save(gameSettings);
+                    }
                 }
                 if (key->code == sf::Keyboard::Key::Down) {
                     if (!idxList.empty()) {
@@ -590,9 +613,9 @@ int main(int argc, char** argv) {
             drawText(
                 window,
                 font,
-                "Enter play   Tab Play/Dev   Esc quit",
+                "Enter play   H help   Tab Play/Dev   Esc quit",
                 13,
-                {winW - 340.0f, 42.0f},
+                {winW - 400.0f, 42.0f},
                 sf::Color(100, 130, 145)
             );
         }
@@ -669,15 +692,35 @@ int main(int argc, char** argv) {
             catY += 44.0f;
         }
 
-        // Sidebar footer tip
+        // Sidebar: career bests + tip
         if (fontLoaded) {
+            float by = static_cast<float>(winH) - 168.0f;
+            drawText(window, font, "CAREER BESTS", 11, {36.0f, by}, colMuted, true);
+            std::ostringstream c1;
+            c1 << "Most HRs  " << career.mostHrsInRound;
+            drawText(window, font, c1.str(), 14, {36.0f, by + 22.0f}, colGold);
+            std::ostringstream c2;
+            c2 << std::fixed << std::setprecision(0) << "Longest  ";
+            if (career.longestHrFeet > 0.5f) {
+                c2 << static_cast<int>(career.longestHrFeet) << " ft";
+            } else {
+                c2 << "--";
+            }
+            drawText(window, font, c2.str(), 13, {36.0f, by + 44.0f}, colText);
+            std::ostringstream c3;
+            c3 << std::fixed << std::setprecision(0) << "Best EV  ";
+            if (career.bestExitMph > 0.5f) {
+                c3 << static_cast<int>(career.bestExitMph) << " mph";
+            } else {
+                c3 << "--";
+            }
+            drawText(window, font, c3.str(), 13, {36.0f, by + 64.0f}, colMuted);
+            std::ostringstream c4;
+            c4 << "Rounds  " << career.roundsPlayed;
+            drawText(window, font, c4.str(), 12, {36.0f, by + 84.0f}, sf::Color(90, 120, 130));
             drawText(
-                window,
-                font,
-                "Play HR Derby is the main\ngame. Dev lists engine\nsandboxes.",
-                13,
-                {36.0f, static_cast<float>(winH) - 78.0f},
-                sf::Color(90, 120, 130)
+                window, font, "H how to play", 12,
+                {36.0f, static_cast<float>(winH) - 36.0f}, sf::Color(90, 120, 130)
             );
         }
 
@@ -908,6 +951,39 @@ int main(int argc, char** argv) {
                 {L.detailX + 70.0f, static_cast<float>(winH) - 80.0f},
                 colText,
                 true
+            );
+        }
+
+        // How to play overlay
+        if (showHelp && fontLoaded) {
+            sf::RectangleShape dim({static_cast<float>(winW), static_cast<float>(winH)});
+            dim.setFillColor(sf::Color(0, 0, 0, 150));
+            window.draw(dim);
+            const float pw = 520.0f;
+            const float ph = 340.0f;
+            const float px = winW * 0.5f - pw * 0.5f;
+            const float py = winH * 0.18f;
+            drawRoundRect(
+                window, {{px, py}, {pw, ph}},
+                sf::Color(12, 20, 28, 245), colGold, 2.0f
+            );
+            drawText(window, font, "HOW TO PLAY  HR DERBY", 24, {px + 28, py + 22}, colGold, true);
+            drawText(
+                window, font,
+                "1. Select Play HR Derby and press Enter\n"
+                "2. Mouse aims the yellow bat (tilt is automatic)\n"
+                "3. Wait for the soft toss, then Space / LMB to swing\n"
+                "4. Z / X / C = Power / Contact / Regular\n"
+                "5. 1 / 2 / 3 = Easy / Normal / Hard\n"
+                "6. Clear the wall for HRs — career bests save here\n"
+                "\n"
+                "Settings (in game):  -/=  SFX volume   ,/.  crowd bed\n"
+                "H toggles this help. Esc closes help, then quits.",
+                15, {px + 32, py + 70}, colText
+            );
+            drawText(
+                window, font, "Press H or Esc to continue", 14,
+                {px + 32, py + ph - 40}, colMuted
             );
         }
 

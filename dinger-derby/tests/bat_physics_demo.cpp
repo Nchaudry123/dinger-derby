@@ -37,6 +37,7 @@
 #include "RasterDemo3D.h"
 #include "audio/ProceduralSfx.h"
 #include "game/DerbyBests.h"
+#include "game/GameSettings.h"
 #include "math/Matrix4.h"
 #include "math/Vector3.h"
 #include "physics/Body3D.h"
@@ -578,6 +579,31 @@ void startSwing(BatPose& bat) {
     bat.prevAxis = bat.axis;
 }
 
+// Seamless load: keep contact on PCI, start load from the hands/grip pose.
+void startSwingFromGrip(
+    BatPose& bat,
+    const AimReticle& reticle,
+    const BatConfig& cfg,
+    const Vector3& gripHands,
+    const Vector3& gripAxis
+) {
+    if (bat.swinging()) {
+        return;
+    }
+    orientBatFromReticle(bat, reticle, cfg);
+    bakeSwingKeys(bat);
+    // Anchor load to where the bat currently is in the hands.
+    bat.loadHands = gripHands;
+    bat.loadAxis = safeNorm(gripAxis, bat.loadAxis);
+    bat.swingT = 0.0f;
+    bat.omega = 0.0f;
+    bat.locked = true;
+    bat.prevT = -1.0f;
+    sampleSwingPose(bat, 0.0f, bat.hands, bat.axis);
+    bat.prevHands = bat.hands;
+    bat.prevAxis = bat.axis;
+}
+
 void updateSwing(BatPose& bat, const SwingProfile& prof, float dt) {
     if (bat.swingT < 0.0f) {
         bat.omega = 0.0f;
@@ -1068,7 +1094,8 @@ Vector3 launchVelocityTowardPlate(
 // Unlike launchVelocityTowardPlate (full-mound speed clamps), this always hits the
 // plate by construction — no post-hoc vy/vz hacks.
 Vector3 softTossVelocity(const Vector3& start, const Vector3& aim, float flightTimeSec) {
-    float T = clampf(flightTimeSec, 0.55f, 1.20f);
+    // Allow longer arcs so derby soft toss is readable (time to load & swing).
+    float T = clampf(flightTimeSec, 0.55f, 1.55f);
     float dx = aim.x - start.x;
     float dy = aim.y - start.y;
     float dz = aim.z - start.z;
@@ -1334,6 +1361,9 @@ int main() {
     reticle.plateAngleDisplay = reticle.plateAngle;
     BatPose bat;
     orientBatFromReticle(bat, reticle, batCfg);
+    // Last grip pose from hands (stance) — seamless swing start.
+    Vector3 lastGripHands = bat.hands;
+    Vector3 lastGripAxis = bat.axis;
     Mesh3D batMesh = makeBatMesh(batCfg);
 
     GlRenderer gl;
@@ -1421,34 +1451,35 @@ int main() {
     int kDerbySwings = derbySwingsFor(derbyDiff);
     // Derby: soft meatball params vary by difficulty.
     auto derbyFlightSec = [&]() {
+        // Longer hang time = more readable swing window.
         switch (derbyDiff) {
             case DerbyDiff::Easy:
-                return 1.15f;
+                return 1.38f;
             case DerbyDiff::Hard:
-                return 0.92f;
+                return 1.02f;
             default:
-                return 1.05f;
+                return 1.22f;
         }
     };
     auto derbyScatter = [&]() {
         // Max aim offset (world units) from heart of zone.
         switch (derbyDiff) {
             case DerbyDiff::Easy:
-                return 0.015f;
+                return 0.010f;
             case DerbyDiff::Hard:
-                return 0.10f;
+                return 0.085f;
             default:
-                return 0.035f;
+                return 0.028f;
         }
     };
     auto derbyContactEase = [&]() {
         switch (derbyDiff) {
             case DerbyDiff::Easy:
-                return 1.40f;
+                return 1.42f;
             case DerbyDiff::Hard:
-                return 0.92f;
+                return 0.95f;
             default:
-                return 1.20f; // premium game-feel hit rate
+                return 1.22f; // premium game-feel hit rate
         }
     };
     constexpr float kPracticeMph = 52.0f;
@@ -1468,6 +1499,13 @@ int main() {
     DerbyState derby;
     derby.swingsLeft = kDerbySwings;
     DerbyBests::Stats careerBests = DerbyBests::load();
+    GameSettings::Data settings = GameSettings::load();
+    derbyDiff = static_cast<DerbyDiff>(std::clamp(settings.derbyDiff, 0, 2));
+    kDerbySwings = derbySwingsFor(derbyDiff);
+    derby.swingsLeft = kDerbySwings;
+    sfx.setMasterVolumes(settings.sfxVolume, settings.musicVolume);
+    sfx.startParkBed();
+    bool showHelp = settings.showHelpOnLaunch;
     bool careerSavedThisRound = false;
     std::string careerFlash; // short "NEW BEST" toast
     float careerFlashTimer = 0.0f;
@@ -1841,20 +1879,20 @@ int main() {
         Vector3 start = pitcherAnim.throwHandWorld(pitcherWorldTransform());
         Vector3 aim = strikeZoneCenter;
         if (playMode == PlayMode::Derby) {
-            // Soft toss into the zone; scatter / flight time scale with difficulty.
+            // Soft toss into the belt — slightly below zone heart for a meatball look.
             aim = strikeZoneCenter;
-            aim.y = strikeZoneCenter.y - 0.02f;
+            aim.y = strikeZoneCenter.y - 0.04f;
             float sc = derbyScatter();
             static std::uint32_t tossRng = 0xA11CEu;
             tossRng = tossRng * 1664525u + 1013904223u;
             float ux = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
             tossRng = tossRng * 1664525u + 1013904223u;
             float uy = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
-            aim.x = clampf(aim.x + ux * sc, -strikeZoneHalfWidth * 0.9f, strikeZoneHalfWidth * 0.9f);
+            aim.x = clampf(aim.x + ux * sc, -strikeZoneHalfWidth * 0.75f, strikeZoneHalfWidth * 0.75f);
             aim.y = clampf(
                 aim.y + uy * sc,
-                strikeZoneCenter.y - strikeZoneHalfHeight * 0.85f,
-                strikeZoneCenter.y + strikeZoneHalfHeight * 0.85f
+                strikeZoneCenter.y - strikeZoneHalfHeight * 0.70f,
+                strikeZoneCenter.y + strikeZoneHalfHeight * 0.55f
             );
             baseball.position = start;
             baseball.velocity = softTossVelocity(start, aim, derbyFlightSec());
@@ -1942,6 +1980,8 @@ int main() {
                     beginPitch();
                 } else if (key->code == K::Num1 || key->code == K::Numpad1) {
                     derbyDiff = DerbyDiff::Easy;
+                    settings.derbyDiff = 0;
+                    GameSettings::save(settings);
                     if (playMode == PlayMode::Derby) {
                         resetDerbyRound();
                         beginPitch();
@@ -1950,6 +1990,8 @@ int main() {
                     statusCol = sf::Color(120, 255, 160);
                 } else if (key->code == K::Num2 || key->code == K::Numpad2) {
                     derbyDiff = DerbyDiff::Normal;
+                    settings.derbyDiff = 1;
+                    GameSettings::save(settings);
                     if (playMode == PlayMode::Derby) {
                         resetDerbyRound();
                         beginPitch();
@@ -1958,6 +2000,8 @@ int main() {
                     statusCol = sf::Color(255, 220, 80);
                 } else if (key->code == K::Num3 || key->code == K::Numpad3) {
                     derbyDiff = DerbyDiff::Hard;
+                    settings.derbyDiff = 2;
+                    GameSettings::save(settings);
                     if (playMode == PlayMode::Derby) {
                         resetDerbyRound();
                         beginPitch();
@@ -1987,14 +2031,32 @@ int main() {
                         pitchMph = std::min(105.0f, pitchMph + 2.0f);
                         normalPitchMph = pitchMph;
                     }
+                } else if (key->code == K::H) {
+                    showHelp = !showHelp;
+                } else if (key->code == K::Equal || key->code == K::Add) {
+                    settings.sfxVolume = clampf(settings.sfxVolume + 0.08f, 0.0f, 1.0f);
+                    sfx.setMasterVolumes(settings.sfxVolume, settings.musicVolume);
+                    GameSettings::save(settings);
+                } else if (key->code == K::Hyphen || key->code == K::Subtract) {
+                    settings.sfxVolume = clampf(settings.sfxVolume - 0.08f, 0.0f, 1.0f);
+                    sfx.setMasterVolumes(settings.sfxVolume, settings.musicVolume);
+                    GameSettings::save(settings);
+                } else if (key->code == K::Comma) {
+                    settings.musicVolume = clampf(settings.musicVolume - 0.08f, 0.0f, 1.0f);
+                    sfx.setMasterVolumes(settings.sfxVolume, settings.musicVolume);
+                    GameSettings::save(settings);
+                } else if (key->code == K::Period) {
+                    settings.musicVolume = clampf(settings.musicVolume + 0.08f, 0.0f, 1.0f);
+                    sfx.setMasterVolumes(settings.sfxVolume, settings.musicVolume);
+                    GameSettings::save(settings);
                 } else if (key->code == K::Space) {
                     // Swing only on press — reticle stays put; 3D bat animates.
                     if (!bat.swinging() && !pitchResolved && ballReleased &&
                         !(playMode == PlayMode::Derby && derby.roundOver)) {
-                        orientBatFromReticle(bat, reticle, batCfg);
-                        startSwing(bat);
+                        startSwingFromGrip(bat, reticle, batCfg, lastGripHands, lastGripAxis);
                         swungThisPitch = true;
                         hasHit = false;
+                        showHelp = false;
                         status = std::string(prof.name) + " swing!  ·  " + countString();
                         statusCol = prof.color;
                     }
@@ -2003,10 +2065,10 @@ int main() {
             if (const auto* m = event->getIf<sf::Event::MouseButtonPressed>()) {
                 if (m->button == sf::Mouse::Button::Left && !bat.swinging() && !pitchResolved &&
                     ballReleased && !(playMode == PlayMode::Derby && derby.roundOver)) {
-                    orientBatFromReticle(bat, reticle, batCfg);
-                    startSwing(bat);
+                    startSwingFromGrip(bat, reticle, batCfg, lastGripHands, lastGripAxis);
                     swungThisPitch = true;
                     hasHit = false;
+                    showHelp = false;
                     status = std::string(prof.name) + " swing!  ·  " + countString();
                     statusCol = prof.color;
                 }
@@ -2056,9 +2118,16 @@ int main() {
             }
         }
 
+        // Approach cue — ball entering the hit zone.
+        if (ballReleased && !hasHit && !pitchResolved && !bat.swinging() &&
+            baseball.position.z > plateZ - 9.0f && baseball.position.z < plateZ + 1.5f &&
+            baseball.velocity.z > 0.5f) {
+            status = std::string(prof.name) + "  ·  SWING WINDOW  ·  Space/LMB  ·  " + countString();
+            statusCol = sf::Color(255, 240, 120);
+        }
+
         // Reticle: mouse aims the yellow silhouette (never swings).
-        // Tilt auto-follows PCI height (low = +uppercut, high = flatter).
-        // 3D bat: stance load pose when idle; animated path while swinging.
+        // Tilt auto-follows PCI height. 3D bat: grip lock idle; path while swinging.
         if (!bat.swinging() && !followBallCam) {
             sf::Vector2i mp = sf::Mouse::getPosition(window);
             reticle.pci = mouseToPci(
@@ -2479,21 +2548,23 @@ int main() {
             Matrix4::translation(Vector3(kBatterBoxX, 0.0f, kBatterBoxZ)) *
             Matrix4::rotationY(pi); // model +Z faces mound (−Z)
 
-        // Stance: glue wooden bat to Palm_R so grip reads on the body.
-        // Swing: keep physics bat path (collision / exit vel).
+        // Bat–hand lockup: stance grip on palms + reticle tilt axis.
+        // Swing keeps physics path (PCI contact) for collision.
         if (!bat.swinging()) {
             Vector3 palmLocal = batterAnim.jointWorldPosition("Palm_R");
             Vector3 palmLLocal = batterAnim.jointWorldPosition("Palm_L");
             Vector3 palmW = batterXform.transformPoint(palmLocal);
             Vector3 palmLW = batterXform.transformPoint(palmLLocal);
-            // RHB load: barrel tip high, slightly toward plate/catcher.
-            Vector3 grip = safeNorm(palmW - palmLW, Vector3(0.2f, 0.0f, 0.0f));
+            Vector3 gripMid = (palmW + palmLW) * 0.5f;
+            float ang = reticle.plateAngleDisplay;
             Vector3 tipDir = safeNorm(
-                Vector3(0.08f, 0.90f, 0.22f) + grip * 0.15f,
-                Vector3(0.10f, 0.92f, 0.25f)
+                Vector3(std::cos(ang), std::sin(ang), -0.12f),
+                Vector3(0.85f, 0.2f, -0.15f)
             );
-            bat.hands = palmW;
+            bat.hands = gripMid - tipDir * 0.06f;
             bat.axis = tipDir;
+            lastGripHands = bat.hands;
+            lastGripAxis = bat.axis;
         }
 
         const float ballDrawR = baseballRadius * baseballVisualScale;
@@ -2844,6 +2915,48 @@ int main() {
                 statusLine = statusLine.substr(0, 71) + "...";
             }
             drawText(window, font, statusLine, 14, {22, 38}, statusCol);
+            drawText(
+                window, font, "H help   -/= sfx   ,/. music", 12,
+                {22, 58}, sf::Color(140, 160, 150)
+            );
+
+            // How-to-play overlay (first launch + H).
+            if (showHelp) {
+                const float pw = 440.0f;
+                const float ph = 280.0f;
+                const float px = W * 0.5f - pw * 0.5f;
+                const float py = H * 0.28f;
+                sf::RectangleShape dim({W, H});
+                dim.setFillColor(sf::Color(0, 0, 0, 120));
+                window.draw(dim);
+                sf::RectangleShape card({pw, ph});
+                card.setPosition({px, py});
+                card.setFillColor(sf::Color(10, 18, 14, 235));
+                card.setOutlineColor(sf::Color(255, 220, 80, 200));
+                card.setOutlineThickness(2.0f);
+                window.draw(card);
+                drawText(window, font, "HOW TO PLAY", 24, {px + 24, py + 16}, sf::Color(255, 220, 80));
+                drawText(
+                    window, font,
+                    "Mouse      aim the yellow bat (tilt auto)\n"
+                    "Space/LMB  swing when ball is in window\n"
+                    "Z X C      Power / Contact / Regular\n"
+                    "1 2 3      Easy / Normal / Hard\n"
+                    "D P L      Derby / Practice / Live\n"
+                    "R          next pitch   N  new round\n"
+                    "- / =      SFX volume   , / .  crowd bed\n"
+                    "H          toggle this help",
+                    15, {px + 28, py + 56}, sf::Color(220, 235, 225)
+                );
+                drawText(
+                    window, font, "Press H or swing to dismiss", 13,
+                    {px + 28, py + ph - 36}, sf::Color(160, 180, 170)
+                );
+                if (settings.showHelpOnLaunch) {
+                    settings.showHelpOnLaunch = false;
+                    GameSettings::save(settings);
+                }
+            }
 
             // Scoreboard panel (top-right) — primary stats for Derby.
             if (playMode == PlayMode::Derby && !chasing) {
