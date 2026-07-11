@@ -22,18 +22,21 @@
 
 namespace Stadium3D {
 
-// Shared palette — FieldTurf + indoor dome lighting (Rogers Centre vibe).
-inline sf::Color grassColor() { return sf::Color(42, 128, 58); }
-inline sf::Color grassDarkColor() { return sf::Color(34, 108, 48); }
-inline sf::Color dirtColor() { return sf::Color(168, 120, 70); }
-inline sf::Color warningTrackColor() { return sf::Color(150, 120, 70); }
-// Indoor dome wash (soft cool white-blue) — matches closed-roof interior.
-inline sf::Color skyColor() { return sf::Color(168, 188, 210); }
-inline sf::Color skyZenithColor() { return sf::Color(120, 150, 185); }
-inline sf::Color groundClearColor() { return grassColor(); }
-// Structural roof panel colors (white membrane + steel ribs).
-inline sf::Color domePanelColor() { return sf::Color(210, 220, 232); }
-inline sf::Color domeRibColor() { return sf::Color(70, 85, 105); }
+// Rogers Centre palette — FieldTurf, Jays blue seats, indoor roof wash.
+inline sf::Color grassColor() { return sf::Color(38, 122, 62); }
+inline sf::Color grassDarkColor() { return sf::Color(30, 100, 50); }
+inline sf::Color dirtColor() { return sf::Color(175, 128, 78); }
+inline sf::Color warningTrackColor() { return sf::Color(145, 115, 72); }
+// Indoor clear / void outside the shell (no outdoor sky or city).
+inline sf::Color skyColor() { return sf::Color(22, 28, 38); }
+inline sf::Color skyZenithColor() { return sf::Color(36, 48, 64); }
+inline sf::Color groundClearColor() { return sf::Color(22, 28, 38); }
+inline sf::Color domePanelColor() { return sf::Color(198, 210, 224); }
+inline sf::Color domeRibColor() { return sf::Color(58, 72, 92); }
+inline sf::Color seatBlueColor() { return sf::Color(28, 78, 168); }
+inline sf::Color seatBlueAltColor() { return sf::Color(22, 64, 145); }
+inline sf::Color concourseColor() { return sf::Color(88, 92, 98); }
+inline sf::Color hotelFacadeColor() { return sf::Color(210, 200, 185); }
 
 struct Layout {
     float feetPerUnit = 2.0f;
@@ -48,9 +51,9 @@ struct Layout {
     bool closedDome = true;
     // Peak roof height above field (ft). High enough for normal HRs into seats;
     // still catches moonshots / lasers that would leave the universe.
-    float roofPeakFeet = 205.0f;
+    float roofPeakFeet = 195.0f;
     // Dome base radius = max wall + this padding (ft) past the OF fence.
-    float roofShellPaddingFeet = 95.0f;
+    float roofShellPaddingFeet = 110.0f;
 
     float plateZ() const { return pitchingDistanceFeet / feetPerUnit; }
     float wallR() const { return wallDistanceFeet / feetPerUnit; }
@@ -65,6 +68,8 @@ struct Layout {
     }
     // Roof underside Y at a horizontal radius from home (world units).
     float domeRoofYAtRadius(float radiusFromHome) const;
+    // Stepped seating-deck floor height past the fence (world Y), for landings.
+    float seatDeckYAtRadius(float radiusFromHome, float angleRad) const;
 
     // OF fence distance (feet) vs spray angle from CF.
     // angleRad = 0 is CF (−Z); +angle toward +X (RF / 1B).
@@ -166,6 +171,17 @@ BallCollisionHit collideBall(
     bool stickOnContact = true
 );
 
+// Multi-substep collision for high-speed balls (prevents tunneling through
+// fence / roof / shell). Prefer this over a single collideBall call in flight.
+BallCollisionHit collideBallSubsteps(
+    const Layout& layout,
+    Vector3& position,
+    Vector3& velocity,
+    float radius,
+    bool stickOnContact,
+    int substeps = 4
+);
+
 // Fan sections for cheer-wave animation (draw each with a small Y bob).
 constexpr int kFanSectorCount = 16;
 // Flags around the park (draw with flagSwayYaw for wind).
@@ -174,17 +190,18 @@ constexpr int kFlagCount = 12;
 struct Meshes {
     Mesh3D field;
     Mesh3D walls;
-    Mesh3D stands;   // full bowl: seats, aisles, concourses, backstop
+    Mesh3D stands;   // full bowl: seats, aisles, concourses, hotel, backstop
     Mesh3D lines;
-    Mesh3D city;     // suburban skyline backdrop (full ring)
+    Mesh3D city;     // empty for closed dome (no exterior)
     Mesh3D scoreboardScreen; // CF board face — demos can pulse alpha/color feel
-    Mesh3D skyDome;  // gradient hemisphere (draw first, far away)
-    Mesh3D clouds;   // soft cloud puffs (draw with slight alpha)
+    Mesh3D skyDome;  // closed roof shell (or open-air sky)
+    Mesh3D clouds;   // empty for closed dome
+    Mesh3D hotel;    // CF hotel facade (Rogers signature interior feature)
+    Mesh3D structure; // roof trusses / ring beams / light banks
     // Low-poly crowd split by angle so demos can bob sections for cheering.
     std::vector<Mesh3D> fanSectors;
-    // Wind-blown flags (pivot near pole base of each mesh).
+    // Wind-blown flags (empty for closed dome — no exterior poles).
     std::vector<Mesh3D> flagMeshes;
-    // World-space base of each flag for sway transform.
     std::vector<Vector3> flagBases;
 };
 

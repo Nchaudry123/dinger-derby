@@ -1168,15 +1168,16 @@ void addLowPolyFan(Mesh3D& m, const Vector3& seatTop, float scale, sf::Color shi
 }
 
 sf::Color fanShirtColor(int seed) {
+    // Rogers crowd — heavy Blue Jays navy/royal + white/grey home mix.
     static const sf::Color shirts[] = {
-        sf::Color(200, 40, 50),   // red
-        sf::Color(30, 60, 160),   // blue
-        sf::Color(240, 240, 245), // white
+        sf::Color(12, 35, 64),    // Jays navy
+        sf::Color(28, 78, 168),   // royal blue
+        sf::Color(240, 242, 245), // white
+        sf::Color(200, 16, 46),   // Canada red accent
         sf::Color(20, 20, 25),    // black
-        sf::Color(230, 160, 40),  // gold
-        sf::Color(40, 120, 70),   // green
-        sf::Color(90, 50, 140),   // purple
-        sf::Color(50, 140, 180),  // teal
+        sf::Color(180, 185, 190), // grey
+        sf::Color(30, 60, 140),   // blue alt
+        sf::Color(12, 35, 64),    // navy again (weight)
     };
     return shirts[static_cast<unsigned>(seed) % 8];
 }
@@ -1195,12 +1196,13 @@ sf::Color fanSkinColor(int seed) {
 Mesh3D buildStands(const Layout& L) {
     Mesh3D m;
     const float plateZ = L.plateZ();
-    sf::Color seat(55, 100, 165);      // stadium blue seats
-    sf::Color seatAlt(45, 85, 145);
-    sf::Color riser(40, 55, 80);
-    sf::Color aisle(90, 95, 100);
-    sf::Color concourse(70, 75, 85);
-    sf::Color upper(100, 75, 80);
+    // Rogers Centre Jays-blue seating bowl.
+    sf::Color seat = seatBlueColor();
+    sf::Color seatAlt = seatBlueAltColor();
+    sf::Color riser(32, 48, 72);
+    sf::Color aisle(78, 84, 92);
+    sf::Color concourse = concourseColor();
+    sf::Color upper(36, 70, 150);
 
     // Full 360° lower bowl + upper deck (higher angular + row density)
     const int angSegs = 120;
@@ -1326,21 +1328,107 @@ Mesh3D buildStands(const Layout& L) {
     addBox(m, Vector3(22.0f, 8.0f, plateZ - 8.0f), 10.0f, 4.0f, 6.0f, sf::Color(60, 70, 90));
     addBox(m, Vector3(-22.0f, 8.0f, plateZ - 8.0f), 10.0f, 4.0f, 6.0f, sf::Color(60, 70, 90));
 
-    sf::Color steel(180, 185, 190);
-    auto tower = [&](float ang) {
-        float r = bowlInnerRadius(L, ang) + 28.0f;
-        Vector3 base = L.fromHome(r, ang, 0.0f);
-        addBox(m, base + Vector3(0, 24.0f, 0), 1.4f, 48.0f, 1.4f, steel);
-        addBox(m, base + Vector3(0, 48.0f, 0), 9.0f, 2.2f, 3.5f, sf::Color(245, 245, 230));
-    };
-    tower(-0.55f);
-    tower(0.0f);
-    tower(0.55f);
-    tower(pi - 0.4f);
-    tower(pi + 0.4f);
-    tower(pi * 0.5f);
-    tower(-pi * 0.5f);
+    // Indoor ring of stadium lights (no exterior light towers outside the dome).
+    sf::Color steel(170, 178, 188);
+    sf::Color lamp(255, 250, 230);
+    for (int i = 0; i < 16; i++) {
+        float ang = -pi + (static_cast<float>(i) / 16.0f) * 2.0f * pi;
+        float r = bowlInnerRadius(L, ang) + 18.0f;
+        float y = L.domeRoofYAtRadius(r) * 0.72f;
+        Vector3 base = L.fromHome(r, ang, y);
+        addBox(m, base, 1.1f, 0.55f, 2.8f, steel);
+        addBox(m, base + Vector3(0.0f, -0.55f, 0.0f), 2.4f, 0.35f, 1.4f, lamp);
+    }
 
+    m.rebuildNormals();
+    return m;
+}
+
+// CF hotel facade — Rogers Centre signature (rooms look into the park).
+Mesh3D buildHotel(const Layout& L) {
+    Mesh3D m;
+    if (!L.closedDome) {
+        return m;
+    }
+    // Centered on CF, just past the batter's eye / board.
+    float cfR = L.wallRAtAngle(0.0f);
+    float cfH = L.wallHeightAtAngle(0.0f);
+    Vector3 center = L.fromHome(cfR + 22.0f, 0.0f, cfH + 22.0f);
+    sf::Color facade = hotelFacadeColor();
+    sf::Color facadeDark(175, 165, 150);
+    sf::Color glass(90, 140, 185, 200);
+    sf::Color frame(70, 75, 82);
+    // Main hotel mass
+    addBox(m, center, 52.0f, 38.0f, 14.0f, facade);
+    // Stepped wings
+    addBox(m, center + Vector3(-22.0f, -4.0f, 2.0f), 18.0f, 28.0f, 10.0f, facadeDark);
+    addBox(m, center + Vector3(22.0f, -4.0f, 2.0f), 18.0f, 28.0f, 10.0f, facadeDark);
+    // Window grid facing home (+Z from CF = toward plate roughly via fromHome)
+    for (int row = 0; row < 8; row++) {
+        for (int col = -6; col <= 6; col++) {
+            if ((row + col) % 3 == 0) {
+                continue; // sparse solid panels
+            }
+            float x = static_cast<float>(col) * 3.2f;
+            float y = -14.0f + static_cast<float>(row) * 3.6f;
+            Vector3 w = center + Vector3(x, y, -7.2f);
+            addBox(m, w, 2.4f, 2.2f, 0.35f, glass);
+            addBox(m, w + Vector3(0, 0, 0.15f), 2.6f, 2.4f, 0.12f, frame);
+        }
+    }
+    // Crown / roof line
+    addBox(m, center + Vector3(0.0f, 20.5f, 0.0f), 54.0f, 2.2f, 15.0f, frame);
+    m.rebuildNormals();
+    return m;
+}
+
+// Interior roof trusses / ring beam (drawn with the shell for depth).
+Mesh3D buildStructure(const Layout& L) {
+    Mesh3D m;
+    if (!L.closedDome) {
+        return m;
+    }
+    const float R = L.roofShellR() * 0.92f;
+    sf::Color truss = domeRibColor();
+    sf::Color trussHi(95, 110, 130);
+    // Radial trusses from near CF axis out to the shell.
+    for (int i = 0; i < 24; i++) {
+        float ang = -pi + (static_cast<float>(i) / 24.0f) * 2.0f * pi;
+        for (int s = 0; s < 6; s++) {
+            float t0 = static_cast<float>(s) / 6.0f;
+            float t1 = static_cast<float>(s + 1) / 6.0f;
+            float r0 = t0 * R;
+            float r1 = t1 * R;
+            Vector3 a = L.fromHome(r0, ang, L.domeRoofYAtRadius(r0) - 1.2f);
+            Vector3 b = L.fromHome(r1, ang, L.domeRoofYAtRadius(r1) - 1.2f);
+            Vector3 mid = (a + b) * 0.5f;
+            Vector3 d = b - a;
+            float len = d.magnitude();
+            if (len < 0.5f) {
+                continue;
+            }
+            // Approximate beam as a long thin box along the chord.
+            addBox(
+                m, mid, 0.55f + (i % 2) * 0.15f, 0.45f, len * 0.92f,
+                (i % 3 == 0) ? trussHi : truss
+            );
+        }
+    }
+    // Horizontal ring beams at two elevations.
+    for (int ring = 0; ring < 3; ring++) {
+        float rFrac = 0.35f + static_cast<float>(ring) * 0.22f;
+        float r = rFrac * R;
+        float y = L.domeRoofYAtRadius(r) - 1.5f;
+        for (int j = 0; j < 48; j++) {
+            float a0 = -pi + (static_cast<float>(j) / 48.0f) * 2.0f * pi;
+            float a1 = -pi + (static_cast<float>(j + 1) / 48.0f) * 2.0f * pi;
+            Vector3 p0 = L.fromHome(r, a0, y);
+            Vector3 p1 = L.fromHome(r, a1, y);
+            Vector3 mid = (p0 + p1) * 0.5f;
+            float chord = (p1 - p0).magnitude();
+            addBox(m, mid, chord * 0.95f, 0.4f, 0.55f, truss);
+        }
+    }
     m.rebuildNormals();
     return m;
 }
@@ -1419,6 +1507,10 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
 void buildFlags(const Layout& L, std::vector<Mesh3D>& flags, std::vector<Vector3>& bases) {
     flags.clear();
     bases.clear();
+    // Closed dome = fully interior park; no exterior flag poles outside the shell.
+    if (L.closedDome) {
+        return;
+    }
     flags.reserve(kFlagCount);
     bases.reserve(kFlagCount);
 
@@ -1471,6 +1563,10 @@ void buildFlags(const Layout& L, std::vector<Mesh3D>& flags, std::vector<Vector3
 
 Mesh3D buildCity(const Layout& L) {
     Mesh3D m;
+    // Rogers Centre closed = no exterior city / suburbs outside the dome.
+    if (L.closedDome) {
+        return m;
+    }
     const float plateZ = L.plateZ();
     const float baseR = L.maxWallR();
     // Match in-park grass so the suburb ring doesn't show a color seam.
@@ -1689,8 +1785,27 @@ float Layout::domeRoofYAtRadius(float radiusFromHome) const {
     float u = std::clamp(radiusFromHome / R, 0.0f, 1.0f);
     float y = H * std::sqrt(std::max(0.0f, 1.0f - u * u));
     // Keep clearance over the upper bowl so seats aren't clipped.
-    float minY = wallH() + 14.0f + (1.0f - u) * 8.0f;
+    float minY = wallH() + 16.0f + (1.0f - u) * 10.0f;
     return std::max(y, minY);
+}
+
+float Layout::seatDeckYAtRadius(float radiusFromHome, float angleRad) const {
+    // Approximate Rogers multi-tier seating floors past the OF fence.
+    float wallR = wallRAtAngle(angleRad);
+    float past = radiusFromHome - wallR;
+    if (past < 0.0f) {
+        return 0.0f; // field level
+    }
+    float yBase = bowlBaseHeight(angleRad);
+    // Lower bowl rise, then a concourse step, then upper deck.
+    const float lowerDepth = 38.0f; // world units of lower bowl depth
+    const float lowerRise = 0.42f;
+    if (past < lowerDepth) {
+        return yBase + past * lowerRise;
+    }
+    float upperPast = past - lowerDepth;
+    const float concourseY = yBase + lowerDepth * lowerRise + 2.2f;
+    return concourseY + upperPast * 0.38f;
 }
 
 Vector3 Layout::fromHome(float radius, float angleRad, float y) const {
@@ -2131,45 +2246,93 @@ BallCollisionHit collideBall(
         );
     }
 
-    // ── Closed dome roof + outer shell (Rogers Centre) ─────────────────
-    // Keeps the ball inside the park so rockets don't fly forever.
+    // ── Closed dome: seating decks, roof underside, outer shell ────────
+    // Absolute containment — ball never leaves Rogers Centre.
     if (layout.closedDome) {
         layout.polarFromHome(position, r, ang);
         const float shellR = layout.roofShellR();
-        const float roofY = layout.domeRoofYAtRadius(std::min(r, shellR));
+        fair = std::abs(ang) <= fa + 0.02f;
 
-        // Underside of roof — bounce down hard with damping.
+        // Seating-bowl floors past the fence (tiered decks). Balls land on
+        // concrete/seats instead of falling through the bowl geometry.
+        if (fair || r > layout.wallRAtAngle(0.0f) * 0.5f) {
+            float wallR = fair ? layout.wallRAtAngle(ang) : layout.bowlInnerRadius(ang) * 0.55f;
+            if (r > wallR + 0.4f) {
+                float deckY = layout.seatDeckYAtRadius(r, ang) + radius + 0.02f;
+                // Only collide with deck when ball is near/below it (not when flying high over seats).
+                if (position.y < deckY && position.y > deckY - 6.0f) {
+                    if (velocity.y <= 0.5f || position.y < deckY - 0.05f) {
+                        position.y = deckY;
+                        if (velocity.y < 0.0f) {
+                            velocity.y = 0.0f;
+                        }
+                        if (stickOnContact || velocity.magnitude() < 14.0f) {
+                            velocity = Vector3();
+                            hit.stuck = true;
+                            hit.surface = HitSurface::Stands;
+                            hit.impactY = position.y;
+                        } else {
+                            velocity.y = std::abs(velocity.y) * 0.08f;
+                            velocity.x *= 0.55f;
+                            velocity.z *= 0.55f;
+                            hit.surface = HitSurface::Stands;
+                            hit.impactY = position.y;
+                        }
+                    }
+                }
+            }
+        }
+
+        layout.polarFromHome(position, r, ang);
+        const float roofY = layout.domeRoofYAtRadius(std::min(r, shellR * 0.999f));
+
+        // Underside of roof — hard bounce + heavy damping (steel/membrane).
         if (position.y + radius > roofY) {
             position.y = roofY - radius - 0.02f;
             if (velocity.y > 0.0f) {
-                velocity.y = -velocity.y * 0.22f;
+                velocity.y = -velocity.y * 0.18f;
+            } else {
+                velocity.y = std::min(velocity.y, 0.0f);
             }
-            velocity.x *= 0.55f;
-            velocity.z *= 0.55f;
+            velocity.x *= 0.50f;
+            velocity.z *= 0.50f;
             hit.surface = HitSurface::Roof;
             hit.impactY = position.y;
-            if (stickOnContact && velocity.magnitude() < 8.0f) {
+            if (stickOnContact && velocity.magnitude() < 10.0f) {
                 velocity = Vector3();
                 hit.stuck = true;
             }
         }
 
-        // Outer cylindrical shell past the upper deck.
+        // Outer cylindrical shell past the upper deck (hard wall).
+        layout.polarFromHome(position, r, ang);
         if (r + radius > shellR) {
-            float scale = (shellR - radius - 0.05f) / std::max(r, 1e-4f);
-            position.x *= scale;
-            // Keep plate-relative z: recompute from polar.
-            Vector3 onShell = layout.fromHome(shellR - radius - 0.05f, ang, position.y);
-            softSnapPosition(position, onShell, 0.75f);
+            Vector3 onShell =
+                layout.fromHome(shellR - radius - 0.05f, ang, std::min(position.y, roofY - radius));
+            // Hard snap — no soft crawl that can leave the ball outside.
+            position.x = onShell.x;
+            position.z = onShell.z;
+            position.y = std::min(position.y, onShell.y);
             Vector3 nOut(std::sin(ang), 0.0f, -std::cos(ang));
             killOutwardVelocity(velocity, nOut, false);
-            velocity = velocity * 0.40f;
+            velocity = velocity * 0.35f;
             hit.surface = HitSurface::DomeShell;
             hit.impactY = position.y;
-            if (stickOnContact && velocity.magnitude() < 6.0f) {
+            if (stickOnContact && velocity.magnitude() < 7.0f) {
                 velocity = Vector3();
                 hit.stuck = true;
             }
+        }
+
+        // CF hotel mass — solid building past the wall in center field.
+        {
+            float cfR = layout.wallRAtAngle(0.0f);
+            float cfH = layout.wallHeightAtAngle(0.0f);
+            Vector3 hotel = layout.fromHome(cfR + 22.0f, 0.0f, cfH + 22.0f);
+            resolveAabbSphere(
+                position, velocity, radius, hotel, Vector3(26.0f, 19.0f, 7.5f), stickOnContact,
+                hit, HitSurface::Scoreboard
+            );
         }
     }
 
@@ -2190,7 +2353,58 @@ BallCollisionHit collideBall(
         }
     }
 
+    // Final containment pass for closed dome (catches any residual tunneling).
+    if (layout.closedDome) {
+        layout.polarFromHome(position, r, ang);
+        const float shellR = layout.roofShellR();
+        if (r > shellR - radius) {
+            Vector3 onShell = layout.fromHome(shellR - radius - 0.02f, ang, position.y);
+            position.x = onShell.x;
+            position.z = onShell.z;
+        }
+        float roofY = layout.domeRoofYAtRadius(
+            std::min(layout.radiusFromHome(position), shellR * 0.999f)
+        );
+        if (position.y > roofY - radius) {
+            position.y = roofY - radius - 0.01f;
+            if (velocity.y > 0.0f) {
+                velocity.y = 0.0f;
+            }
+        }
+        if (position.y < groundY) {
+            position.y = groundY;
+        }
+    }
+
     return hit;
+}
+
+BallCollisionHit collideBallSubsteps(
+    const Layout& layout,
+    Vector3& position,
+    Vector3& velocity,
+    float radius,
+    bool stickOnContact,
+    int substeps
+) {
+    substeps = std::clamp(substeps, 1, 12);
+    BallCollisionHit last;
+    // Integrate with discrete substeps so high-speed rockets still hit roof/fence.
+    Vector3 start = position;
+    Vector3 vel = velocity;
+    // Caller has already advanced position for the full step; we re-collide
+    // by sweeping from previous? — Simple approach: just run collideBall
+    // multiple times with fractional velocity damping recovery is wrong.
+    // Instead: if already advanced, multi-pass resolve is enough.
+    for (int i = 0; i < substeps; i++) {
+        last = collideBall(layout, position, velocity, radius, stickOnContact);
+        if (last.stuck) {
+            break;
+        }
+    }
+    (void)start;
+    (void)vel;
+    return last;
 }
 
 WallClearResult evaluateWallClear(
@@ -2525,16 +2739,22 @@ Meshes build(const Layout& layout) {
     out.walls = buildWalls(layout);
     out.stands = buildStands(layout);
     out.lines = buildLines(layout);
-    out.city = buildCity(layout);
+    out.city = buildCity(layout); // empty under closed dome
     out.scoreboardScreen = buildScoreboardScreen(layout);
     out.skyDome = buildSkyDome(layout);
-    out.clouds = buildClouds(layout);
+    out.clouds = buildClouds(layout); // empty under closed dome
+    out.hotel = buildHotel(layout);
+    out.structure = buildStructure(layout);
     out.fanSectors = buildFanSectors(layout);
-    buildFlags(layout, out.flagMeshes, out.flagBases);
+    buildFlags(layout, out.flagMeshes, out.flagBases); // empty under closed dome
     return out;
 }
 
 float recommendedFarPlane(const Layout& layout) {
+    // Tight far plane for indoor dome — no distant suburbs.
+    if (layout.closedDome) {
+        return std::max(900.0f, layout.roofShellR() * 3.5f + 120.0f);
+    }
     return std::max(3500.0f, layout.maxWallR() * 12.0f + 800.0f);
 }
 

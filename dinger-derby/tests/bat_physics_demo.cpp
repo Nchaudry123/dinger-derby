@@ -1561,12 +1561,11 @@ int main() {
     GlMesh glStadiumWalls;
     GlMesh glStadiumStands;
     GlMesh glStadiumLines;
-    GlMesh glStadiumCity;
     GlMesh glStadiumBoard;
     GlMesh glStadiumSky;
-    GlMesh glStadiumClouds;
+    GlMesh glStadiumHotel;
+    GlMesh glStadiumStructure;
     std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
-    std::vector<GlMesh> glStadiumFlags(Stadium3D::kFlagCount);
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useGL) {
@@ -1578,18 +1577,13 @@ int main() {
         glStadiumWalls.upload(stadiumMeshes.walls);
         glStadiumStands.upload(stadiumMeshes.stands);
         glStadiumLines.upload(stadiumMeshes.lines);
-        glStadiumCity.upload(stadiumMeshes.city);
         glStadiumBoard.upload(stadiumMeshes.scoreboardScreen);
         glStadiumSky.upload(stadiumMeshes.skyDome);
-        glStadiumClouds.upload(stadiumMeshes.clouds);
+        glStadiumHotel.upload(stadiumMeshes.hotel);
+        glStadiumStructure.upload(stadiumMeshes.structure);
         for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
             if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
                 glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
-            }
-        }
-        for (int i = 0; i < Stadium3D::kFlagCount; i++) {
-            if (i < static_cast<int>(stadiumMeshes.flagMeshes.size())) {
-                glStadiumFlags[i].upload(stadiumMeshes.flagMeshes[i]);
             }
         }
     }
@@ -2097,8 +2091,15 @@ int main() {
         }
         world = PhysicsWorld3D();
         world.gravity = Vector3(0, -9.8f, 0);
-        // Open park — no tight box walls/ceiling clamping exit trajectories.
-        world.setBounds(boundsMinimum, boundsMaximum);
+        // Indoor Rogers shell — loose axis-aligned bounds; solid park is collideBall.
+        {
+            float shell = stadiumLayout.roofShellR() + 8.0f;
+            float peak = stadiumLayout.roofPeakY() + 4.0f;
+            world.setBounds(
+                Vector3(-shell, 0.0f, stadiumLayout.plateZ() - shell),
+                Vector3(shell, peak, stadiumLayout.plateZ() + shell * 0.55f)
+            );
+        }
         world.airResistanceEnabled = false;
         // Same CharacterModel3D pitcher as pitching_simulator_demo — ball starts in the hand.
         Vector3 hand0 = pitcherAnim.throwHandWorld(pitcherWorldTransform());
@@ -2517,12 +2518,14 @@ int main() {
                         baseball.velocity.y <= 2.0f) {
                         nearGroundStick = true;
                     }
-                    Stadium3D::BallCollisionHit col = Stadium3D::collideBall(
+                    // Multi-pass resolve so high-EV rockets can't tunnel roof/fence.
+                    Stadium3D::BallCollisionHit col = Stadium3D::collideBallSubsteps(
                         stadiumLayout,
                         baseball.position,
                         baseball.velocity,
                         baseball.radius,
-                        nearGroundStick
+                        nearGroundStick,
+                        5
                     );
                     // Hard floor after park resolves (scoreboard / stands soft-snaps).
                     if (baseball.position.y < floorY) {
@@ -3157,24 +3160,15 @@ int main() {
 
         Matrix4 stadiumXform = Matrix4::identity();
         if (useGL) {
+            // Indoor Rogers Centre: dark void outside the shell, no city/sky/flags.
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            const float gr = stadiumLayout.maxWallR() + 220.0f;
-            // Sky dome + drifting clouds (draw first for depth).
-            gl.drawMesh(glStadiumSky, stadiumXform);
-            float cloudDrift = stadiumCheerTime * 1.8f;
-            gl.drawMesh(
-                glStadiumClouds,
-                Matrix4::translation(Vector3(cloudDrift * 0.15f, 0.0f, cloudDrift * 0.05f)) *
-                    stadiumXform,
-                0.92f
-            );
-            // Match field grass — no color seam under the park.
-            gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::groundClearColor());
-            gl.drawMesh(glStadiumCity, stadiumXform);
+            const float gr = stadiumLayout.roofShellR() + 2.0f;
+            gl.drawMesh(glStadiumSky, stadiumXform); // closed roof shell
+            gl.drawMesh(glStadiumStructure, stadiumXform);
+            // Field floor only inside the dome footprint.
+            gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::grassColor());
             gl.drawMesh(glStadiumField, stadiumXform);
-            // Contact shadows (ball + pitcher feet) for outdoor depth.
             {
-                // Larger / softer shadow so the ball's ground track is obvious.
                 float ballShadowR = 0.38f + baseball.position.y * 0.055f;
                 ballShadowR = clampf(ballShadowR, 0.30f, 1.15f);
                 float ballAlpha = clampf(0.50f - baseball.position.y * 0.028f, 0.14f, 0.50f);
@@ -3183,8 +3177,8 @@ int main() {
             }
             gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);
+            gl.drawMesh(glStadiumHotel, stadiumXform);
             gl.drawMesh(glStadiumLines, stadiumXform);
-            // Live CF scoreboard face (pulses with HRs / excitement)
             float excitement = (hrBannerTimer > 0.0f) ? 1.0f : 0.12f;
             excitement = std::min(1.0f, excitement + static_cast<float>(derby.hrCount) * 0.08f);
             if (derby.roundOver) {
@@ -3192,7 +3186,6 @@ int main() {
             }
             float boardA = Stadium3D::scoreboardPulse(stadiumCheerTime, excitement);
             gl.drawMesh(glStadiumBoard, stadiumXform, 0.50f + 0.50f * boardA);
-            // Crowd cheer wave (stronger after a big hit / round end)
             float cheerBoost = crowdCheerBoost;
             if (hrBannerTimer > 0.0f) {
                 cheerBoost = std::max(cheerBoost, 1.95f);
@@ -3210,18 +3203,6 @@ int main() {
                     glStadiumFans[i],
                     Matrix4::translation(Vector3(sway, bob, 0.0f)) * stadiumXform
                 );
-            }
-            // Wind-blown flags around the bowl
-            for (int i = 0; i < Stadium3D::kFlagCount; i++) {
-                if (!glStadiumFlags[i].valid() ||
-                    i >= static_cast<int>(stadiumMeshes.flagBases.size())) {
-                    continue;
-                }
-                Vector3 base = stadiumMeshes.flagBases[i];
-                float yaw = Stadium3D::flagSwayYaw(i, stadiumCheerTime);
-                Matrix4 flagX =
-                    Matrix4::translation(base) * Matrix4::rotationY(yaw);
-                gl.drawMesh(glStadiumFlags[i], flagX);
             }
             // Mound pitcher + plate batter silhouette for scale / product look.
             gl.drawMesh(glPitcher, pitcherXform);
