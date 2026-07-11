@@ -450,24 +450,57 @@ Vector3 slerpDir(const Vector3& a, const Vector3& b, float t) {
     return safeNorm(na * s0 + nb * s1);
 }
 
-// Snap animated bat pose so the sweet spot sits ON the PCI (aim point).
+// Aim contact so the sweet spot sits on the PCI from a real grip (hands in box).
 // Uses gameplay plateAngle (not smoothed) so contact keys match the reticle.
-void orientBatFromReticle(BatPose& bat, const AimReticle& reticle, const BatConfig& cfg) {
+// Hands may extend slightly from the grip (arms reach) so the barrel can cover the zone.
+void orientBatFromReticle(
+    BatPose& bat,
+    const AimReticle& reticle,
+    const BatConfig& cfg,
+    const Vector3* gripHandsOpt = nullptr
+) {
     bat.pci = reticle.pci;
+    bat.pci.z = plateZ;
     float ang = reticle.plateAngle;
-    // Barrel axis in the plate plane: tip direction from knob through sweet spot.
-    // Small -Z lean so the face squares the incoming pitch (+Z travel).
-    Vector3 dir(
+    // Default grip: RHB box, hands near rear shoulder height.
+    Vector3 grip = gripHandsOpt ? *gripHandsOpt : Vector3(-1.05f, 1.08f, plateZ - 0.22f);
+
+    // Plate-plane barrel direction from tilt + slight face-square toward pitcher.
+    Vector3 planeDir(
         std::cos(ang),
         std::sin(ang),
-        -0.14f - 0.05f * std::abs(ang)
+        -0.18f - 0.05f * std::abs(ang)
     );
-    bat.axis = safeNorm(dir, Vector3(1, 0, -0.15f));
-    // Sweet spot (hands + axis * sweetFromKnob) == PCI exactly.
-    bat.hands = reticle.pci - bat.axis * cfg.sweetFromKnob;
-    bat.hands.z = plateZ - 0.12f; // slight depth in front of plate face
-    // Keep PCI locked on plate plane for collision fairness.
-    bat.pci.z = plateZ;
+    planeDir = safeNorm(planeDir, Vector3(1.0f, 0.0f, -0.18f));
+
+    // Ideal contact: knob behind sweet so sweet lands on PCI.
+    Vector3 idealHands = bat.pci - planeDir * cfg.sweetFromKnob;
+    // Arms extend from the stance grip toward that ideal (realistic reach, not teleport).
+    Vector3 reach = idealHands - grip;
+    float reachMag = reach.magnitude();
+    const float maxReach = 0.42f; // ~10" of arm extension past grip
+    if (reachMag > maxReach) {
+        reach = reach * (maxReach / reachMag);
+    }
+    bat.hands = grip + reach;
+    bat.axis = safeNorm(bat.pci - bat.hands, planeDir);
+    // Keep a clear face-square (-Z / pitcher).
+    if (bat.axis.z > -0.10f) {
+        bat.axis = safeNorm(bat.axis + Vector3(0.0f, 0.0f, -0.16f), bat.axis);
+    }
+    // Re-seat sweet onto PCI after axis correct (small hands nudge only).
+    Vector3 sweet = bat.hands + bat.axis * cfg.sweetFromKnob;
+    Vector3 err = bat.pci - sweet;
+    float errMag = err.magnitude();
+    if (errMag > 1e-5f) {
+        float maxNudge = 0.14f;
+        if (errMag > maxNudge) {
+            err = err * (maxNudge / errMag);
+        }
+        bat.hands = bat.hands + err;
+        bat.axis = safeNorm(bat.pci - bat.hands, bat.axis);
+    }
+
     Vector3 up(0, 1, 0);
     Vector3 side = safeNorm(up.cross(bat.axis), Vector3(1, 0, 0));
     bat.swingAxis = safeNorm(bat.axis.cross(side), up);
@@ -500,8 +533,9 @@ void closestOnBat(
     outS = t * cfg.length;
 }
 
-// RHB path (body on 3B / -X): load → square at PCI angle → high wrap.
-// Load/finish vertical shape follows contact attack angle (auto tilt).
+// RHB path from a real grip: load (hands back) → contact (sweet on PCI) → wrap.
+// Vertical shape follows contact attack angle (auto tilt from aim height).
+// Load/finish stay within palm reach so hand-lock never fights a huge path error.
 void bakeSwingKeys(BatPose& bat) {
     bat.contactHands = bat.hands;
     bat.contactAxis = bat.axis;
@@ -509,28 +543,28 @@ void bakeSwingKeys(BatPose& bat) {
     // tipUp > 0 = uppercut (low pitch); tipUp < 0 = down through (high pitch).
     float tipUp = clampf(bat.contactAxis.y, -0.65f, 0.75f);
 
-    // Load: hands back toward batter/foul, tip cocked high (higher for uppercuts).
+    // Load: coil toward rear shoulder; tip high (readable launch position).
     bat.loadHands = bat.contactHands + Vector3(
-        -0.24f,
-        0.14f + std::max(0.0f, tipUp) * 0.16f,
-        0.28f
+        -0.14f,
+        0.12f + std::max(0.0f, tipUp) * 0.10f,
+        0.14f
     );
     bat.loadAxis = slerpDir(
         bat.contactAxis,
-        safeNorm(Vector3(-0.38f, 0.78f + tipUp * 0.12f, 0.32f)),
-        0.82f
+        safeNorm(Vector3(-0.22f, 0.88f + tipUp * 0.08f, 0.22f)),
+        0.80f
     );
 
-    // Finish: drive through to 1B / field; wrap rises with attack angle.
+    // Finish: drive through to 1B side; wrap stays connected to the hands.
     bat.finishHands = bat.contactHands + Vector3(
-        0.38f,
-        0.08f + tipUp * 0.14f,
-        -0.44f
+        0.18f,
+        0.08f + tipUp * 0.10f,
+        -0.22f
     );
     bat.finishAxis = slerpDir(
         bat.contactAxis,
-        safeNorm(Vector3(0.52f, 0.48f + tipUp * 0.18f, -0.48f)),
-        0.88f
+        safeNorm(Vector3(0.42f, 0.48f + tipUp * 0.14f, -0.48f)),
+        0.84f
     );
 
     bat.swingAxis = safeNorm(bat.loadAxis.cross(bat.finishAxis), Vector3(0, 1, 0));
@@ -587,7 +621,7 @@ void startSwing(BatPose& bat) {
     bat.prevAxis = bat.axis;
 }
 
-// Seamless load: keep contact on PCI, start load from the hands/grip pose.
+// Seamless load: contact baked from grip→PCI; load starts at live hands.
 void startSwingFromGrip(
     BatPose& bat,
     const AimReticle& reticle,
@@ -598,16 +632,28 @@ void startSwingFromGrip(
     if (bat.swinging()) {
         return;
     }
-    orientBatFromReticle(bat, reticle, cfg);
+    // Freeze PCI / contact geometry from this aim + current grip.
+    orientBatFromReticle(bat, reticle, cfg, &gripHands);
     bakeSwingKeys(bat);
-    // Anchor load to where the bat currently is in the hands.
+    // Anchor load to the live stance grip (no pop on first frame).
     bat.loadHands = gripHands;
     bat.loadAxis = safeNorm(gripAxis, bat.loadAxis);
+    // Soften finish toward body so wrap still looks locked to palms.
+    bat.finishHands = bat.finishHands * 0.55f + gripHands * 0.45f;
     bat.swingT = 0.0f;
     bat.omega = 0.0f;
     bat.locked = true;
     bat.prevT = -1.0f;
-    sampleSwingPose(bat, 0.0f, bat.hands, bat.axis);
+    // Frame 0: knob in palms, barrel still aims through the contact sweet.
+    bat.hands = gripHands;
+    {
+        Vector3 sweet = bat.contactHands + bat.contactAxis * cfg.sweetFromKnob;
+        bat.axis = safeNorm(sweet - bat.hands, bat.loadAxis);
+        // Prefer the load tip if contact is too far to reach cleanly at t=0.
+        if (bat.axis.y < 0.15f) {
+            bat.axis = slerpDir(bat.loadAxis, bat.axis, 0.35f);
+        }
+    }
     bat.prevHands = bat.hands;
     bat.prevAxis = bat.axis;
 }
@@ -1863,7 +1909,8 @@ int main() {
         return g;
     };
 
-    // Keep knob in the palms; barrel follows the kinematic swing path.
+    // Keep knob in the palms; barrel follows swing path and squares on PCI at contact.
+    // Stance = high tip overhead. Swing = hands track palms with arm-extension near contact.
     auto lockBatToHands = [&](bool drivingSwing) {
         Vector3 palmLocal = batterAnim.jointWorldPosition("Palm_R");
         Vector3 palmLLocal = batterAnim.jointWorldPosition("Palm_L");
@@ -1875,30 +1922,69 @@ int main() {
         Vector3 palmW = batterXform.transformPoint(palmLocal);
         Vector3 palmLW = batterXform.transformPoint(palmLLocal);
         Vector3 wristW = batterXform.transformPoint(wristR);
-        Vector3 gripMid = palmW * 0.58f + palmLW * 0.42f;
-        gripMid = gripMid * 0.70f + wristW * 0.30f;
+        // Stacked grip: bottom hand (R for RHB) slightly heavier, wrists pull knob in.
+        Vector3 gripMid = palmW * 0.56f + palmLW * 0.44f;
+        gripMid = gripMid * 0.78f + wristW * 0.22f;
 
         if (drivingSwing) {
-            // Preserve intended sweet-spot target from the swing curve, re-aim from grip.
-            Vector3 sweetTarget = bat.hands + bat.axis * batCfg.sweetFromKnob;
-            bat.hands = gripMid;
-            bat.axis = safeNorm(sweetTarget - gripMid, bat.axis);
-            // Keep a little tip-forward so the face squares the pitch.
-            if (bat.axis.z > -0.05f) {
-                bat.axis = safeNorm(bat.axis + Vector3(0, 0, -0.12f), bat.axis);
+            // Re-sample kinematic path each call so lock is idempotent
+            // (physics pass + draw pass both invoke this).
+            float st = clampf(bat.swingT, 0.0f, 1.0f);
+            Vector3 pathHands, pathAxis;
+            sampleSwingPose(bat, st, pathHands, pathAxis);
+            Vector3 pathSweet = pathHands + pathAxis * batCfg.sweetFromKnob;
+
+            // Contact window weight peaks mid-dwell (~0.42, matches swing anim).
+            float contactW = 0.0f;
+            if (st >= 0.28f && st <= 0.58f) {
+                float mid = 0.43f;
+                float half = 0.15f;
+                contactW = 1.0f - std::abs(st - mid) / half;
+                contactW = clampf(contactW, 0.0f, 1.0f);
+                contactW = contactW * contactW * (3.0f - 2.0f * contactW); // smoothstep
+            }
+            // Early swing: glue to palms. At contact: allow arm extension toward path/PCI.
+            // After contact: ease back to palms for the wrap.
+            float palmBlend = lerp(0.92f, 0.48f, contactW);
+            if (st > 0.58f) {
+                float u = clampf((st - 0.58f) / 0.42f, 0.0f, 1.0f);
+                palmBlend = lerp(0.55f, 0.88f, u);
+            }
+            bat.hands = gripMid * palmBlend + pathHands * (1.0f - palmBlend);
+
+            // Sweet target: kinematic path, heavily PCI-biased in the contact window.
+            Vector3 pciT = bat.pci;
+            pciT.z = plateZ;
+            Vector3 sweetTarget = pathSweet * (1.0f - 0.78f * contactW) + pciT * (0.78f * contactW);
+            Vector3 desiredAxis = safeNorm(sweetTarget - bat.hands, pathAxis);
+            float axisBlend = lerp(0.50f, 0.88f, contactW);
+            bat.axis = slerpDir(pathAxis, desiredAxis, axisBlend);
+            // Square the face toward the pitcher through contact.
+            if (bat.axis.z > -0.08f) {
+                bat.axis = safeNorm(bat.axis + Vector3(0.0f, 0.0f, -0.14f), bat.axis);
+            }
+            // Keep barrel from flipping behind the hands (unreadable / broken pose).
+            if (bat.axis.magnitude() < 0.5f) {
+                bat.axis = pathAxis;
             }
         } else {
+            // Stance: knob in palms, tip high by the rear ear — not pointed at PCI.
             float ang = reticle.plateAngleDisplay;
             Vector3 tipDir = safeNorm(
                 Vector3(
-                    0.22f + 0.28f * std::cos(ang),
-                    0.86f + 0.10f * std::sin(ang),
-                    0.12f - 0.06f * std::abs(ang)
+                    0.16f + 0.22f * std::cos(ang),
+                    0.90f + 0.08f * std::sin(ang),
+                    0.10f - 0.05f * std::abs(ang)
                 ),
-                Vector3(0.25f, 0.92f, 0.12f)
+                Vector3(0.20f, 0.94f, 0.10f)
             );
-            bat.hands = gripMid - tipDir * 0.05f;
-            bat.axis = safeNorm(lastGripAxis * 0.40f + tipDir * 0.60f, tipDir);
+            // Micro readiness lean from PCI height (elite boxes stay quiet).
+            Vector3 pciLean = safeNorm(reticle.pci - gripMid, tipDir);
+            tipDir = slerpDir(tipDir, pciLean, 0.10f);
+            bat.hands = gripMid;
+            bat.axis = slerpDir(lastGripAxis, tipDir, 0.40f);
+            bat.pci = reticle.pci;
+            bat.pci.z = plateZ;
             lastGripHands = bat.hands;
             lastGripAxis = bat.axis;
         }
