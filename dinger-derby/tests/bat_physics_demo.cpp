@@ -3210,7 +3210,7 @@ int main() {
                 gr,
                 domeC.z - gr,
                 domeC.z + gr,
-                sf::Color(95, 98, 104)
+                Stadium3D::concreteFloorColor()
             );
             gl.drawMesh(glStadiumField, stadiumXform);
             {

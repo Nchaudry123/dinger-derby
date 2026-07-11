@@ -311,7 +311,7 @@ int main() {
             gl.drawMesh(glSky, id); // outer roof ring + shell wall
             gl.drawMesh(glStructure, id);
             // Concrete under-floor (not grass) — field mesh owns the diamond green.
-            gl.drawGround(gr, domeC.z - gr, domeC.z + gr, sf::Color(95, 98, 104));
+            gl.drawGround(gr, domeC.z - gr, domeC.z + gr, Stadium3D::concreteFloorColor());
             gl.drawMesh(glField, id);
             gl.drawMesh(glStands, id);
             gl.drawMesh(glWalls, id);

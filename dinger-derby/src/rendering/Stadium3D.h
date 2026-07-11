@@ -31,6 +31,8 @@ inline sf::Color warningTrackColor() { return sf::Color(160, 105, 58); }
 inline sf::Color skyColor() { return sf::Color(120, 165, 210); }
 inline sf::Color skyZenithColor() { return sf::Color(70, 130, 190); }
 inline sf::Color groundClearColor() { return sf::Color(22, 30, 40); }
+// Concrete under-floor drawn under the diamond (not grass — field mesh owns green).
+inline sf::Color concreteFloorColor() { return sf::Color(95, 98, 104); }
 inline sf::Color domePanelColor() { return sf::Color(215, 222, 232); }
 inline sf::Color domeRibColor() { return sf::Color(48, 58, 72); }
 // Deep navy seating (photo: dark blue bowl, not bright royal).

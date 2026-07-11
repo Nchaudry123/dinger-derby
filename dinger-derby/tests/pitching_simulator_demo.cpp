@@ -1317,12 +1317,11 @@ int main() {
     GlMesh glStadiumWalls;
     GlMesh glStadiumStands;
     GlMesh glStadiumLines;
-    GlMesh glStadiumCity;
     GlMesh glStadiumBoard;
     GlMesh glStadiumSky;
-    GlMesh glStadiumClouds;
+    GlMesh glStadiumHotel;
+    GlMesh glStadiumStructure;
     std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
-    std::vector<GlMesh> glStadiumFlags(Stadium3D::kFlagCount);
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useOpenGL) {
@@ -1333,18 +1332,13 @@ int main() {
         glStadiumWalls.upload(stadiumMeshes.walls);
         glStadiumStands.upload(stadiumMeshes.stands);
         glStadiumLines.upload(stadiumMeshes.lines);
-        glStadiumCity.upload(stadiumMeshes.city);
         glStadiumBoard.upload(stadiumMeshes.scoreboardScreen);
         glStadiumSky.upload(stadiumMeshes.skyDome);
-        glStadiumClouds.upload(stadiumMeshes.clouds);
+        glStadiumHotel.upload(stadiumMeshes.hotel);
+        glStadiumStructure.upload(stadiumMeshes.structure);
         for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
             if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
                 glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
-            }
-        }
-        for (int i = 0; i < Stadium3D::kFlagCount; i++) {
-            if (i < static_cast<int>(stadiumMeshes.flagMeshes.size())) {
-                glStadiumFlags[i].upload(stadiumMeshes.flagMeshes[i]);
             }
         }
     }
@@ -1716,7 +1710,12 @@ int main() {
                 Vector3 wake = residualTurbulence(currentVariation, baseball.position, pitchAge);
                 baseball.applyForce(wake * baseball.mass);
                 world.step(fixedStep);
-                // Park solids (ground/backstop/dugouts) — light bounce, no stick.
+                // Park solids (ground/backstop/dugouts/dome) — light bounce, no stick.
+                if (stadiumLayout.closedDome) {
+                    stadiumLayout.containInsideDome(
+                        baseball.position, baseball.velocity, baseball.radius
+                    );
+                }
                 Stadium3D::collideBall(
                     stadiumLayout,
                     baseball.position,
@@ -1724,6 +1723,11 @@ int main() {
                     baseball.radius,
                     false
                 );
+                if (stadiumLayout.closedDome) {
+                    stadiumLayout.containInsideDome(
+                        baseball.position, baseball.velocity, baseball.radius
+                    );
+                }
                 bool reachedPlate = freezePitchAtPlate(baseball, previousPosition, trail);
                 if (reachedPlate) {
                     const PitchProfile& thrown = pitches[activePitch];
@@ -1805,20 +1809,19 @@ int main() {
 
         Matrix4 stadiumXform = Matrix4::identity();
         if (useOpenGL) {
+            // Same closed Rogers Centre draw path as stadium_demo + bat_physics_demo.
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            const float gr = stadiumLayout.maxWallR() + 220.0f;
+            Vector3 domeC = stadiumLayout.domeCenter();
+            const float gr = stadiumLayout.domeHorizR() + 1.0f;
             gl.drawMesh(glStadiumSky, stadiumXform);
-            gl.drawMesh(
-                glStadiumClouds,
-                Matrix4::translation(Vector3(stadiumCheerTime * 0.2f, 0.0f, stadiumCheerTime * 0.06f)) *
-                    stadiumXform,
-                0.92f
+            gl.drawMesh(glStadiumStructure, stadiumXform);
+            gl.drawGround(
+                gr, domeC.z - gr, domeC.z + gr, Stadium3D::concreteFloorColor()
             );
-            gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::groundClearColor());
-            gl.drawMesh(glStadiumCity, stadiumXform);
             gl.drawMesh(glStadiumField, stadiumXform);
-            gl.drawMesh(glStadiumWalls, stadiumXform);
             gl.drawMesh(glStadiumStands, stadiumXform);
+            gl.drawMesh(glStadiumWalls, stadiumXform);
+            gl.drawMesh(glStadiumHotel, stadiumXform);
             gl.drawMesh(glStadiumLines, stadiumXform);
             float boardA = Stadium3D::scoreboardPulse(stadiumCheerTime, 0.2f);
             gl.drawMesh(glStadiumBoard, stadiumXform, 0.55f + 0.45f * boardA);
@@ -1831,18 +1834,6 @@ int main() {
                 gl.drawMesh(
                     glStadiumFans[i],
                     Matrix4::translation(Vector3(sway, bob, 0.0f)) * stadiumXform
-                );
-            }
-            for (int i = 0; i < Stadium3D::kFlagCount; i++) {
-                if (!glStadiumFlags[i].valid() ||
-                    i >= static_cast<int>(stadiumMeshes.flagBases.size())) {
-                    continue;
-                }
-                Vector3 base = stadiumMeshes.flagBases[i];
-                float yaw = Stadium3D::flagSwayYaw(i, stadiumCheerTime);
-                gl.drawMesh(
-                    glStadiumFlags[i],
-                    Matrix4::translation(base) * Matrix4::rotationY(yaw) * stadiumXform
                 );
             }
             gl.drawMesh(glPitcher, pitcherTransform);
