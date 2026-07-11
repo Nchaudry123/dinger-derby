@@ -2502,10 +2502,15 @@ int main() {
                     baseball.acceleration = Vector3();
                     baseball.position.y =
                         std::max(baseball.position.y, baseball.radius + 0.01f);
+                    if (stadiumLayout.closedDome) {
+                        stadiumLayout.containInsideDome(
+                            baseball.position, baseball.velocity, baseball.radius
+                        );
+                    }
                 } else {
                     // Sub-step physics + park collision so rockets can't tunnel
                     // through the fence, roof, hotel, or shell in one frame.
-                    const int kPhysSubs = hasHit ? 6 : 2;
+                    const int kPhysSubs = hasHit ? 6 : 3;
                     const float subDt = fixedStep / static_cast<float>(kPhysSubs);
                     const float floorY = baseball.radius + 0.01f;
                     Stadium3D::BallCollisionHit col;
@@ -2517,9 +2522,9 @@ int main() {
                                 baseball.velocity.y = 0.0f;
                             }
                         }
-                        // Only settle when nearly dead on the dirt — bounce otherwise.
+                        // Always solid park (pitch + batted) so fouls never leave the dome.
                         bool nearGroundStick =
-                            hasHit && baseball.position.y < floorY + 0.55f &&
+                            baseball.position.y < floorY + 0.55f &&
                             baseball.velocity.magnitude() < 4.2f &&
                             baseball.velocity.y <= 0.8f;
                         col = Stadium3D::collideBall(
@@ -2529,7 +2534,11 @@ int main() {
                             baseball.radius,
                             nearGroundStick
                         );
-                        // Extra resolve pass when still penetrating fast.
+                        if (stadiumLayout.closedDome) {
+                            stadiumLayout.containInsideDome(
+                                baseball.position, baseball.velocity, baseball.radius
+                            );
+                        }
                         if (hasHit && !col.stuck && baseball.velocity.magnitude() > 18.0f) {
                             col = Stadium3D::collideBall(
                                 stadiumLayout,
@@ -3196,12 +3205,12 @@ int main() {
             gl.drawMesh(glStadiumSky, stadiumXform);
             // Dense steel trusses on top of membrane.
             gl.drawMesh(glStadiumStructure, stadiumXform);
-            // Dark under-apron only outside field mesh (avoids green wash).
+            // Solid park floor under seats/field so no sky holes from any angle.
             gl.drawGround(
                 gr,
                 domeC.z - gr,
                 domeC.z + gr,
-                sf::Color(28, 36, 48)
+                sf::Color(34, 110, 48)
             );
             gl.drawMesh(glStadiumField, stadiumXform);
             {

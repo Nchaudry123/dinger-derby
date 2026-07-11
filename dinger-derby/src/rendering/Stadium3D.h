@@ -81,6 +81,10 @@ struct Layout {
     float domeRoofYAtRadius(float radiusFromHome) const;
     // Max playable radius from home at this spray before hitting the shell.
     float maxRadiusFromHome(float angleRad) const;
+    // Clamp a home-polar radius so the point stays inside the circular shell.
+    float clampRadiusInDome(float angleRad, float radius, float margin = 5.0f) const;
+    // True if this spray angle is in the CF scoreboard / hotel cutout (no seats/fans).
+    bool isCfScoreboardZone(float angleRad) const;
     // Stepped seating-deck floor height past the fence (world Y), for landings.
     float seatDeckYAtRadius(float radiusFromHome, float angleRad) const;
     // Project a sphere fully inside the closed dome (hard containment).

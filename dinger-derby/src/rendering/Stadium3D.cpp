@@ -1252,13 +1252,15 @@ Mesh3D buildStands(const Layout& L) {
         float ang1 = -pi + t1 * 2.0f * pi;
         float angM = 0.5f * (ang0 + ang1);
 
-        // CF hotel cutout: skip mid/upper behind board only.
-        float aAbs = std::abs(angM);
-        bool cfHotelCut = aAbs < 0.24f;
+        // No seating at all behind CF scoreboard / hotel.
+        if (L.isCfScoreboardZone(angM)) {
+            continue;
+        }
 
         float rIn = bowlInnerRadius(L, angM);
         float yBase = bowlBaseHeight(L, angM);
-        const float rCap = L.closedDome ? (L.maxRadiusFromHome(angM) - 3.0f) : 1.0e6f;
+        const float rCap =
+            L.closedDome ? L.clampRadiusInDome(angM, L.maxRadiusFromHome(angM), 8.0f) : 1.0e6f;
         bool isAisle = (i % 8) == 0;
 
         auto emitTier = [&](int rows, float rStart, float yStart, float rise, sf::Color a,
@@ -1269,8 +1271,11 @@ Mesh3D buildStands(const Layout& L) {
                 if (rCursor > rCap - dRow) {
                     break;
                 }
-                float r0 = rCursor;
-                float r1 = std::min(r0 + dRow * 0.90f, rCap);
+                float r0 = L.clampRadiusInDome(angM, rCursor, 8.0f);
+                float r1 = L.clampRadiusInDome(angM, r0 + dRow * 0.90f, 8.0f);
+                if (r1 <= r0 + 0.05f) {
+                    break;
+                }
                 float y0 = yCursor;
                 float y1 = y0 + rise * 0.88f;
                 sf::Color sc = isAisle ? aisle : ((row + i) % 2 ? a : b);
@@ -1297,16 +1302,15 @@ Mesh3D buildStands(const Layout& L) {
         float yAfter0 = yBase;
         emitTier(rows0, rIn, yBase, rise0, seat0, seat0b, rAfter0, yAfter0);
 
-        // Tall mid-deck facade (dark ring — makes "floor 2" obvious).
+        // Tall mid-deck facade
         float yMidBase = yAfter0 + facadeH01;
-        float rMidIn = std::min(rAfter0 + 0.35f, rCap - gap01 - 4.0f);
+        float rMidIn = L.clampRadiusInDome(angM, rAfter0 + 0.35f, 8.0f);
         addQuad(
             m, L.fromHome(rAfter0, ang0, yAfter0), L.fromHome(rAfter0, ang1, yAfter0),
             L.fromHome(rAfter0, ang1, yMidBase), L.fromHome(rAfter0, ang0, yMidBase),
             shadeColor(riser, 0.85f)
         );
-        // Concourse shelf
-        float rC0 = std::min(rMidIn + gap01, rCap - 1.0f);
+        float rC0 = L.clampRadiusInDome(angM, rMidIn + gap01, 8.0f);
         if (rC0 > rMidIn + 0.3f) {
             addQuad(
                 m, L.fromHome(rMidIn, ang0, yMidBase), L.fromHome(rMidIn, ang1, yMidBase),
@@ -1320,40 +1324,36 @@ Mesh3D buildStands(const Layout& L) {
             );
         }
 
-        if (!cfHotelCut) {
-            // ── Level 1: mid ─────────────────────────────────────────
-            float rAfter1 = rC0;
-            float yAfter1 = yMidBase + 0.9f;
-            emitTier(rows1, rC0, yMidBase + 0.9f, rise1, seat1, seat1b, rAfter1, yAfter1);
+        // ── Level 1: mid ─────────────────────────────────────────────
+        float rAfter1 = rC0;
+        float yAfter1 = yMidBase + 0.9f;
+        emitTier(rows1, rC0, yMidBase + 0.9f, rise1, seat1, seat1b, rAfter1, yAfter1);
 
-            // Tall upper-deck facade
-            float yUpBase = yAfter1 + facadeH12;
-            float rUpIn = std::min(rAfter1 + 0.35f, rCap - gap12 - 4.0f);
+        float yUpBase = yAfter1 + facadeH12;
+        float rUpIn = L.clampRadiusInDome(angM, rAfter1 + 0.35f, 8.0f);
+        addQuad(
+            m, L.fromHome(rAfter1, ang0, yAfter1), L.fromHome(rAfter1, ang1, yAfter1),
+            L.fromHome(rAfter1, ang1, yUpBase), L.fromHome(rAfter1, ang0, yUpBase),
+            shadeColor(riser, 0.78f)
+        );
+        float rC1 = L.clampRadiusInDome(angM, rUpIn + gap12, 8.0f);
+        if (rC1 > rUpIn + 0.3f) {
             addQuad(
-                m, L.fromHome(rAfter1, ang0, yAfter1), L.fromHome(rAfter1, ang1, yAfter1),
-                L.fromHome(rAfter1, ang1, yUpBase), L.fromHome(rAfter1, ang0, yUpBase),
-                shadeColor(riser, 0.78f)
-            );
-            float rC1 = std::min(rUpIn + gap12, rCap - 1.0f);
-            if (rC1 > rUpIn + 0.3f) {
-                addQuad(
-                    m, L.fromHome(rUpIn, ang0, yUpBase), L.fromHome(rUpIn, ang1, yUpBase),
-                    L.fromHome(rC1, ang1, yUpBase), L.fromHome(rC1, ang0, yUpBase), concourse
-                );
-            }
-
-            // ── Level 2: upper deck ──────────────────────────────────
-            float rAfter2 = rC1;
-            float yAfter2 = yUpBase + 1.0f;
-            emitTier(rows2, rC1, yUpBase + 1.0f, rise2, seat2, seat2b, rAfter2, yAfter2);
-            // Crown rail on upper lip
-            addQuad(
-                m, L.fromHome(rAfter2, ang0, yAfter2 + 0.15f),
-                L.fromHome(rAfter2, ang1, yAfter2 + 0.15f),
-                L.fromHome(rAfter2, ang1, yAfter2 + 1.1f),
-                L.fromHome(rAfter2, ang0, yAfter2 + 1.1f), rail
+                m, L.fromHome(rUpIn, ang0, yUpBase), L.fromHome(rUpIn, ang1, yUpBase),
+                L.fromHome(rC1, ang1, yUpBase), L.fromHome(rC1, ang0, yUpBase), concourse
             );
         }
+
+        // ── Level 2: upper deck ──────────────────────────────────────
+        float rAfter2 = rC1;
+        float yAfter2 = yUpBase + 1.0f;
+        emitTier(rows2, rC1, yUpBase + 1.0f, rise2, seat2, seat2b, rAfter2, yAfter2);
+        addQuad(
+            m, L.fromHome(rAfter2, ang0, yAfter2 + 0.15f),
+            L.fromHome(rAfter2, ang1, yAfter2 + 0.15f),
+            L.fromHome(rAfter2, ang1, yAfter2 + 1.1f),
+            L.fromHome(rAfter2, ang0, yAfter2 + 1.1f), rail
+        );
     }
 
     // Backstop / netting behind home
@@ -1476,14 +1476,13 @@ Mesh3D buildStructure(const Layout& L) {
     sf::Color trussHi(70, 82, 98);
     sf::Color trussLite(110, 120, 135);
 
-    // Primary arch ribs (photo: long curved steel arches).
+    // Primary arch ribs — start mid-radius so overhead views see the field.
     const int nArches = 28;
     for (int i = 0; i < nArches; i++) {
         float ang = -pi + (static_cast<float>(i) / nArches) * 2.0f * pi;
-        for (int s = 0; s < 10; s++) {
-            float t0 = static_cast<float>(s) / 10.0f;
-            float t1 = static_cast<float>(s + 1) / 10.0f;
-            // Bias arch height higher over CF (photo open lattice).
+        for (int s = 0; s < 8; s++) {
+            float t0 = 0.38f + 0.62f * (static_cast<float>(s) / 8.0f);
+            float t1 = 0.38f + 0.62f * (static_cast<float>(s + 1) / 8.0f);
             float r0 = t0 * Rh;
             float r1 = t1 * Rh;
             auto pt = [&](float r) {
@@ -1504,9 +1503,9 @@ Mesh3D buildStructure(const Layout& L) {
         }
     }
 
-    // Circumferential ring trusses (photo lattice).
-    for (int ring = 0; ring < 7; ring++) {
-        float r = Rh * (0.22f + 0.11f * static_cast<float>(ring));
+    // Circumferential ring trusses (outer bowl only).
+    for (int ring = 0; ring < 5; ring++) {
+        float r = Rh * (0.45f + 0.11f * static_cast<float>(ring));
         int segs = 48 + ring * 4;
         for (int j = 0; j < segs; j++) {
             float a0 = -pi + (static_cast<float>(j) / segs) * 2.0f * pi;
@@ -1560,9 +1559,6 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     const float rise2 = 1.65f;
     const float facadeH01 = 5.5f;
     const float facadeH12 = 6.2f;
-    // CF board / hotel cutout — no fans behind the scoreboard.
-    constexpr float kCfCutRad = 0.32f; // ~±18° around CF
-
     int fanId = 0;
     auto maybePlace = [&](Mesh3D& sec, float r, float ang, float y, float fillChance) {
         float h = hash01(fanId * 17 + 3);
@@ -1570,12 +1566,21 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             fanId++;
             return;
         }
-        // Random aisle skips and empty clumps.
         if (hash01(fanId * 9 + 1) < 0.08f) {
             fanId++;
             return;
         }
+        r = L.clampRadiusInDome(ang, r, 9.0f);
         Vector3 seat = L.fromHome(r, ang, y);
+        // Reject if still outside shell (safety).
+        {
+            Vector3 c = L.domeCenter();
+            float hh = std::sqrt((seat.x - c.x) * (seat.x - c.x) + (seat.z - c.z) * (seat.z - c.z));
+            if (hh > L.domeHorizR() - 6.0f) {
+                fanId++;
+                return;
+            }
+        }
         seat.x += (hash01(fanId) - 0.5f) * 0.45f;
         seat.z += (hash01(fanId + 3) - 0.5f) * 0.45f;
         seat.y += (hash01(fanId + 5) - 0.5f) * 0.08f;
@@ -1587,22 +1592,15 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     for (int i = 0; i < angSamples; i++) {
         float t = (static_cast<float>(i) + 0.5f) / angSamples;
         float ang = -pi + t * 2.0f * pi;
-        // Keep ang in (-pi, pi] for CF cut test.
-        float angN = ang;
-        while (angN > pi) {
-            angN -= 2.0f * pi;
-        }
-        while (angN < -pi) {
-            angN += 2.0f * pi;
-        }
-        if (std::abs(angN) < kCfCutRad) {
+        if (L.isCfScoreboardZone(ang)) {
             continue; // empty behind CF scoreboard / hotel
         }
 
         int sector = static_cast<int>((t * kFanSectorCount)) % kFanSectorCount;
         float rIn = bowlInnerRadius(L, ang);
         float yBase = bowlBaseHeight(L, ang);
-        const float rCap = L.closedDome ? (L.maxRadiusFromHome(ang) - 4.0f) : 1.0e6f;
+        const float rCap =
+            L.closedDome ? L.clampRadiusInDome(ang, L.maxRadiusFromHome(ang), 9.0f) : 1.0e6f;
 
         // Field level
         float r = rIn;
@@ -1955,11 +1953,8 @@ float Layout::maxRadiusFromHome(float angleRad) const {
     const float hz = plateZ();
     const float dx = std::sin(angleRad);
     const float dz = -std::cos(angleRad);
-    // (hx + r dx - cx)^2 + (hz + r dz - cz)^2 = Rh^2
     const float ox = hx - c.x;
     const float oz = hz - c.z;
-    // (ox + r dx)^2 + (oz + r dz)^2 = Rh^2
-    // r^2 (dx^2+dz^2) + 2 r (ox dx + oz dz) + (ox^2+oz^2) - Rh^2 = 0
     const float A = dx * dx + dz * dz; // = 1
     const float B = 2.0f * (ox * dx + oz * dz);
     const float C = ox * ox + oz * oz - Rh * Rh;
@@ -1969,6 +1964,39 @@ float Layout::maxRadiusFromHome(float angleRad) const {
     }
     float r = (-B + std::sqrt(disc)) / (2.0f * A); // outward positive root
     return std::max(r, wallRAtAngle(angleRad) + 2.0f);
+}
+
+float Layout::clampRadiusInDome(float angleRad, float radius, float margin) const {
+    // Keep seating / geometry safely inside the circular building shell.
+    float rMax = maxRadiusFromHome(angleRad) - margin;
+    float r = std::min(std::max(radius, 0.0f), std::max(rMax, 1.0f));
+    const Vector3 c = domeCenter();
+    const float maxH = std::max(domeHorizR() - margin, 1.0f);
+    // Binary search so the actual world point is inside the circle.
+    float lo = 0.0f;
+    float hi = r;
+    for (int i = 0; i < 14; i++) {
+        float mid = 0.5f * (lo + hi);
+        Vector3 p = fromHome(mid, angleRad, 0.0f);
+        float h = std::sqrt((p.x - c.x) * (p.x - c.x) + (p.z - c.z) * (p.z - c.z));
+        if (h <= maxH) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
+}
+
+bool Layout::isCfScoreboardZone(float angleRad) const {
+    // Empty wedge behind CF wall for board + hotel (no seats, no fans).
+    while (angleRad > pi) {
+        angleRad -= 2.0f * pi;
+    }
+    while (angleRad < -pi) {
+        angleRad += 2.0f * pi;
+    }
+    return std::abs(angleRad) < 0.42f; // ~±24°
 }
 
 float Layout::seatDeckYAtRadius(float radiusFromHome, float angleRad) const {
@@ -2756,19 +2784,18 @@ Mesh3D buildSkyDome(const Layout& L) {
             return Vector3(x, L.domeRoofYAtWorld(x, z), z);
         };
 
+        // Outer roof ring only (rFrac 0.42–1.0). Large open center so overhead /
+        // free-orbit views still see the field instead of a solid grey shell.
         for (int i = 0; i < rings; i++) {
             float u0 = static_cast<float>(i) / rings;
             float u1 = static_cast<float>(i + 1) / rings;
-            // Skip innermost ring for a bright "open" apex skylight band.
-            if (u1 < 0.12f) {
-                continue;
-            }
+            float r0 = 0.42f + u0 * 0.58f;
+            float r1 = 0.42f + u1 * 0.58f;
             for (int j = 0; j < segs; j++) {
                 float a0 = -pi + (static_cast<float>(j) / segs) * 2.0f * pi;
                 float a1 = -pi + (static_cast<float>(j + 1) / segs) * 2.0f * pi;
                 bool alt = ((i + j) % 2) == 0;
-                // Inner rings lean sky-blue; outer rings membrane white.
-                float skyT = std::clamp(1.0f - u0 * 1.4f, 0.0f, 0.75f);
+                float skyT = std::clamp((1.0f - r0) * 1.2f, 0.0f, 0.55f);
                 sf::Color base = alt ? panel : panelAlt;
                 sf::Color col(
                     static_cast<std::uint8_t>(base.r * (1.0f - skyT) + skyWash.r * skyT),
@@ -2776,7 +2803,7 @@ Mesh3D buildSkyDome(const Layout& L) {
                     static_cast<std::uint8_t>(base.b * (1.0f - skyT) + skyWash.b * skyT)
                 );
                 addQuad(
-                    m, roofPt(u1, a0), roofPt(u1, a1), roofPt(u0, a1), roofPt(u0, a0), col
+                    m, roofPt(r1, a0), roofPt(r1, a1), roofPt(r0, a1), roofPt(r0, a0), col
                 );
             }
         }

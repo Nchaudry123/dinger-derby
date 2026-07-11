@@ -181,29 +181,23 @@ int main() {
     GlMesh glWalls;
     GlMesh glStands;
     GlMesh glLines;
-    GlMesh glCity;
     GlMesh glBoard;
     GlMesh glSky;
-    GlMesh glClouds;
+    GlMesh glHotel;
+    GlMesh glStructure;
     std::vector<GlMesh> glFans(Stadium3D::kFanSectorCount);
-    std::vector<GlMesh> glFlags(Stadium3D::kFlagCount);
     if (useGL) {
         glField.upload(meshes.field);
         glWalls.upload(meshes.walls);
         glStands.upload(meshes.stands);
         glLines.upload(meshes.lines);
-        glCity.upload(meshes.city);
         glBoard.upload(meshes.scoreboardScreen);
         glSky.upload(meshes.skyDome);
-        glClouds.upload(meshes.clouds);
+        glHotel.upload(meshes.hotel);
+        glStructure.upload(meshes.structure);
         for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
             if (i < static_cast<int>(meshes.fanSectors.size())) {
                 glFans[i].upload(meshes.fanSectors[i]);
-            }
-        }
-        for (int i = 0; i < Stadium3D::kFlagCount; i++) {
-            if (i < static_cast<int>(meshes.flagMeshes.size())) {
-                glFlags[i].upload(meshes.flagMeshes[i]);
             }
         }
     }
@@ -310,21 +304,18 @@ int main() {
 
         Matrix4 id = Matrix4::identity();
         if (useGL) {
+            // Closed Rogers Centre: no city/clouds; field stays visible through open roof.
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            const float gr = layout.maxWallR() + 220.0f;
-            gl.drawMesh(glSky, id);
-            gl.drawMesh(
-                glClouds,
-                Matrix4::translation(Vector3(cheerTime * 0.25f, 0.0f, cheerTime * 0.08f)),
-                0.92f
-            );
-            gl.drawGround(
-                gr, layout.plateZ() - gr, layout.plateZ() + gr, Stadium3D::groundClearColor()
-            );
-            gl.drawMesh(glCity, id);
+            Vector3 domeC = layout.domeCenter();
+            const float gr = layout.domeHorizR() + 2.0f;
+            gl.drawMesh(glSky, id); // outer roof ring + shell wall
+            gl.drawMesh(glStructure, id);
+            // Solid park floor so no "missing ground" sky holes under seats.
+            gl.drawGround(gr, domeC.z - gr, domeC.z + gr, sf::Color(34, 110, 48));
             gl.drawMesh(glField, id);
-            gl.drawMesh(glWalls, id);
             gl.drawMesh(glStands, id);
+            gl.drawMesh(glWalls, id);
+            gl.drawMesh(glHotel, id);
             gl.drawMesh(glLines, id);
             float boardA = Stadium3D::scoreboardPulse(cheerTime, 0.35f);
             gl.drawMesh(glBoard, id, 0.55f + 0.45f * boardA);
@@ -335,14 +326,6 @@ int main() {
                 float bob = Stadium3D::fanCheerOffsetY(i, cheerTime, 1.25f);
                 float sway = Stadium3D::fanCheerOffsetX(i, cheerTime, 1.25f);
                 gl.drawMesh(glFans[i], Matrix4::translation(Vector3(sway, bob, 0.0f)));
-            }
-            for (int i = 0; i < Stadium3D::kFlagCount; i++) {
-                if (!glFlags[i].valid() || i >= static_cast<int>(meshes.flagBases.size())) {
-                    continue;
-                }
-                Vector3 base = meshes.flagBases[i];
-                float yaw = Stadium3D::flagSwayYaw(i, cheerTime);
-                gl.drawMesh(glFlags[i], Matrix4::translation(base) * Matrix4::rotationY(yaw));
             }
             gl.endFrame(window);
         } else {
