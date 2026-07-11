@@ -707,7 +707,8 @@ HitInfo tryHit(
     const SwingProfile& prof,
     bool& hasHit,
     float dt,
-    bool practiceMode
+    bool practiceMode,
+    float contactEase = 1.0f // 1 = normal easy, higher = fatter sweet (derby difficulty)
 ) {
     HitInfo h;
     if (hasHit || !bat.swinging()) {
@@ -719,7 +720,8 @@ HitInfo tryHit(
     closestOnBat(bat, cfg, ball.position, s, closest);
 
     // Slightly easier contact: fatter collision + wider timing magnet in practice.
-    float rScale = practiceMode ? 2.8f : 1.55f;
+    contactEase = clampf(contactEase, 0.55f, 1.45f);
+    float rScale = practiceMode ? (2.8f * contactEase) : 1.55f;
     float rBat = batRadius(cfg, s) * rScale;
     Vector3 delta = ball.position - closest;
     float dist = delta.magnitude();
@@ -1328,16 +1330,68 @@ int main() {
     // ── Play modes ─────────────────────────────────────────────────────
     enum class PlayMode { Derby, Practice, Live };
     PlayMode playMode = PlayMode::Derby; // product default: HR Derby
-    constexpr int kDerbySwings = 10;
-    // Derby: consistent soft meatball (center-cut, fixed flight) after delivery.
-    constexpr float kDerbySoftTossMph = 44.0f;
-    constexpr float kDerbyTossFlightSec = 1.05f; // stable timing window
+    // Derby difficulty: Easy meatball → Normal → Hard command.
+    enum class DerbyDiff { Easy = 0, Normal = 1, Hard = 2 };
+    DerbyDiff derbyDiff = DerbyDiff::Normal;
+    auto derbySwingsFor = [](DerbyDiff d) {
+        switch (d) {
+            case DerbyDiff::Easy:
+                return 12;
+            case DerbyDiff::Hard:
+                return 8;
+            default:
+                return 10;
+        }
+    };
+    auto derbyDiffName = [](DerbyDiff d) -> const char* {
+        switch (d) {
+            case DerbyDiff::Easy:
+                return "EASY";
+            case DerbyDiff::Hard:
+                return "HARD";
+            default:
+                return "NORMAL";
+        }
+    };
+    int kDerbySwings = derbySwingsFor(derbyDiff);
+    // Derby: soft meatball params vary by difficulty.
+    auto derbyFlightSec = [&]() {
+        switch (derbyDiff) {
+            case DerbyDiff::Easy:
+                return 1.15f;
+            case DerbyDiff::Hard:
+                return 0.92f;
+            default:
+                return 1.05f;
+        }
+    };
+    auto derbyScatter = [&]() {
+        // Max aim offset (world units) from heart of zone.
+        switch (derbyDiff) {
+            case DerbyDiff::Easy:
+                return 0.015f;
+            case DerbyDiff::Hard:
+                return 0.10f;
+            default:
+                return 0.035f;
+        }
+    };
+    auto derbyContactEase = [&]() {
+        switch (derbyDiff) {
+            case DerbyDiff::Easy:
+                return 1.25f;
+            case DerbyDiff::Hard:
+                return 0.78f;
+            default:
+                return 1.0f;
+        }
+    };
     constexpr float kPracticeMph = 52.0f;
-    float pitchMph = kDerbySoftTossMph;
+    float pitchMph = 44.0f;
     float normalPitchMph = 90.0f;
 
     struct DerbyState {
-        int swingsLeft = kDerbySwings;
+        int swingsLeft = 10;
         int hrCount = 0;
         float longestHrFeet = 0.0f;
         float bestExitMph = 0.0f;
@@ -1347,6 +1401,7 @@ int main() {
         std::string lastResult = "--";
     };
     DerbyState derby;
+    derby.swingsLeft = kDerbySwings;
 
     auto easyContact = [&]() {
         // Generous PCI magnet for derby + practice soft toss.
@@ -1440,7 +1495,9 @@ int main() {
     };
 
     auto resetDerbyRound = [&]() {
+        kDerbySwings = derbySwingsFor(derbyDiff);
         derby = DerbyState{};
+        derby.swingsLeft = kDerbySwings;
         count = AtBatCount{};
     };
 
@@ -1674,9 +1731,9 @@ int main() {
         bat.locked = false;
         bat.omega = 0;
         if (playMode == PlayMode::Derby) {
-            pitchMph = kDerbySoftTossMph;
             bat.type = SwingType::Contact;
-            status = "Pitcher delivering  ·  " + countString() + "  ·  ready your reticle";
+            status = std::string("Pitcher delivering  ·  ") + derbyDiffName(derbyDiff) +
+                     "  ·  " + countString();
             statusCol = sf::Color(255, 220, 80);
         } else if (playMode == PlayMode::Practice) {
             pitchMph = kPracticeMph;
@@ -1695,23 +1752,23 @@ int main() {
         Vector3 start = pitcherAnim.throwHandWorld(pitcherWorldTransform());
         Vector3 aim = strikeZoneCenter;
         if (playMode == PlayMode::Derby) {
-            // Consistent soft toss: always heart of the zone, fixed flight time.
-            // Tiny residual scatter so it isn't robotic, but stays a meatball.
+            // Soft toss into the zone; scatter / flight time scale with difficulty.
             aim = strikeZoneCenter;
-            aim.y = strikeZoneCenter.y - 0.02f; // belt / slightly below for barrels
+            aim.y = strikeZoneCenter.y - 0.02f;
+            float sc = derbyScatter();
             static std::uint32_t tossRng = 0xA11CEu;
             tossRng = tossRng * 1664525u + 1013904223u;
             float ux = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
             tossRng = tossRng * 1664525u + 1013904223u;
             float uy = (static_cast<float>(tossRng & 0xFFFF) / 65535.0f) * 2.0f - 1.0f;
-            aim.x = clampf(aim.x + ux * 0.025f, -0.12f, 0.12f);
+            aim.x = clampf(aim.x + ux * sc, -strikeZoneHalfWidth * 0.9f, strikeZoneHalfWidth * 0.9f);
             aim.y = clampf(
-                aim.y + uy * 0.02f,
-                strikeZoneCenter.y - 0.12f,
-                strikeZoneCenter.y + 0.10f
+                aim.y + uy * sc,
+                strikeZoneCenter.y - strikeZoneHalfHeight * 0.85f,
+                strikeZoneCenter.y + strikeZoneHalfHeight * 0.85f
             );
             baseball.position = start;
-            baseball.velocity = softTossVelocity(start, aim, kDerbyTossFlightSec);
+            baseball.velocity = softTossVelocity(start, aim, derbyFlightSec());
             pitchMph = baseball.velocity.magnitude() * 2.236936f;
         } else {
             if (playMode == PlayMode::Live) {
@@ -1789,12 +1846,35 @@ int main() {
                 } else if (key->code == K::D) {
                     playMode = PlayMode::Derby;
                     resetDerbyRound();
-                    pitchMph = kDerbySoftTossMph;
                     bat.type = SwingType::Contact;
-                    status = "HR DERBY — " + std::to_string(kDerbySwings) +
-                             " swings, soft toss, go yard";
+                    status = std::string("HR DERBY ") + derbyDiffName(derbyDiff) + " — " +
+                             std::to_string(kDerbySwings) + " swings";
                     statusCol = sf::Color(255, 220, 80);
                     beginPitch();
+                } else if (key->code == K::Num1 || key->code == K::Numpad1) {
+                    derbyDiff = DerbyDiff::Easy;
+                    if (playMode == PlayMode::Derby) {
+                        resetDerbyRound();
+                        beginPitch();
+                    }
+                    status = "Difficulty EASY — fat PCI, locked meatball, 12 swings";
+                    statusCol = sf::Color(120, 255, 160);
+                } else if (key->code == K::Num2 || key->code == K::Numpad2) {
+                    derbyDiff = DerbyDiff::Normal;
+                    if (playMode == PlayMode::Derby) {
+                        resetDerbyRound();
+                        beginPitch();
+                    }
+                    status = "Difficulty NORMAL — 10 swings, center-cut toss";
+                    statusCol = sf::Color(255, 220, 80);
+                } else if (key->code == K::Num3 || key->code == K::Numpad3) {
+                    derbyDiff = DerbyDiff::Hard;
+                    if (playMode == PlayMode::Derby) {
+                        resetDerbyRound();
+                        beginPitch();
+                    }
+                    status = "Difficulty HARD — smaller PCI, more scatter, 8 swings";
+                    statusCol = sf::Color(255, 150, 120);
                 } else if (key->code == K::P) {
                     playMode = PlayMode::Practice;
                     pitchMph = kPracticeMph;
@@ -2056,7 +2136,12 @@ int main() {
                     prevBallR = stadiumLayout.radiusFromHome(baseball.position);
                 }
 
-                HitInfo hit = tryHit(baseball, bat, batCfg, prof, hasHit, fixedStep, easyContact());
+                float ease = easyContact()
+                    ? (playMode == PlayMode::Derby ? derbyContactEase() : 1.0f)
+                    : 1.0f;
+                HitInfo hit = tryHit(
+                    baseball, bat, batCfg, prof, hasHit, fixedStep, easyContact(), ease
+                );
                 if (hit.hit) {
                     lastHit = hit;
                     followBallCam = true;
@@ -2548,7 +2633,11 @@ int main() {
             // Compact title + one status line (no duplicated count spam).
             sf::Color titleCol = playMode == PlayMode::Derby ? sf::Color(255, 220, 80)
                 : (playMode == PlayMode::Practice ? sf::Color(120, 255, 160) : sf::Color(240, 245, 240));
-            drawText(window, font, modeTitle(), 20, {22, 12}, titleCol);
+            std::string title = modeTitle();
+            if (playMode == PlayMode::Derby) {
+                title += std::string("  ·  ") + derbyDiffName(derbyDiff);
+            }
+            drawText(window, font, title, 20, {22, 12}, titleCol);
             // Truncate long status so it doesn't cover the park.
             std::string statusLine = status;
             if (statusLine.size() > 72) {
@@ -2623,7 +2712,7 @@ int main() {
             // Controls: one quiet line (hidden while chasing the ball).
             if (!chasing) {
                 std::ostringstream hud;
-                hud << "[" << prof.name << "]  Space swing   D/P/L mode   N "
+                hud << "[" << prof.name << "]  Space swing   1/2/3 difficulty   D/P/L   N "
                     << (playMode == PlayMode::Derby ? "round" : "AB");
                 drawText(window, font, hud.str(), 12, {22, 62}, sf::Color(140, 165, 155));
             }
