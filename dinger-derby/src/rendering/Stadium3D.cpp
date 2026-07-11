@@ -1800,13 +1800,33 @@ namespace {
 
 void killOutwardVelocity(Vector3& vel, const Vector3& outwardNormal, bool stick) {
     if (stick) {
-        vel = Vector3();
+        // Soft stick: kill outward component and most speed — don't zero if
+        // we only grazed (caller may still zero when truly settled).
+        float vn = vel.x * outwardNormal.x + vel.y * outwardNormal.y + vel.z * outwardNormal.z;
+        if (vn > 0.0f) {
+            vel = vel - outwardNormal * vn;
+        }
+        vel = vel * 0.15f;
+        if (vel.magnitude() < 1.5f) {
+            vel = Vector3();
+        }
         return;
     }
     float vn = vel.x * outwardNormal.x + vel.y * outwardNormal.y + vel.z * outwardNormal.z;
     if (vn > 0.0f) {
         vel = vel - outwardNormal * (vn * 1.15f);
     }
+}
+
+// Cap how far a single collision may snap the ball (prevents teleports).
+void softSnapPosition(Vector3& position, const Vector3& target, float maxStep = 1.25f) {
+    Vector3 d = target - position;
+    float len = d.magnitude();
+    if (len <= maxStep || len < 1e-6f) {
+        position = target;
+        return;
+    }
+    position = position + d * (maxStep / len);
 }
 
 bool resolveAabbSphere(
@@ -1900,30 +1920,33 @@ BallCollisionHit collideBall(
     bool fair = std::abs(ang) <= fa + 0.02f;
 
     // ── Asymmetric OF fence (solid face below wall top) ────────────────
+    bool clearedFenceTop = false;
     if (fair && r > 1.0f) {
         float wallR = layout.wallRAtAngle(ang);
         float wallH = layout.wallHeightAtAngle(ang);
         hit.wallTopY = wallH;
         hit.fenceFeet = layout.wallFeetAtAngle(ang);
         if (r + radius > wallR) {
-            // Must be clearly above the wall top to count as a clear (matches evaluateWallClear).
-            const float clearY = wallH + std::max(radius, 0.12f);
+            // Must be clearly above the wall top to count as a clear.
+            const float clearY = wallH + std::max(radius, 0.35f);
             if (position.y <= clearY) {
-                // Hit fence face — push back into the field.
-                Vector3 onWall = layout.fromHome(wallR - radius - 0.02f, ang, position.y);
+                // Hit fence face — soft-push back into the field (no teleport).
+                Vector3 onWall = layout.fromHome(wallR - radius - 0.05f, ang, position.y);
                 onWall.y = std::clamp(position.y, groundY, wallH - 0.02f);
-                // Radial outward normal (from home toward ball).
                 Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
-                position = onWall;
-                killOutwardVelocity(velocity, n, stickOnContact);
+                softSnapPosition(position, onWall, 0.85f);
+                killOutwardVelocity(velocity, n, false); // bounce, don't stick mid-air
+                velocity = velocity * 0.45f;
+                velocity.y = std::min(velocity.y, 2.0f);
                 hit.surface = HitSurface::Fence;
                 hit.impactY = position.y;
-                if (stickOnContact) {
+                if (stickOnContact && position.y < wallH * 0.55f && velocity.magnitude() < 6.0f) {
                     velocity = Vector3();
                     hit.stuck = true;
                 }
             } else {
-                // Over the top — free flight, mark clear.
+                // Over the top — free flight, mark clear (do NOT stick in stands).
+                clearedFenceTop = true;
                 hit.surface = HitSurface::FenceTopClear;
                 hit.impactY = position.y;
             }
@@ -1958,21 +1981,23 @@ BallCollisionHit collideBall(
 
     // ── Backstop (arc behind home) ─────────────────────────────────────
     {
-        float backR = 12.5f;
-        float backH = 9.0f;
-        // Behind home: angles near ±pi
+        float backR = 14.0f;
+        float backH = 10.0f;
         float aAbs = std::abs(ang);
         if (aAbs > fa + 0.2f && r + radius > backR && position.y < backH + radius) {
-            // Only when mostly behind the plate (ang toward +Z from home = π)
             float behind = -std::cos(ang); // 1 at catcher side
             if (behind > 0.35f) {
                 Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
-                position = layout.fromHome(backR - radius - 0.02f, ang, std::min(position.y, backH));
-                position.y = std::max(position.y, groundY);
-                killOutwardVelocity(velocity, n, stickOnContact);
+                Vector3 target = layout.fromHome(
+                    backR - radius - 0.05f, ang, std::min(position.y, backH)
+                );
+                target.y = std::max(target.y, groundY);
+                softSnapPosition(position, target, 0.80f);
+                killOutwardVelocity(velocity, n, false);
+                velocity = velocity * 0.40f;
                 hit.surface = HitSurface::Backstop;
                 hit.impactY = position.y;
-                if (stickOnContact) {
+                if (stickOnContact && velocity.magnitude() < 5.0f) {
                     velocity = Vector3();
                     hit.stuck = true;
                 }
@@ -1980,25 +2005,29 @@ BallCollisionHit collideBall(
         }
     }
 
-    // ── Lower bowl / stands face (ball cannot enter seating bowl) ──────
+    // ── Lower bowl / stands face ───────────────────────────────────────
+    // Skip when the ball has cleared the fence top (true HR flight over seats)
+    // or is still high in the air — only collide with the bowl face near ground.
     {
         float rBowl = layout.bowlInnerRadius(ang) - 0.4f;
-        float yTop = layout.bowlBaseHeight(ang) + 16.0f;
-        if (r + radius > rBowl && position.y < yTop && position.y > -0.1f) {
-            // In fair territory only beyond the fence (don't clip infield).
-            float wallR = fair ? layout.wallRAtAngle(ang) : 0.0f;
-            bool pastFence = !fair || r > wallR - 0.5f;
-            if (pastFence) {
-                Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
-                position = layout.fromHome(rBowl - radius - 0.02f, ang, position.y);
-                position.y = std::max(position.y, groundY);
-                killOutwardVelocity(velocity, n, stickOnContact);
-                hit.surface = HitSurface::Stands;
-                hit.impactY = position.y;
-                if (stickOnContact) {
-                    velocity = Vector3();
-                    hit.stuck = true;
-                }
+        float yTop = layout.bowlBaseHeight(ang) + 4.0f; // only lower bowl face
+        float wallR = fair ? layout.wallRAtAngle(ang) : layout.bowlInnerRadius(ang) * 0.5f;
+        bool pastFence = !fair || r > wallR - 0.5f;
+        // High fly overs: free air above the wall — never stick into seats.
+        bool highClear = clearedFenceTop || (fair && r > wallR && position.y > layout.wallHeightAtAngle(ang) + 1.5f);
+        if (!highClear && pastFence && r + radius > rBowl && position.y < yTop && position.y > -0.1f) {
+            Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
+            Vector3 target = layout.fromHome(rBowl - radius - 0.05f, ang, position.y);
+            target.y = std::max(target.y, groundY);
+            softSnapPosition(position, target, 0.75f);
+            killOutwardVelocity(velocity, n, false);
+            velocity = velocity * 0.35f;
+            hit.surface = HitSurface::Stands;
+            hit.impactY = position.y;
+            // Only fully stick when nearly dead on the apron.
+            if (stickOnContact && velocity.magnitude() < 4.0f && position.y < groundY + 1.5f) {
+                velocity = Vector3();
+                hit.stuck = true;
             }
         }
     }
@@ -2077,22 +2106,26 @@ WallClearResult evaluateWallClear(
     out.fenceFeet = layout.wallFeetAtAngle(ang0);
     out.wallTopY = layout.wallHeightAtAngle(ang0);
 
-    if (!out.fair) {
-        // Still project landing distance for readout.
-        out.landFeet = r0 * layout.feetPerUnit;
-    }
-
+    // Always integrate for landing distance (fair and foul). Distance is always ≥ 0.
     const float dt = 1.0f / 180.0f;
     const int maxSteps = 4000;
     const float groundY = 0.05f;
     float prevR = r0;
     Vector3 pos = position;
     Vector3 vel = velocity;
+    // Sanity-cap insane exit speeds so projection stays stable.
+    {
+        float spd0 = vel.magnitude();
+        const float maxSpd = 52.0f; // ~116 mph world units/s
+        if (spd0 > maxSpd) {
+            vel = vel * (maxSpd / spd0);
+        }
+    }
 
     for (int i = 0; i < maxSteps; i++) {
         Vector3 prevPos = pos;
 
-        // Quadratic drag (direction opposite velocity) + gravity.
+        // Quadratic drag + gravity.
         float spd = vel.magnitude();
         Vector3 acc(0.0f, gravityY, 0.0f);
         if (spd > 1e-4f && dragK > 0.0f) {
@@ -2104,36 +2137,31 @@ WallClearResult evaluateWallClear(
         float r = 0.0f;
         float ang = 0.0f;
         layout.polarFromHome(pos, r, ang);
-        float wallR = layout.wallRAtAngle(ang);
+        bool stepFair = std::abs(ang * (180.0f / pi)) <= layout.foulAngleDegrees + 0.5f;
+        float wallR = stepFair ? layout.wallRAtAngle(ang) : layout.maxWallR() * 1.5f;
         float wallH = layout.wallHeightAtAngle(ang);
 
-        // Crossed fence radius this step (outward).
-        if (prevR < wallR && r >= wallR) {
+        // Crossed fence radius this step (outward) — fair territory only.
+        if (stepFair && prevR < wallR && r >= wallR) {
             float u = (wallR - prevR) / std::max(r - prevR, 1e-5f);
             u = std::clamp(u, 0.0f, 1.0f);
             float yFence = prevPos.y + (pos.y - prevPos.y) * u;
 
             out.sprayDeg = ang * (180.0f / pi);
-            out.fair = std::abs(out.sprayDeg) <= layout.foulAngleDegrees + 0.5f;
+            out.fair = true;
             out.fenceFeet = layout.wallFeetAtAngle(ang);
             out.wallTopY = wallH;
             out.heightAtFence = yFence;
             out.marginFeet = (yFence - wallH) * layout.feetPerUnit;
 
-            // Must clear the wall TOP by a real margin (~1 ft) — no graze HRs.
-            constexpr float kClearMargin = 0.30f; // world units (~0.6 ft)
-            if (out.fair && yFence >= wallH + kClearMargin) {
+            constexpr float kClearMargin = 0.35f; // world units
+            if (yFence >= wallH + kClearMargin) {
                 out.clearsWall = true;
                 // Keep integrating for true landing past the wall.
-            } else if (out.fair) {
+            } else {
                 out.hitsWallFace = true;
                 out.clearsWall = false;
-                out.landFeet = out.fenceFeet;
-                return out;
-            } else {
-                // Foul past the foul line — not an HR clear.
-                out.clearsWall = false;
-                out.landFeet = r * layout.feetPerUnit;
+                out.landFeet = std::max(0.0f, out.fenceFeet);
                 return out;
             }
         }
@@ -2143,26 +2171,29 @@ WallClearResult evaluateWallClear(
             float landR = 0.0f;
             float landA = 0.0f;
             layout.polarFromHome(pos, landR, landA);
-            out.landFeet = landR * layout.feetPerUnit;
+            out.landFeet = std::max(0.0f, landR * layout.feetPerUnit);
             out.sprayDeg = landA * (180.0f / pi);
             out.fair = std::abs(out.sprayDeg) <= layout.foulAngleDegrees + 0.5f;
-            // Landed short of the fence → never an over-the-wall clear.
-            float wallAtLand = layout.wallRAtAngle(landA);
-            if (landR < wallAtLand - 0.5f) {
+            if (out.fair) {
+                float wallAtLand = layout.wallRAtAngle(landA);
+                if (landR < wallAtLand - 0.5f) {
+                    out.clearsWall = false;
+                    out.hitsWallFace = false;
+                    out.marginFeet = 0.0f;
+                }
+            } else {
                 out.clearsWall = false;
                 out.hitsWallFace = false;
-                out.marginFeet = 0.0f;
             }
             return out;
         }
 
         // Escaped far past park without landing.
-        if (r > layout.maxWallR() + 120.0f) {
-            out.landFeet = r * layout.feetPerUnit;
-            if (out.clearsWall) {
-                return out;
-            }
-            break;
+        if (r > layout.maxWallR() + 80.0f) {
+            out.landFeet = std::max(0.0f, r * layout.feetPerUnit);
+            out.sprayDeg = ang * (180.0f / pi);
+            out.fair = std::abs(out.sprayDeg) <= layout.foulAngleDegrees + 0.5f;
+            return out;
         }
 
         prevR = r;
@@ -2172,8 +2203,10 @@ WallClearResult evaluateWallClear(
     float endA = 0.0f;
     layout.polarFromHome(pos, endR, endA);
     if (out.landFeet <= 0.0f) {
-        out.landFeet = endR * layout.feetPerUnit;
+        out.landFeet = std::max(0.0f, endR * layout.feetPerUnit);
     }
+    out.sprayDeg = endA * (180.0f / pi);
+    out.fair = std::abs(out.sprayDeg) <= layout.foulAngleDegrees + 0.5f;
     return out;
 }
 

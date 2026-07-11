@@ -695,10 +695,15 @@ void classifyHit(
     h.fenceFeet = clear.fenceFeet;
     h.heightAtFence = clear.heightAtFence;
     h.wallMarginFeet = clear.marginFeet;
-    h.distanceFeet = clear.landFeet > 0.5f ? clear.landFeet
-        : (std::sqrt(position.x * position.x +
-                     (position.z - plateZ) * (position.z - plateZ)) *
-           feetPerWorldUnit);
+    // Distance is always a non-negative ground-range from home.
+    float fallbackR = std::sqrt(
+        position.x * position.x + (position.z - plateZ) * (position.z - plateZ)
+    ) * feetPerWorldUnit;
+    h.distanceFeet = clear.landFeet > 0.5f ? clear.landFeet : fallbackR;
+    if (!(h.distanceFeet >= 0.0f) || h.distanceFeet > 900.0f) {
+        h.distanceFeet = fallbackR;
+    }
+    h.distanceFeet = std::max(0.0f, h.distanceFeet);
 
     if (!h.fair) {
         h.quality = "Foul";
@@ -901,29 +906,41 @@ HitInfo tryHit(
         ball.velocity = ball.velocity + n * (vBat.magnitude() * alongN * carry);
     }
 
-    // Shape exit toward HR-derby chart: EV ~100–110 mph, LA 20–40° for barrels.
+    // Shape exit toward HR-derby chart: EV ~90–110 mph, LA 15–35° for barrels.
+    // Hard cap prevents 160+ mph teleports / physics blowups.
     {
         Vector3 raw = ball.velocity;
-        float spray = std::atan2(raw.x, -raw.z);
-        float q = std::pow(clampf(sweet, 0.0f, 1.0f), 0.80f);
+        // Prefer spray toward PCI-relative aim (bat face), not pure raw scatter.
+        Vector3 towardOut = safeNorm(Vector3(n.x, 0.0f, n.z), Vector3(0, 0, -1));
+        if (towardOut.dot(Vector3(0, 0, -1)) < 0.15f) {
+            // Ensure mostly outfield-ward (toward −Z / CF from plate).
+            towardOut = safeNorm(towardOut + Vector3(0, 0, -0.85f), Vector3(0, 0, -1));
+        }
+        float spray = std::atan2(towardOut.x, -towardOut.z);
+        // Soft clamp spray to fair-ish for solid contact; mishits can foul.
+        float maxSpray = sweet > 0.55f ? 0.70f : 1.15f; // rad ≈ 40° / 66°
+        spray = clampf(spray, -maxSpray, maxSpray);
 
-        float desiredMph = lerp(58.0f, 108.0f, q);
-        desiredMph *= lerp(0.94f, 1.07f, (prof.power - 0.7f) / 0.55f);
+        float q = std::pow(clampf(sweet, 0.0f, 1.0f), 0.85f);
+
+        float desiredMph = lerp(52.0f, 106.0f, q);
+        desiredMph *= lerp(0.94f, 1.05f, (prof.power - 0.7f) / 0.55f);
         if (practiceMode) {
-            desiredMph = lerp(72.0f, 105.0f, std::pow(clampf(sweet, 0.0f, 1.0f), 0.70f));
+            desiredMph = lerp(68.0f, 102.0f, std::pow(clampf(sweet, 0.0f, 1.0f), 0.72f));
         }
         if (sweet < 0.35f) {
-            desiredMph = std::min(desiredMph, lerp(48.0f, 78.0f, sweet / 0.35f));
+            desiredMph = std::min(desiredMph, lerp(42.0f, 72.0f, sweet / 0.35f));
         }
+        desiredMph = clampf(desiredMph, 35.0f, 112.0f); // hard product cap
 
-        // Undercut → moonball band (25–29°); on top → too low.
-        float desiredLA = 12.0f + undercut * 15.0f + sweet * 8.0f;
-        desiredLA = clampf(desiredLA, -10.0f, 42.0f);
-        if (sweet > 0.75f && undercut > 0.15f) {
-            desiredLA = clampf(desiredLA, 18.0f, 36.0f);
+        // Undercut → loft; on top → line drive. Keep within realistic band.
+        float desiredLA = 10.0f + undercut * 14.0f + sweet * 7.0f;
+        desiredLA = clampf(desiredLA, -8.0f, 38.0f);
+        if (sweet > 0.75f && undercut > 0.12f) {
+            desiredLA = clampf(desiredLA, 16.0f, 34.0f);
         }
         if (sweet < 0.40f) {
-            desiredLA = lerp(desiredLA, 6.0f, 0.45f);
+            desiredLA = lerp(desiredLA, 5.0f, 0.50f);
         }
 
         float speed = mphToWorldUnitsPerSecond(desiredMph);
@@ -933,14 +950,23 @@ HitInfo tryHit(
         Vector3 chartVel =
             horizDir * (speed * std::cos(la)) + Vector3(0.0f, speed * std::sin(la), 0.0f);
 
-        float blend = lerp(0.30f, 0.88f, q);
+        float blend = lerp(0.45f, 0.92f, q);
         if (practiceMode) {
-            blend = lerp(0.40f, 0.90f, q);
+            blend = lerp(0.50f, 0.94f, q);
         }
         ball.velocity = raw * (1.0f - blend) + chartVel * blend;
+
+        // Final speed clamp (world units/s).
+        float spd = ball.velocity.magnitude();
+        const float maxSpd = mphToWorldUnitsPerSecond(114.0f);
+        if (spd > maxSpd) {
+            ball.velocity = ball.velocity * (maxSpd / spd);
+        }
     }
 
-    ball.position = ball.position + n * (minD - dist + 0.003f);
+    // Small separation only — never large teleports off the bat.
+    float sep = std::min(minD - dist + 0.004f, 0.12f);
+    ball.position = ball.position + n * sep;
     ball.restitution = 0.0f;
 
     hasHit = true;
@@ -2284,13 +2310,15 @@ int main() {
                 } else {
                     world.step(fixedStep);
                     // Solid park: fence, backstop, dugouts, board, stands, ground.
-                    // Stick on contact after a hit so the ball never tunnels geometry.
+                    // Stick only when ball is slow and near the ground (never mid-air stick/teleport).
+                    bool nearGroundStick = hasHit && baseball.position.y < 2.5f &&
+                        baseball.velocity.magnitude() < 12.0f;
                     Stadium3D::BallCollisionHit col = Stadium3D::collideBall(
                         stadiumLayout,
                         baseball.position,
                         baseball.velocity,
                         baseball.radius,
-                        hasHit /* stick */
+                        nearGroundStick
                     );
                     if (hasHit && !ballSettled) {
                         if (col.surface == Stadium3D::HitSurface::FenceTopClear) {
