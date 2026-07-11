@@ -533,13 +533,12 @@ Mesh3D buildField(const Layout& L) {
         }
     }
 
-    // ── Foul territory: concrete floor only (not green field) ─────────
-    // Covers home→seats in foul + CF board zone so no sky gaps under board.
-    const int foulSegs = 120;
+    // ── Thin foul walkway only (NOT a big beige lobe) ─────────────────
+    // Seats sit on the diamond perimeter; only a narrow strip is concrete.
+    const int foulSegs = 100;
     for (int i = 0; i < foulSegs; i++) {
         float t0 = static_cast<float>(i) / foulSegs;
         float t1 = static_cast<float>(i + 1) / foulSegs;
-        // Full circle for solid under-seat floor; skip fair OF pie already greened.
         float ang0 = -pi + t0 * 2.0f * pi;
         float ang1 = -pi + t1 * 2.0f * pi;
         float angM = 0.5f * (ang0 + ang1);
@@ -550,38 +549,67 @@ Mesh3D buildField(const Layout& L) {
             angM += 2.0f * pi;
         }
         const bool fair = std::abs(angM) <= L.foulAngleRad() + 0.02f;
-        float rBowl0 = std::max(2.0f, L.bowlInnerRadius(ang0) - 0.2f);
-        float rBowl1 = std::max(2.0f, L.bowlInnerRadius(ang1) - 0.2f);
+        float rSeat0 = std::max(2.0f, L.bowlInnerRadius(ang0) - 0.15f);
+        float rSeat1 = std::max(2.0f, L.bowlInnerRadius(ang1) - 0.15f);
 
         if (fair) {
-            // Under CF board cutout / between fence and shell only if needed.
+            // CF board: solid floor under board only (fence → board base).
             if (L.isCfScoreboardZone(angM)) {
                 float wall0 = L.wallRAtAngle(ang0);
                 float wall1 = L.wallRAtAngle(ang1);
-                // Solid floor from wall out under board (closes scoreboard gaps).
-                float rShell0 = L.clampRadiusInDome(ang0, L.maxRadiusFromHome(ang0), 4.0f);
-                float rShell1 = L.clampRadiusInDome(ang1, L.maxRadiusFromHome(ang1), 4.0f);
+                float rBoard0 = L.clampRadiusInDome(ang0, wall0 + 12.0f, 8.0f);
+                float rBoard1 = L.clampRadiusInDome(ang1, wall1 + 12.0f, 8.0f);
                 addQuad(
                     m,
                     L.fromHome(wall0, ang0, 0.008f),
                     L.fromHome(wall1, ang1, 0.008f),
-                    L.fromHome(rShell1, ang1, 0.008f),
-                    L.fromHome(rShell0, ang0, 0.008f),
+                    L.fromHome(rBoard1, ang1, 0.008f),
+                    L.fromHome(rBoard0, ang0, 0.008f),
                     apron
                 );
             }
             continue;
         }
 
-        // Foul apron: home vicinity out to seats (grey, not green field).
+        // Thin walkway from near the foul line / home out to first seat row.
+        // Start radius is just inside the seat line so beige is a ribbon, not a lobe.
+        float rIn0 = std::max(1.0f, rSeat0 - 6.5f);
+        float rIn1 = std::max(1.0f, rSeat1 - 6.5f);
         addQuad(
             m,
-            L.fromHome(0.5f, ang0, 0.005f),
-            L.fromHome(0.5f, ang1, 0.005f),
-            L.fromHome(rBowl1, ang1, 0.005f),
-            L.fromHome(rBowl0, ang0, 0.005f),
+            L.fromHome(rIn0, ang0, 0.005f),
+            L.fromHome(rIn1, ang1, 0.005f),
+            L.fromHome(rSeat1, ang1, 0.005f),
+            L.fromHome(rSeat0, ang0, 0.005f),
             apron
         );
+    }
+
+    // Under-seat floor (dark, not beige field) so no sky under the bowl.
+    {
+        const int underSegs = 96;
+        for (int i = 0; i < underSegs; i++) {
+            float t0 = static_cast<float>(i) / underSegs;
+            float t1 = static_cast<float>(i + 1) / underSegs;
+            float ang0 = -pi + t0 * 2.0f * pi;
+            float ang1 = -pi + t1 * 2.0f * pi;
+            float angM = 0.5f * (ang0 + ang1);
+            if (L.isCfScoreboardZone(angM) && std::abs(angM) < L.foulAngleRad()) {
+                // board zone handled above
+            }
+            float r0 = L.bowlInnerRadius(ang0);
+            float r1 = L.bowlInnerRadius(ang1);
+            float rOut0 = L.clampRadiusInDome(ang0, r0 + 55.0f, 10.0f);
+            float rOut1 = L.clampRadiusInDome(ang1, r1 + 55.0f, 10.0f);
+            addQuad(
+                m,
+                L.fromHome(r0, ang0, 0.002f),
+                L.fromHome(r1, ang1, 0.002f),
+                L.fromHome(rOut1, ang1, 0.002f),
+                L.fromHome(rOut0, ang0, 0.002f),
+                sf::Color(40, 48, 58) // dark under seats
+            );
+        }
     }
     // ── Foul-line dirt strips (inside fair side of chalk) ──────────────
     // Thin dirt apron along each foul line from home out past the infield.
@@ -1656,21 +1684,19 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
         }
     }
 
-    // Straight row of fans directly behind the batter (backstop line).
+    // Straight row of fans directly behind the batter (first perimeter row).
     {
-        const float backAng = pi; // dead behind home
-        const int nBack = 28;
-        const float rBack = 18.5f;
-        const float yBack = 2.4f;
+        const int nBack = 32;
+        const float rBack = std::max(15.5f, L.bowlInnerRadius(pi) + 0.5f);
+        const float yBack = L.bowlBaseHeight(pi) + 1.6f;
         for (int k = 0; k < nBack; k++) {
             float u = (static_cast<float>(k) + 0.5f) / static_cast<float>(nBack);
-            // Straight line along +X behind home (not a curve).
-            float x = (u - 0.5f) * 22.0f;
+            float x = (u - 0.5f) * 20.0f; // straight line across behind plate
             Vector3 seat(x, yBack, L.plateZ() + rBack);
-            if (hash01(k * 13 + 2) > 0.82f) {
-                continue; // small random empties
+            if (hash01(k * 13 + 2) > 0.88f) {
+                continue;
             }
-            seat.x += (hash01(k * 3) - 0.5f) * 0.2f;
+            seat.x += (hash01(k * 3) - 0.5f) * 0.15f;
             int sector = static_cast<int>(((std::atan2(seat.x, -(seat.z - L.plateZ())) + pi) /
                                            (2.0f * pi)) *
                                           kFanSectorCount) %
@@ -2168,8 +2194,9 @@ float Layout::radiusFromHome(const Vector3& worldPos) const {
 }
 
 float Layout::bowlInnerRadius(float ang) const {
-    // Continuous first seat row around the entire diamond / OF fence.
-    // Fair: immediately outside the wall. Foul: smooth ring from poles → backstop.
+    // First seat row hugs the FIELD perimeter (not a huge foul apron).
+    // Fair OF: just past the fence. Foul: parallel to the foul line a few
+    // units out, joining the OF seats at the poles and wrapping tight behind home.
     while (ang > pi) {
         ang -= 2.0f * pi;
     }
@@ -2180,16 +2207,27 @@ float Layout::bowlInnerRadius(float ang) const {
     float absA = std::abs(ang);
     float r = 0.0f;
     if (absA <= fa + 0.02f) {
-        r = wallRAtAngle(ang) + 2.2f;
+        // Fair: seats right behind the OF wall / fence.
+        r = wallRAtAngle(ang) + 1.6f;
     } else {
-        float foulPoleR = wallRAtAngle(ang >= 0.0f ? fa : -fa) + 2.2f;
-        float backR = 22.0f; // first row behind home (continuous horseshoe)
-        float u = std::clamp((absA - fa) / std::max(pi - fa, 0.01f), 0.0f, 1.0f);
-        float uSm = u * u * (3.0f - 2.0f * u);
-        r = foulPoleR + (backR - foulPoleR) * uSm;
+        // Distance past the foul line (home-polar): r * sin(delta) = clearance.
+        const float clearance = 7.5f; // thin strip only — beige becomes seats
+        float delta = std::max(absA - fa, 0.025f);
+        float rAlong = clearance / std::sin(delta);
+        float foulPoleR = wallRAtAngle(ang >= 0.0f ? fa : -fa) + 1.6f;
+        // Near the foul pole, join the OF seating line.
+        if (delta < 0.40f) {
+            float t = delta / 0.40f;
+            t = t * t * (3.0f - 2.0f * t);
+            r = foulPoleR * (1.0f - t) + std::min(rAlong, foulPoleR) * t;
+        } else {
+            r = rAlong;
+        }
+        // Behind home: keep a tight straight-ish first row.
+        r = std::clamp(r, 15.0f, foulPoleR);
     }
     if (closedDome) {
-        r = clampRadiusInDome(ang, r, 10.0f);
+        r = clampRadiusInDome(ang, r, 12.0f);
     }
     return r;
 }
