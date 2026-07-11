@@ -579,8 +579,8 @@ Mesh3D buildField(const Layout& L) {
     {
         const float lineDirtHw = 0.85f;
         const float lineDirtY = 0.021f;
-        float foulLen = L.wallRAtAngle(aR) * 0.42f; // past diamond into OF
-        foulLen = std::max(foulLen, bp * 1.6f);
+        // Short dirt aprons only — long strips wash out the plate-cam with brown.
+        float foulLen = bp * 1.35f;
         Vector3 flEnd = L.fromHome(foulLen, aL, 0.0f);
         Vector3 frEnd = L.fromHome(foulLen, aR, 0.0f);
         addDirtPath(m, home, flEnd, lineDirtHw, lineDirtY, shadeColor(dirt, 0.96f));
@@ -1143,15 +1143,23 @@ Mesh3D buildWalls(const Layout& L) {
 
 Mesh3D buildScoreboardScreen(const Layout& L) {
     Mesh3D m;
+    // Dark CF videoboard face (no logos) — plate-cam silhouette.
     float cfR = L.wallRAtAngle(0.0f);
     float cfH = L.wallHeightAtAngle(0.0f);
-    Vector3 cf = L.fromHome(cfR + 8.0f, 0.0f, cfH + 10.0f);
-    // Bright face slightly in front of chassis toward home (+Z from CF wall is toward plate).
-    addBox(m, cf + Vector3(0, 0, 1.65f), 28.0f, 12.0f, 0.35f, sf::Color(30, 140, 70));
-    // Fake "HR" panel blocks
-    addBox(m, cf + Vector3(-8.0f, 2.0f, 1.9f), 8.0f, 3.5f, 0.2f, sf::Color(255, 220, 60));
-    addBox(m, cf + Vector3(8.0f, 2.0f, 1.9f), 8.0f, 3.5f, 0.2f, sf::Color(255, 255, 255));
-    addBox(m, cf + Vector3(0.0f, -2.5f, 1.9f), 22.0f, 2.2f, 0.2f, sf::Color(40, 200, 90));
+    float rBoard = std::min(cfR + 9.0f, L.maxRadiusFromHome(0.0f) - 22.0f);
+    Vector3 cf = L.fromHome(rBoard, 0.0f, cfH + 13.5f);
+    addBox(m, cf + Vector3(0, 0, -1.4f), 46.0f, 14.0f, 0.45f, sf::Color(18, 36, 68));
+    // Soft panel grid (abstract, not branding).
+    for (int col = -5; col <= 5; col++) {
+        for (int row = -2; row <= 2; row++) {
+            addBox(
+                m,
+                cf + Vector3(static_cast<float>(col) * 3.7f, static_cast<float>(row) * 2.3f, -1.6f),
+                3.1f, 1.9f, 0.12f,
+                sf::Color(28, 58, 105)
+            );
+        }
+    }
     m.rebuildNormals();
     return m;
 }
@@ -1223,16 +1231,17 @@ Mesh3D buildStands(const Layout& L) {
     sf::Color rail(200, 205, 210);
 
     // Three floors: field (100s) / mid (200s) / upper (500s).
-    const int angSegs = 128;
-    const int rows0 = 18;
-    const int rows1 = 12;
-    const int rows2 = 14;
-    const float dRow = 1.72f;
-    const float rise0 = 0.72f;
-    const float rise1 = 0.80f;
-    const float rise2 = 0.88f;
-    const float gap01 = 2.6f;
-    const float gap12 = 3.0f;
+    // Tall, dense rows so plate-cam sees walls of navy seats left/right.
+    const int angSegs = 140;
+    const int rows0 = 26;
+    const int rows1 = 16;
+    const int rows2 = 18;
+    const float dRow = 1.55f;
+    const float rise0 = 0.95f;
+    const float rise1 = 1.05f;
+    const float rise2 = 1.12f;
+    const float gap01 = 3.2f;
+    const float gap12 = 3.6f;
 
     for (int i = 0; i < angSegs; i++) {
         float t0 = static_cast<float>(i) / angSegs;
@@ -2005,7 +2014,8 @@ Vector3 Layout::parkCenter() const {
 Vector3 Layout::scoreboardCenter() const {
     float cfR = wallRAtAngle(0.0f);
     float cfH = wallHeightAtAngle(0.0f);
-    return fromHome(cfR + 8.0f, 0.0f, cfH + 10.0f);
+    float rBoard = std::min(cfR + 9.0f, maxRadiusFromHome(0.0f) - 22.0f);
+    return fromHome(rBoard, 0.0f, cfH + 13.5f);
 }
 
 void Layout::polarFromHome(const Vector3& worldPos, float& radiusOut, float& angleRadOut) const {
@@ -2024,7 +2034,8 @@ float Layout::radiusFromHome(const Vector3& worldPos) const {
 }
 
 float Layout::bowlInnerRadius(float ang) const {
-    // First row of seats — just past the fence, always INSIDE the circular shell.
+    // First seat row: tight wrap so plate-cam sees a full Rogers bowl
+    // (not a thin ring past a huge empty apron).
     while (ang > pi) {
         ang -= 2.0f * pi;
     }
@@ -2037,32 +2048,35 @@ float Layout::bowlInnerRadius(float ang) const {
 
     float r = 0.0f;
     if (absA <= fa + 0.02f) {
-        r = wallRAtAngle(ang) + 2.5f;
+        // Fair OF: seats immediately outside the fence.
+        r = wallRAtAngle(ang) + 1.8f;
     } else {
-        float foulPoleR = wallRAtAngle(ang >= 0.0f ? fa : -fa) + 2.5f;
-        float diamondScale = foulPoleR * 1.08f;
-        float c = std::abs(std::cos(ang));
-        float s = std::abs(std::sin(ang));
-        float diamondR = diamondScale / std::max(c + s, 0.35f);
-        float sideClear = bp * 1.0f + 18.0f;
-        float backClear = 22.0f;
+        // Foul: seat first row hugs the dirt — close near diamond, opens to poles.
+        float foulPoleR = wallRAtAngle(ang >= 0.0f ? fa : -fa) + 1.8f;
+        // Near home / dugout: first seats only ~20–28 units past home.
+        float nearHome = 24.0f + bp * 0.15f; // ~50 ft from home into foul
+        // Blend home-side tight wrap → foul-pole fence line.
         float u = std::clamp((absA - fa) / std::max(pi - fa, 0.01f), 0.0f, 1.0f);
         float uSm = u * u * (3.0f - 2.0f * u);
-        r = foulPoleR + (diamondR - foulPoleR) * uSm;
+        // Sides (±90°) stay relatively tight so plate view sees walls of seats.
+        float sideTight = bp * 0.72f + 14.0f; // just outside 1B/3B
         float sideW = std::clamp(std::sin(absA), 0.0f, 1.0f);
-        float backW = std::clamp((-std::cos(ang) + 0.15f) / 1.15f, 0.0f, 1.0f);
-        r = std::max(r, sideClear * sideW + foulPoleR * (1.0f - sideW) * 0.35f);
-        r = std::max(r, backClear * backW + r * (1.0f - backW));
-        r = std::max(r, foulPoleR * 0.92f);
+        float backW = std::clamp((-std::cos(ang) + 0.2f) / 1.2f, 0.0f, 1.0f);
+        r = nearHome + (foulPoleR - nearHome) * uSm;
+        r = std::min(r, sideTight * sideW + foulPoleR * (1.0f - sideW));
+        // Behind home: tighter backstop seating.
+        float backR = 16.0f + backW * 6.0f;
+        r = std::min(r, backR * backW + r * (1.0f - backW));
+        r = std::max(r, nearHome);
     }
-    // Hard clamp: seating never pierces the circular Rogers shell.
     if (closedDome) {
-        r = std::min(r, maxRadiusFromHome(ang) - 18.0f);
+        r = std::min(r, maxRadiusFromHome(ang) - 22.0f);
     }
     return r;
 }
 
 float Layout::bowlBaseHeight(float ang) const {
+    // Lower bowl starts at wall height in fair; low apron in foul (tight wrap).
     float fa = foulAngleRad();
     while (ang > pi) {
         ang -= 2.0f * pi;
@@ -2071,11 +2085,11 @@ float Layout::bowlBaseHeight(float ang) const {
         ang += 2.0f * pi;
     }
     if (std::abs(ang) <= fa + 0.05f) {
-        return wallHeightAtAngle(ang) + 0.5f;
+        return wallHeightAtAngle(ang) + 0.35f;
     }
     float u = std::clamp((std::abs(ang) - fa) / (pi - fa), 0.0f, 1.0f);
     float u2 = u * u * (3.0f - 2.0f * u);
-    return 2.0f + u2 * 4.5f;
+    return 1.0f + u2 * 3.2f;
 }
 
 namespace {

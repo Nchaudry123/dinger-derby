@@ -27,10 +27,10 @@ inline sf::Color grassColor() { return sf::Color(48, 140, 58); }
 inline sf::Color grassDarkColor() { return sf::Color(36, 112, 48); }
 inline sf::Color dirtColor() { return sf::Color(188, 118, 62); }
 inline sf::Color warningTrackColor() { return sf::Color(160, 105, 58); }
-// Indoor clear / void outside the shell.
-inline sf::Color skyColor() { return sf::Color(18, 24, 34); }
-inline sf::Color skyZenithColor() { return sf::Color(40, 70, 110); }
-inline sf::Color groundClearColor() { return sf::Color(18, 24, 34); }
+// Clear color: soft daylight blue peeks through roof apex (photo open lattice).
+inline sf::Color skyColor() { return sf::Color(120, 165, 210); }
+inline sf::Color skyZenithColor() { return sf::Color(70, 130, 190); }
+inline sf::Color groundClearColor() { return sf::Color(22, 30, 40); }
 inline sf::Color domePanelColor() { return sf::Color(215, 222, 232); }
 inline sf::Color domeRibColor() { return sf::Color(48, 58, 72); }
 // Deep navy seating (photo: dark blue bowl, not bright royal).
