@@ -1530,6 +1530,30 @@ int main() {
     AnimationClip batterStanceClip = BaseballAnims::batterStance(batterModel);
     AnimationClip batterSwingClip = BaseballAnims::batterSwing(batterModel);
 
+    // Catcher behind the plate — receives pitches on takes / whiffs.
+    SkinnedModel3D catcherModel = loadCharacterOrProcedural("catcher", true, 2);
+    AnimationClip catcherIdleClip;
+    if (const AnimationClip* c = catcherModel.findClip("catcher_idle")) {
+        catcherIdleClip = *c;
+    } else if (const AnimationClip* c = catcherModel.findClip("crouch")) {
+        catcherIdleClip = *c;
+    } else if (const AnimationClip* c = catcherModel.findClip("idle")) {
+        catcherIdleClip = *c;
+    } else {
+        catcherIdleClip = BaseballAnims::catcherIdle(catcherModel);
+    }
+    AnimationClip catcherReceiveClip = catcherIdleClip;
+    if (const AnimationClip* c = catcherModel.findClip("receive")) {
+        catcherReceiveClip = *c;
+    }
+    const float catcherWorldX = 0.0f;
+    const float catcherWorldZ = plateZ + 1.05f;
+    auto catcherWorldTransform = [&]() {
+        // Face mound (−Z): model +Z → world −Z via rotY(π).
+        return Matrix4::translation(Vector3(catcherWorldX, 0.0f, catcherWorldZ)) *
+               Matrix4::rotationY(pi);
+    };
+
     SkeletonAnimator pitcherAnim;
     pitcherAnim.setModel(pitcherModel);
     pitcherAnim.applyClip(idleClip, 0.0f, true);
@@ -1539,6 +1563,11 @@ int main() {
     batterAnim.setModel(batterModel);
     batterAnim.applyClip(batterStanceClip, 0.0f, true);
     Mesh3D batterMesh = batterModel.skinToMesh(batterAnim.skinMatrices());
+
+    SkeletonAnimator catcherAnim;
+    catcherAnim.setModel(catcherModel);
+    catcherAnim.applyClip(catcherIdleClip, 0.0f, true);
+    Mesh3D catcherMesh = catcherModel.skinToMesh(catcherAnim.skinMatrices());
 
     BatConfig batCfg;
     AimReticle reticle;
@@ -1555,6 +1584,7 @@ int main() {
     bool useGL = gl.initialize(window);
     GlMesh glPitcher;
     GlMesh glBatter;
+    GlMesh glCatcher;
     GlMesh glBall;
     GlMesh glBat;
     GlMesh glStadiumField;
@@ -1572,6 +1602,7 @@ int main() {
     if (useGL) {
         glPitcher.upload(pitcherMesh);
         glBatter.upload(batterMesh);
+        glCatcher.upload(catcherMesh);
         glBall.upload(baseballMesh);
         glBat.upload(batMesh);
         glStadiumField.upload(stadiumMeshes.field);
@@ -1808,6 +1839,70 @@ int main() {
     bool pitchResolved = false;
     bool landingLogged = false;
     bool ballSettled = false; // true once batted ball sticks on the ground
+    bool ballCaught = false;  // catcher secured the pitch (take / whiff)
+    float catcherReceiveAge = -1.0f;
+
+    // Catcher mitt pocket in model space → world (glove is typically lead/left hand).
+    auto catcherGloveWorld = [&]() {
+        Matrix4 cx = catcherWorldTransform();
+        int palmL = catcherModel.findJoint("Palm_L");
+        int palmR = catcherModel.findJoint("Palm_R");
+        int wristL = catcherModel.findJoint("Wrist_L");
+        Vector3 local(0.12f, 0.95f, 0.35f); // crouch mitt default
+        if (palmL >= 0) {
+            local = catcherAnim.jointWorldPosition(palmL);
+        } else if (palmR >= 0) {
+            local = catcherAnim.jointWorldPosition(palmR);
+        } else if (wristL >= 0) {
+            local = catcherAnim.jointWorldPosition(wristL);
+        }
+        Vector3 g = cx.transformPoint(local);
+        // Pocket slightly toward plate / pitcher so the ball seats in front of the body.
+        g.z = std::min(g.z, plateZ + 0.72f);
+        g.y = clampf(g.y, 0.55f, 1.65f);
+        return g;
+    };
+
+    // Keep knob in the palms; barrel follows the kinematic swing path.
+    auto lockBatToHands = [&](bool drivingSwing) {
+        Vector3 palmLocal = batterAnim.jointWorldPosition("Palm_R");
+        Vector3 palmLLocal = batterAnim.jointWorldPosition("Palm_L");
+        Vector3 wristR = batterAnim.jointWorldPosition("Wrist_R");
+        constexpr float kBatterBoxX = -1.05f;
+        constexpr float kBatterBoxZ = plateZ - 0.28f;
+        Matrix4 batterXform =
+            Matrix4::translation(Vector3(kBatterBoxX, 0.0f, kBatterBoxZ)) * Matrix4::rotationY(pi);
+        Vector3 palmW = batterXform.transformPoint(palmLocal);
+        Vector3 palmLW = batterXform.transformPoint(palmLLocal);
+        Vector3 wristW = batterXform.transformPoint(wristR);
+        Vector3 gripMid = palmW * 0.58f + palmLW * 0.42f;
+        gripMid = gripMid * 0.70f + wristW * 0.30f;
+
+        if (drivingSwing) {
+            // Preserve intended sweet-spot target from the swing curve, re-aim from grip.
+            Vector3 sweetTarget = bat.hands + bat.axis * batCfg.sweetFromKnob;
+            bat.hands = gripMid;
+            bat.axis = safeNorm(sweetTarget - gripMid, bat.axis);
+            // Keep a little tip-forward so the face squares the pitch.
+            if (bat.axis.z > -0.05f) {
+                bat.axis = safeNorm(bat.axis + Vector3(0, 0, -0.12f), bat.axis);
+            }
+        } else {
+            float ang = reticle.plateAngleDisplay;
+            Vector3 tipDir = safeNorm(
+                Vector3(
+                    0.22f + 0.28f * std::cos(ang),
+                    0.86f + 0.10f * std::sin(ang),
+                    0.12f - 0.06f * std::abs(ang)
+                ),
+                Vector3(0.25f, 0.92f, 0.12f)
+            );
+            bat.hands = gripMid - tipDir * 0.05f;
+            bat.axis = safeNorm(lastGripAxis * 0.40f + tipDir * 0.60f, tipDir);
+            lastGripHands = bat.hands;
+            lastGripAxis = bat.axis;
+        }
+    };
     bool wallResolved = false; // live fence cross handled this flight
     bool swingConsumed = false; // derby: one swing budget spent this pitch
     float flightAge = 0.0f; // seconds since contact (failsafe settle)
@@ -2121,9 +2216,12 @@ int main() {
         pitchResolved = false;
         landingLogged = false;
         ballSettled = false;
+        ballCaught = false;
+        catcherReceiveAge = -1.0f;
         wallResolved = false;
         swingConsumed = false;
         flightAge = 0.0f;
+        catcherAnim.applyClip(catcherIdleClip, 0.0f, true);
         hrBannerTimer = 0.0f;
         prevBallZ = hand0.z;
         prevBallR = 0.0f;
@@ -2472,7 +2570,7 @@ int main() {
         }
 
         // Reticle: mouse aims the yellow silhouette (never swings).
-        // Tilt auto-follows PCI height. 3D bat: grip lock idle; path while swinging.
+        // Tilt auto-follows PCI height. Bat always locked to animated hands.
         if (!bat.swinging() && !followBallCam) {
             sf::Vector2i mp = sf::Mouse::getPosition(window);
             reticle.pci = mouseToPci(
@@ -2483,12 +2581,17 @@ int main() {
                 static_cast<float>(window.getSize().y)
             );
             updateReticleAngle(reticle, dt);
-            // Contact keys locked to reticle; load pose ready for Space/LMB.
+            // Contact keys locked to reticle (for swing bake); grip uses hands below.
             orientBatFromReticle(bat, reticle, batCfg);
             bakeSwingKeys(bat);
-            sampleSwingPose(bat, 0.0f, bat.hands, bat.axis);
         } else if (bat.swinging()) {
             updateSwing(bat, prof, dt);
+            // Drive body swing first so palms match bat.swingT, then stick the bat.
+            float st = clampf(bat.swingT, 0.0f, 1.0f);
+            if (batterSwingClip.duration > 0.0f) {
+                batterAnim.applyClipNormalized(batterSwingClip, st);
+            }
+            lockBatToHands(true);
         }
 
         // Flight + bat contact + at-bat resolution
@@ -2980,8 +3083,53 @@ int main() {
                     plateCrossPos.z = plateZ;
                     (void)t;
                 }
-                // Past the plate → resolve take / whiff.
-                if (!pitchResolved && baseball.position.z > plateZ + 0.55f) {
+                // Catcher snags takes / whiffs — ball sticks in the mitt.
+                if (!hasHit && !ballCaught && ballReleased) {
+                    Vector3 glove = catcherGloveWorld();
+                    // Soft steer into the pocket as the ball reaches the plate.
+                    if (baseball.position.z > plateZ - 2.2f && baseball.velocity.z > 0.0f) {
+                        Vector3 toG = glove - baseball.position;
+                        float dist = toG.magnitude();
+                        if (dist > 1e-4f && dist < 2.8f) {
+                            float pull = clampf(0.35f + 0.55f * (1.0f - dist / 2.8f), 0.2f, 0.9f);
+                            baseball.velocity = baseball.velocity * (1.0f - pull * 0.45f) +
+                                                toG * (1.0f / dist) *
+                                                    (baseball.velocity.magnitude() * pull * 0.55f);
+                        }
+                    }
+                    float dGlove = (baseball.position - glove).magnitude();
+                    bool atPlate =
+                        baseball.position.z >= plateZ - 0.15f && baseball.position.z < plateZ + 1.6f;
+                    bool nearMitt = dGlove < 0.55f || baseball.position.z >= plateZ + 0.35f;
+                    if (atPlate && nearMitt) {
+                        ballCaught = true;
+                        catcherReceiveAge = 0.0f;
+                        baseball.position = glove;
+                        baseball.velocity = Vector3();
+                        baseball.angularVelocity = Vector3();
+                        baseball.acceleration = Vector3();
+                        if (!pitchResolved) {
+                            if (swungThisPitch || bat.swinging()) {
+                                resolvePitch("SWINGING_STRIKE");
+                            } else {
+                                bool inZone =
+                                    std::abs(plateCrossPos.x - strikeZoneCenter.x) <=
+                                        strikeZoneHalfWidth &&
+                                    std::abs(plateCrossPos.y - strikeZoneCenter.y) <=
+                                        strikeZoneHalfHeight;
+                                resolvePitch(inZone ? "CALLED_STRIKE" : "BALL");
+                            }
+                        }
+                    }
+                }
+                if (ballCaught) {
+                    baseball.position = catcherGloveWorld();
+                    baseball.velocity = Vector3();
+                    baseball.angularVelocity = Vector3();
+                    baseball.acceleration = Vector3();
+                }
+                // Past the plate without a catch (rare) → still resolve take / whiff.
+                if (!pitchResolved && !ballCaught && baseball.position.z > plateZ + 0.85f) {
                     if (swungThisPitch || bat.swinging()) {
                         resolvePitch("SWINGING_STRIKE");
                     } else {
@@ -2992,7 +3140,7 @@ int main() {
                     }
                 }
                 // Dirt ball short of a clean hit.
-                if (!pitchResolved && baseball.position.y < 0.12f &&
+                if (!pitchResolved && !ballCaught && baseball.position.y < 0.12f &&
                     baseball.position.z > plateZ - 2.0f) {
                     if (swungThisPitch || bat.swinging()) {
                         resolvePitch("SWINGING_STRIKE");
@@ -3119,73 +3267,52 @@ int main() {
             // (beginPitch already snaps catcher view)
         }
 
-        // Skin pitcher + plate batter.
-        // Idle→swing: first ~12% of swing eases out of stance so the cut isn't a pop.
+        // Skin pitcher + plate batter + catcher.
         if (bat.swinging() && batterSwingClip.duration > 0.0f) {
+            // Already applied for grip lock above; re-apply for consistent draw.
             float st = clampf(bat.swingT, 0.0f, 1.0f);
-            if (st < 0.12f && batterStanceClip.duration > 0.0f) {
-                // Blend: apply stance then swing overwrites with same pose clock start.
-                // SkeletonAnimator is full replace per apply — approximate by
-                // delaying swing pose until load has moved (use eased swingT).
-                float u = st / 0.12f;
-                u = u * u * (3.0f - 2.0f * u); // smoothstep
-                float eased = u * 0.12f;
-                batterAnim.applyClipNormalized(batterSwingClip, eased);
-            } else {
-                batterAnim.applyClipNormalized(batterSwingClip, st);
-            }
+            batterAnim.applyClipNormalized(batterSwingClip, st);
+            lockBatToHands(true);
         } else {
             batterAnim.applyClip(batterStanceClip, poseClock, true);
+            lockBatToHands(false);
+        }
+        // Catcher: idle crouch, or receive when ball is past the plate / caught.
+        if (ballCaught || catcherReceiveAge >= 0.0f) {
+            if (catcherReceiveAge < 0.0f) {
+                catcherReceiveAge = 0.0f;
+            }
+            catcherReceiveAge += dt;
+            float rt = clampf(catcherReceiveAge / 0.55f, 0.0f, 1.0f);
+            if (catcherReceiveClip.duration > 0.0f) {
+                catcherAnim.applyClipNormalized(catcherReceiveClip, rt);
+            } else {
+                catcherAnim.applyClip(catcherIdleClip, poseClock, true);
+            }
+        } else {
+            catcherAnim.applyClip(catcherIdleClip, poseClock, true);
         }
         rebuildTimer += dt;
         if (rebuildTimer >= 1.0f / 60.0f) {
             rebuildTimer = 0.0f;
             pitcherModel.skinInto(pitcherAnim.skinMatrices(), pitcherMesh);
             batterModel.skinInto(batterAnim.skinMatrices(), batterMesh);
+            catcherModel.skinInto(catcherAnim.skinMatrices(), catcherMesh);
             if (useGL) {
                 glPitcher.updatePositionsNormals(pitcherMesh);
                 glBatter.updatePositionsNormals(batterMesh);
+                glCatcher.updatePositionsNormals(catcherMesh);
             }
         }
 
         Matrix4 pitcherXform = pitcherWorldTransform();
         // RHB stands in the 3B-side batter's box (stadium chalk at x≈-1.65).
-        // 1B/RF = +X, 3B = -X. Inner half of the box, next to the plate —
-        // not out in foul dirt and not inside the strike-zone volume.
-        // Box center (-1.65, plateZ-0.35), half-size 1.0 × 1.5.
         constexpr float kBatterBoxX = -1.05f;
         constexpr float kBatterBoxZ = plateZ - 0.28f;
         Matrix4 batterXform =
             Matrix4::translation(Vector3(kBatterBoxX, 0.0f, kBatterBoxZ)) *
             Matrix4::rotationY(pi); // model +Z faces mound (-Z)
-
-        // Bat–hand lockup: classic high-tip stance (barrel ~45–60° overhead /
-        // behind the head). Reticle tilt still biases tip direction so aim reads.
-        if (!bat.swinging()) {
-            Vector3 palmLocal = batterAnim.jointWorldPosition("Palm_R");
-            Vector3 palmLLocal = batterAnim.jointWorldPosition("Palm_L");
-            Vector3 wristR = batterAnim.jointWorldPosition("Wrist_R");
-            Vector3 palmW = batterXform.transformPoint(palmLocal);
-            Vector3 palmLW = batterXform.transformPoint(palmLLocal);
-            Vector3 wristW = batterXform.transformPoint(wristR);
-            Vector3 gripMid = palmW * 0.58f + palmLW * 0.42f;
-            gripMid = gripMid * 0.70f + wristW * 0.30f;
-            float ang = reticle.plateAngleDisplay;
-            // Strong tip-up (overhead) + small horizontal bias from PCI height.
-            // y dominant = bat tip high behind head, not flat across the zone.
-            Vector3 tipDir = safeNorm(
-                Vector3(
-                    0.22f + 0.28f * std::cos(ang),
-                    0.86f + 0.10f * std::sin(ang),
-                    0.12f - 0.06f * std::abs(ang)
-                ),
-                Vector3(0.25f, 0.92f, 0.12f)
-            );
-            bat.hands = gripMid - tipDir * 0.05f;
-            bat.axis = safeNorm(lastGripAxis * 0.40f + tipDir * 0.60f, tipDir);
-            lastGripHands = bat.hands;
-            lastGripAxis = bat.axis;
-        }
+        Matrix4 catcherXform = catcherWorldTransform();
 
         const float ballDrawR = baseballRadius * baseballVisualScale;
         Matrix4 ballXform =
@@ -3238,6 +3365,11 @@ int main() {
                 );
             }
             gl.drawMesh(glPitcher, pitcherXform);
+            // Draw catcher unless pure chase cam (keeps plate view readable over-shoulder).
+            if (!followBallCam || broadcastCam == BroadcastCam::Plate ||
+                broadcastCam == BroadcastCam::ReturnPlate) {
+                gl.drawMesh(glCatcher, catcherXform);
+            }
             if (!followBallCam || broadcastCam == BroadcastCam::Plate) {
                 gl.drawMesh(glBatter, batterXform);
             }
@@ -3250,6 +3382,7 @@ int main() {
             frameBuffer.clear(sf::Color(5, 8, 14));
             frameBuffer.clearDepth(std::numeric_limits<float>::infinity());
             RasterMeshRenderCache stadiumCache;
+            RasterMeshRenderCache catcherCache;
             rasterizeMeshTriangles(
                 frameBuffer, camera, stadiumMeshes.field, stadiumXform,
                 sf::Color(40, 100, 50), stadiumCache
@@ -3257,6 +3390,9 @@ int main() {
             if (!followBallCam) {
                 rasterizeMeshTriangles(
                     frameBuffer, camera, pitcherMesh, pitcherXform, sf::Color(230, 230, 235), pitcherCache
+                );
+                rasterizeMeshTriangles(
+                    frameBuffer, camera, catcherMesh, catcherXform, sf::Color(40, 50, 90), catcherCache
                 );
                 rasterizeMeshTriangles(
                     frameBuffer, camera, batterMesh, batterXform, sf::Color(220, 200, 180), batterCache
