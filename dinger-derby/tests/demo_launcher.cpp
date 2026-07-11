@@ -977,7 +977,7 @@ int main(int argc, char** argv) {
                 "5. 1 / 2 / 3 = Easy / Normal / Hard\n"
                 "6. Clear the wall for HRs — career bests save here\n"
                 "\n"
-                "Settings (in game):  -/=  SFX volume   ,/.  crowd bed\n"
+                "Settings (in game):  -/=  bat crack volume\n"
                 "H toggles this help. Esc closes help, then quits.",
                 15, {px + 32, py + 70}, colText
             );

@@ -1503,8 +1503,7 @@ int main() {
     derbyDiff = static_cast<DerbyDiff>(std::clamp(settings.derbyDiff, 0, 2));
     kDerbySwings = derbySwingsFor(derbyDiff);
     derby.swingsLeft = kDerbySwings;
-    sfx.setMasterVolumes(settings.sfxVolume, settings.musicVolume);
-    sfx.startParkBed();
+    sfx.setMasterVolumes(settings.sfxVolume, 0.0f);
     bool showHelp = settings.showHelpOnLaunch;
     bool careerSavedThisRound = false;
     std::string careerFlash; // short "NEW BEST" toast
@@ -2035,19 +2034,11 @@ int main() {
                     showHelp = !showHelp;
                 } else if (key->code == K::Equal || key->code == K::Add) {
                     settings.sfxVolume = clampf(settings.sfxVolume + 0.08f, 0.0f, 1.0f);
-                    sfx.setMasterVolumes(settings.sfxVolume, settings.musicVolume);
+                    sfx.setMasterVolumes(settings.sfxVolume, 0.0f);
                     GameSettings::save(settings);
                 } else if (key->code == K::Hyphen || key->code == K::Subtract) {
                     settings.sfxVolume = clampf(settings.sfxVolume - 0.08f, 0.0f, 1.0f);
-                    sfx.setMasterVolumes(settings.sfxVolume, settings.musicVolume);
-                    GameSettings::save(settings);
-                } else if (key->code == K::Comma) {
-                    settings.musicVolume = clampf(settings.musicVolume - 0.08f, 0.0f, 1.0f);
-                    sfx.setMasterVolumes(settings.sfxVolume, settings.musicVolume);
-                    GameSettings::save(settings);
-                } else if (key->code == K::Period) {
-                    settings.musicVolume = clampf(settings.musicVolume + 0.08f, 0.0f, 1.0f);
-                    sfx.setMasterVolumes(settings.sfxVolume, settings.musicVolume);
+                    sfx.setMasterVolumes(settings.sfxVolume, 0.0f);
                     GameSettings::save(settings);
                 } else if (key->code == K::Space) {
                     // Swing only on press — reticle stays put; 3D bat animates.
@@ -2916,7 +2907,7 @@ int main() {
             }
             drawText(window, font, statusLine, 14, {22, 38}, statusCol);
             drawText(
-                window, font, "H help   -/= sfx   ,/. music", 12,
+                window, font, "H help   -/= bat crack volume", 12,
                 {22, 58}, sf::Color(140, 160, 150)
             );
 
@@ -2944,7 +2935,7 @@ int main() {
                     "1 2 3      Easy / Normal / Hard\n"
                     "D P L      Derby / Practice / Live\n"
                     "R          next pitch   N  new round\n"
-                    "- / =      SFX volume   , / .  crowd bed\n"
+                    "- / =      bat crack volume\n"
                     "H          toggle this help",
                     15, {px + 28, py + 56}, sf::Color(220, 235, 225)
                 );
