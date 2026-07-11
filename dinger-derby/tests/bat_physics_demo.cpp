@@ -2502,32 +2502,47 @@ int main() {
                     baseball.position.y =
                         std::max(baseball.position.y, baseball.radius + 0.01f);
                 } else {
-                    world.step(fixedStep);
+                    // Sub-step physics + park collision so rockets can't tunnel
+                    // through the fence, roof, hotel, or shell in one frame.
+                    const int kPhysSubs = hasHit ? 6 : 2;
+                    const float subDt = fixedStep / static_cast<float>(kPhysSubs);
                     const float floorY = baseball.radius + 0.01f;
-                    // Absolute floor before park collision (open bounds can micro-tunnel).
-                    if (baseball.position.y < floorY) {
-                        baseball.position.y = floorY;
-                        if (baseball.velocity.y < 0.0f) {
-                            baseball.velocity.y = 0.0f;
+                    Stadium3D::BallCollisionHit col;
+                    for (int si = 0; si < kPhysSubs; si++) {
+                        world.step(subDt);
+                        if (baseball.position.y < floorY) {
+                            baseball.position.y = floorY;
+                            if (baseball.velocity.y < 0.0f) {
+                                baseball.velocity.y = 0.0f;
+                            }
+                        }
+                        bool nearGroundStick = hasHit && baseball.position.y < 5.0f &&
+                            baseball.velocity.magnitude() < 24.0f;
+                        if (hasHit && baseball.position.y <= floorY + 0.18f &&
+                            baseball.velocity.y <= 2.5f) {
+                            nearGroundStick = true;
+                        }
+                        col = Stadium3D::collideBall(
+                            stadiumLayout,
+                            baseball.position,
+                            baseball.velocity,
+                            baseball.radius,
+                            nearGroundStick
+                        );
+                        // Extra resolve pass when still penetrating fast.
+                        if (hasHit && !col.stuck && baseball.velocity.magnitude() > 18.0f) {
+                            col = Stadium3D::collideBall(
+                                stadiumLayout,
+                                baseball.position,
+                                baseball.velocity,
+                                baseball.radius,
+                                nearGroundStick
+                            );
+                        }
+                        if (col.stuck) {
+                            break;
                         }
                     }
-                    // Stick near ground so HRs settle (chase cam + next pitch unfreeze).
-                    bool nearGroundStick = hasHit && baseball.position.y < 4.0f &&
-                        baseball.velocity.magnitude() < 22.0f;
-                    if (hasHit && baseball.position.y <= floorY + 0.15f &&
-                        baseball.velocity.y <= 2.0f) {
-                        nearGroundStick = true;
-                    }
-                    // Multi-pass resolve so high-EV rockets can't tunnel roof/fence.
-                    Stadium3D::BallCollisionHit col = Stadium3D::collideBallSubsteps(
-                        stadiumLayout,
-                        baseball.position,
-                        baseball.velocity,
-                        baseball.radius,
-                        nearGroundStick,
-                        5
-                    );
-                    // Hard floor after park resolves (scoreboard / stands soft-snaps).
                     if (baseball.position.y < floorY) {
                         baseball.position.y = floorY;
                         baseball.velocity = Vector3();
@@ -2535,6 +2550,28 @@ int main() {
                         if (col.surface == Stadium3D::HitSurface::None ||
                             col.surface == Stadium3D::HitSurface::FenceTopClear) {
                             col.surface = Stadium3D::HitSurface::Ground;
+                        }
+                    }
+                    // Absolute dome containment every frame.
+                    if (stadiumLayout.closedDome) {
+                        float rr = 0.0f, aa = 0.0f;
+                        stadiumLayout.polarFromHome(baseball.position, rr, aa);
+                        float shell = stadiumLayout.roofShellR() - baseball.radius - 0.02f;
+                        if (rr > shell) {
+                            Vector3 on =
+                                stadiumLayout.fromHome(shell, aa, baseball.position.y);
+                            baseball.position.x = on.x;
+                            baseball.position.z = on.z;
+                        }
+                        float roofY = stadiumLayout.domeRoofYAtRadius(
+                            std::min(rr, shell)
+                        );
+                        float maxY = roofY - baseball.radius - 0.02f;
+                        if (baseball.position.y > maxY) {
+                            baseball.position.y = maxY;
+                            if (baseball.velocity.y > 0.0f) {
+                                baseball.velocity.y = 0.0f;
+                            }
                         }
                     }
                     if (hasHit && !ballSettled) {

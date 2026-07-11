@@ -2387,23 +2387,15 @@ BallCollisionHit collideBallSubsteps(
     bool stickOnContact,
     int substeps
 ) {
+    // Multi-pass geometric resolve (pair with sub-stepped integration in the demo).
     substeps = std::clamp(substeps, 1, 12);
     BallCollisionHit last;
-    // Integrate with discrete substeps so high-speed rockets still hit roof/fence.
-    Vector3 start = position;
-    Vector3 vel = velocity;
-    // Caller has already advanced position for the full step; we re-collide
-    // by sweeping from previous? — Simple approach: just run collideBall
-    // multiple times with fractional velocity damping recovery is wrong.
-    // Instead: if already advanced, multi-pass resolve is enough.
     for (int i = 0; i < substeps; i++) {
         last = collideBall(layout, position, velocity, radius, stickOnContact);
         if (last.stuck) {
             break;
         }
     }
-    (void)start;
-    (void)vel;
     return last;
 }
 
