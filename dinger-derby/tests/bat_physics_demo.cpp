@@ -890,8 +890,8 @@ HitInfo tryHit(
 
 Mesh3D makeBatMesh(const BatConfig& cfg) {
     Mesh3D mesh;
-    const int slices = 12;
-    const int along = 18;
+    const int slices = 20;
+    const int along = 28;
     for (int i = 0; i <= along; i++) {
         float t = static_cast<float>(i) / along;
         float s = t * cfg.length;
@@ -1248,8 +1248,12 @@ int main() {
     float fovPunch = 0.0f; // barrel FOV kick on contact
 
     // Same assets as pitching sim
-    Mesh3D baseballMesh = BaseballVisual3D::makeMesh(48, 96);
+    Mesh3D baseballMesh = BaseballVisual3D::makeMesh(56, 112);
+    // Highest procedural detail (CharacterModel3D High); glTF overrides if present.
     SkinnedModel3D pitcherModel = loadCharacterOrProcedural("pitcher", false, 2);
+    // Batter silhouette at the plate for scale / product feel (faces mound / −Z).
+    SkinnedModel3D batterModel =
+        CharacterModel3D::build(CharacterModel3D::Role::Athlete, CharacterModel3D::Detail::High);
     AnimationClip deliveryClip;
     if (const AnimationClip* c = pitcherModel.findClip("throw_preview")) {
         deliveryClip = *c;
@@ -1264,11 +1268,24 @@ int main() {
     } else {
         idleClip = BaseballAnims::pitcherIdle(pitcherModel);
     }
+    AnimationClip batterIdleClip;
+    if (const AnimationClip* c = batterModel.findClip("idle")) {
+        batterIdleClip = *c;
+    } else if (const AnimationClip* c = batterModel.findClip("rest")) {
+        batterIdleClip = *c;
+    }
 
     SkeletonAnimator pitcherAnim;
     pitcherAnim.setModel(pitcherModel);
     pitcherAnim.applyClip(idleClip, 0.0f, true);
     Mesh3D pitcherMesh = pitcherModel.skinToMesh(pitcherAnim.skinMatrices());
+
+    SkeletonAnimator batterAnim;
+    batterAnim.setModel(batterModel);
+    if (batterIdleClip.duration > 0.0f) {
+        batterAnim.applyClip(batterIdleClip, 0.0f, true);
+    }
+    Mesh3D batterMesh = batterModel.skinToMesh(batterAnim.skinMatrices());
 
     BatConfig batCfg;
     AimReticle reticle;
@@ -1279,6 +1296,7 @@ int main() {
     GlRenderer gl;
     bool useGL = gl.initialize(window);
     GlMesh glPitcher;
+    GlMesh glBatter;
     GlMesh glBall;
     GlMesh glBat;
     GlMesh glStadiumField;
@@ -1295,6 +1313,7 @@ int main() {
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useGL) {
         glPitcher.upload(pitcherMesh);
+        glBatter.upload(batterMesh);
         glBall.upload(baseballMesh);
         glBat.upload(batMesh);
         glStadiumField.upload(stadiumMeshes.field);
@@ -1323,6 +1342,7 @@ int main() {
 
     FrameBuffer frameBuffer(window.getSize().x, window.getSize().y);
     RasterMeshRenderCache pitcherCache;
+    RasterMeshRenderCache batterCache;
     RasterMeshRenderCache ballCache;
     RasterMeshRenderCache batCache;
 
@@ -2340,17 +2360,26 @@ int main() {
             // (beginPitch already snaps catcher view)
         }
 
-        // Skin pitcher
+        // Skin pitcher + plate batter (idle)
+        if (batterIdleClip.duration > 0.0f) {
+            batterAnim.applyClip(batterIdleClip, poseClock, true);
+        }
         rebuildTimer += dt;
         if (rebuildTimer >= 1.0f / 60.0f) {
             rebuildTimer = 0.0f;
             pitcherModel.skinInto(pitcherAnim.skinMatrices(), pitcherMesh);
+            batterModel.skinInto(batterAnim.skinMatrices(), batterMesh);
             if (useGL) {
                 glPitcher.updatePositionsNormals(pitcherMesh);
+                glBatter.updatePositionsNormals(batterMesh);
             }
         }
 
         Matrix4 pitcherXform = pitcherWorldTransform();
+        // RHB-ish stance left of plate, facing mound (−Z).
+        Matrix4 batterXform =
+            Matrix4::translation(Vector3(-0.42f, 0.0f, plateZ + 0.05f)) *
+            Matrix4::rotationY(pi);
         const float ballDrawR = baseballRadius * baseballVisualScale;
         Matrix4 ballXform =
             Matrix4::translation(baseball.position) *
@@ -2428,8 +2457,11 @@ int main() {
                     Matrix4::translation(base) * Matrix4::rotationY(yaw);
                 gl.drawMesh(glStadiumFlags[i], flagX);
             }
-            // Always draw the mound pitcher (same model as pitching demo).
+            // Mound pitcher + plate batter silhouette for scale / product look.
             gl.drawMesh(glPitcher, pitcherXform);
+            if (!followBallCam || broadcastCam == BroadcastCam::Plate) {
+                gl.drawMesh(glBatter, batterXform);
+            }
             if (drawBatMesh) {
                 gl.drawMesh(glBat, batXform);
             }
@@ -2446,6 +2478,9 @@ int main() {
             if (!followBallCam) {
                 rasterizeMeshTriangles(
                     frameBuffer, camera, pitcherMesh, pitcherXform, sf::Color(230, 230, 235), pitcherCache
+                );
+                rasterizeMeshTriangles(
+                    frameBuffer, camera, batterMesh, batterXform, sf::Color(220, 200, 180), batterCache
                 );
             }
             if (drawBatMesh) {

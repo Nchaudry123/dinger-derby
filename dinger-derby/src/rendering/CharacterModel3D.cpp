@@ -24,14 +24,15 @@ const sf::Color kSkin(222, 175, 142);
 const sf::Color kSkinDeep(195, 148, 118);
 const sf::Color kSkinLight(235, 192, 162);
 const sf::Color kSkinShadow(175, 132, 105);
-const sf::Color kJersey(248, 250, 252);
-const sf::Color kJerseyDeep(208, 214, 224);
-const sf::Color kPants(40, 48, 64);
-const sf::Color kPantsDeep(30, 36, 50);
-const sf::Color kPantsLight(56, 66, 84);
-const sf::Color kCap(22, 38, 86);
-const sf::Color kCapDeep(14, 26, 66);
-const sf::Color kAccent(188, 34, 42);
+// Home whites with subtle blue-grey shadow so lit jersey reads cleaner outdoors.
+const sf::Color kJersey(252, 253, 255);
+const sf::Color kJerseyDeep(200, 208, 222);
+const sf::Color kPants(36, 44, 62);
+const sf::Color kPantsDeep(26, 32, 46);
+const sf::Color kPantsLight(52, 62, 82);
+const sf::Color kCap(16, 32, 78);
+const sf::Color kCapDeep(10, 20, 54);
+const sf::Color kAccent(210, 28, 42);
 const sf::Color kCleat(26, 26, 32);
 const sf::Color kSole(42, 42, 48);
 const sf::Color kMitt(158, 106, 66);
@@ -1009,8 +1010,9 @@ void attachClips(SkinnedModel3D& m, Role role) {
 SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     SkinnedModel3D m;
     int d = static_cast<int>(detailLevel);
-    int rings = d >= 2 ? 16 : (d >= 1 ? 11 : 8);
-    int segs = d >= 2 ? 18 : (d >= 1 ? 14 : 10);
+    // Higher default mesh density for product demos (still lightweight vs glTF).
+    int rings = d >= 2 ? 22 : (d >= 1 ? 14 : 8);
+    int segs = d >= 2 ? 24 : (d >= 1 ? 16 : 10);
     int hr = d >= 2 ? 11 : 8;
     int hs = d >= 2 ? 16 : 12;
 
