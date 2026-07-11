@@ -3538,89 +3538,148 @@ int main() {
             const bool chasing = followBallCam || broadcastCam == BroadcastCam::Chase ||
                 broadcastCam == BroadcastCam::HoldLand ||
                 broadcastCam == BroadcastCam::ReturnPlate;
-            // Compact title + one status line (no duplicated count spam).
-            sf::Color titleCol = playMode == PlayMode::Derby ? sf::Color(255, 220, 80)
-                : (playMode == PlayMode::Practice ? sf::Color(120, 255, 160) : sf::Color(240, 245, 240));
-            std::string title = modeTitle();
-            if (playMode == PlayMode::Derby) {
-                title += std::string("  ·  ") + derbyDiffName(derbyDiff);
+
+            // ── Top-left HUD card (structured, no free-floating spam) ──
+            const float pad = 14.0f;
+            const float cardX = 14.0f;
+            const float cardY = 12.0f;
+            const float cardW = 268.0f;
+            float cardH = 118.0f;
+            if (playMode == PlayMode::Derby && !chasing) {
+                cardH = godMode ? 168.0f : 148.0f;
+            } else if (godMode) {
+                cardH = 132.0f;
             }
-            // Show active swing type without a separate tilt panel.
-            title += std::string("  ·  ") + prof.name;
-            drawText(window, font, title, 20, {22, 12}, titleCol);
-            if (godMode) {
-                float pulse = 0.55f + 0.45f * std::sin(poseClock * 7.0f);
-                sf::Color gcol(
-                    255,
-                    static_cast<std::uint8_t>(60 + pulse * 80),
-                    static_cast<std::uint8_t>(200 + pulse * 40)
+            {
+                sf::RectangleShape card({cardW, cardH});
+                card.setPosition({cardX, cardY});
+                card.setFillColor(sf::Color(8, 14, 20, 210));
+                card.setOutlineColor(
+                    godMode ? sf::Color(220, 70, 200, 200) : sf::Color(70, 100, 130, 160)
                 );
-                drawText(
-                    window, font, "EASY MODE  ★  nuclear swing  ★  ↑↑↓↓←→←→ to toggle",
-                    13, {22, 58}, gcol
+                card.setOutlineThickness(godMode ? 1.8f : 1.2f);
+                window.draw(card);
+                // Accent bar
+                sf::RectangleShape accent({4.0f, cardH - 10.0f});
+                accent.setPosition({cardX + 5.0f, cardY + 5.0f});
+                accent.setFillColor(
+                    playMode == PlayMode::Derby ? sf::Color(255, 210, 70)
+                        : (playMode == PlayMode::Practice ? sf::Color(100, 220, 140)
+                                                          : sf::Color(180, 200, 220))
                 );
-            }
-            // Truncate long status so it doesn't cover the park.
-            std::string statusLine = status;
-            if (statusLine.size() > 72) {
-                statusLine = statusLine.substr(0, 71) + "...";
-            }
-            drawText(
-                window, font, statusLine, 14,
-                {22.0f, godMode ? 78.0f : 38.0f}, statusCol
-            );
-            if (godModeFlash > 0.0f) {
-                float a = clampf(godModeFlash / 3.2f, 0.0f, 1.0f);
-                drawText(
-                    window, font,
-                    godMode ? "★★  EASY MODE UNLOCKED  ★★" : "Easy mode disabled",
-                    22,
-                    {W * 0.5f - 160.0f, H * 0.42f},
-                    sf::Color(255, 100, 230, static_cast<std::uint8_t>(220 * a))
-                );
+                window.draw(accent);
             }
 
-            // Derby goal + career strip (product-facing).
+            float ty = cardY + 10.0f;
+            const float tx = cardX + pad + 4.0f;
+            sf::Color titleCol = playMode == PlayMode::Derby ? sf::Color(255, 220, 90)
+                : (playMode == PlayMode::Practice ? sf::Color(130, 240, 170)
+                                                  : sf::Color(230, 235, 240));
+            drawText(window, font, modeTitle(), 18, {tx, ty}, titleCol);
+            ty += 24.0f;
+
+            // Mode meta row
+            {
+                std::ostringstream meta;
+                if (playMode == PlayMode::Derby) {
+                    meta << derbyDiffName(derbyDiff) << "   ·   " << prof.name;
+                } else {
+                    meta << prof.name;
+                }
+                drawText(window, font, meta.str(), 12, {tx, ty}, sf::Color(160, 180, 195));
+                ty += 18.0f;
+            }
+
+            // Easy-mode badge (structured pill inside the card)
+            if (godMode) {
+                sf::RectangleShape pill({cardW - pad * 2.0f - 8.0f, 22.0f});
+                pill.setPosition({tx - 2.0f, ty - 2.0f});
+                float pulse = 0.55f + 0.45f * std::sin(poseClock * 6.5f);
+                pill.setFillColor(sf::Color(
+                    static_cast<std::uint8_t>(90 + pulse * 40),
+                    20,
+                    static_cast<std::uint8_t>(90 + pulse * 50),
+                    220
+                ));
+                pill.setOutlineColor(sf::Color(255, 120, 230, 220));
+                pill.setOutlineThickness(1.0f);
+                window.draw(pill);
+                drawText(
+                    window, font, "EASY MODE  ·  nuclear swing", 12, {tx + 6.0f, ty},
+                    sf::Color(255, 200, 245)
+                );
+                ty += 26.0f;
+            }
+
+            // Status (single truncated line)
+            {
+                std::string statusLine = status;
+                if (statusLine.size() > 34) {
+                    statusLine = statusLine.substr(0, 33) + "…";
+                }
+                drawText(window, font, statusLine, 12, {tx, ty}, statusCol);
+                ty += 18.0f;
+            }
+
+            // Derby stats block
             if (playMode == PlayMode::Derby && !chasing) {
-                const float stripY = godMode ? 100.0f : 58.0f;
                 std::ostringstream goal;
-                goal << "GOAL  " << derby.hrCount << " / " << sessionGoalHrs << " HR";
+                goal << "HR  " << derby.hrCount << " / " << sessionGoalHrs;
                 if (derby.goalMet) {
                     goal << "  ✓";
                 }
-                goal << "   ·   swings " << derby.swingsLeft << "/" << kDerbySwings;
+                goal << "     SW  " << derby.swingsLeft << "/" << kDerbySwings;
                 drawText(
-                    window, font, goal.str(), 14, {22, stripY},
-                    derby.goalMet ? sf::Color(120, 255, 170) : sf::Color(200, 220, 255)
+                    window, font, goal.str(), 13, {tx, ty},
+                    derby.goalMet ? sf::Color(120, 255, 170) : sf::Color(210, 230, 245)
                 );
+                ty += 18.0f;
                 std::ostringstream career;
-                career << "Career best  " << careerBests.mostHrsInRound << " HR";
+                career << "Best  " << careerBests.mostHrsInRound << " HR";
                 if (careerBests.longestHrFeet > 0.5f) {
                     career << "  ·  " << std::fixed << std::setprecision(0)
                            << careerBests.longestHrFeet << " ft";
                 }
-                if (careerBests.hardUnlocked) {
-                    career << "  ·  HARD unlocked";
-                }
+                drawText(window, font, career.str(), 11, {tx, ty}, sf::Color(140, 160, 170));
+                ty += 16.0f;
                 drawText(
-                    window, font, career.str(), 12, {22, stripY + 20.0f},
-                    sf::Color(150, 170, 165)
+                    window, font, "Rogers Centre  ·  dome closed", 11, {tx, ty},
+                    sf::Color(110, 145, 160)
                 );
-                // Rogers Centre dimensions.
+            } else if (!chasing) {
+                drawText(
+                    window, font, "H help   −/= volume", 11, {tx, ty},
+                    sf::Color(120, 140, 150)
+                );
+            }
+
+            // Easy-mode unlock toast (centered, short-lived)
+            if (godModeFlash > 0.0f) {
+                float a = clampf(godModeFlash / 3.2f, 0.0f, 1.0f);
+                const float tw = 320.0f;
+                const float th = 56.0f;
+                sf::RectangleShape toast({tw, th});
+                toast.setOrigin({tw * 0.5f, th * 0.5f});
+                toast.setPosition({W * 0.5f, H * 0.40f});
+                toast.setFillColor(sf::Color(16, 10, 22, static_cast<std::uint8_t>(220 * a)));
+                toast.setOutlineColor(
+                    sf::Color(255, 100, 220, static_cast<std::uint8_t>(230 * a))
+                );
+                toast.setOutlineThickness(1.6f);
+                window.draw(toast);
                 drawText(
                     window, font,
-                    "ROGERS CENTRE  LF/RF 328  ·  CF 400  ·  DOME CLOSED",
-                    12, {22, stripY + 40.0f},
-                    sf::Color(130, 175, 145)
+                    godMode ? "EASY MODE ON" : "EASY MODE OFF",
+                    20,
+                    {W * 0.5f - 78.0f, H * 0.40f - 18.0f},
+                    sf::Color(255, 160, 240, static_cast<std::uint8_t>(255 * a))
                 );
                 drawText(
-                    window, font, "H help   1/2/3 difficulty   -/= volume", 11,
-                    {22, 118}, sf::Color(120, 140, 135)
-                );
-            } else {
-                drawText(
-                    window, font, "H help   -/= bat crack volume", 12,
-                    {22, 58}, sf::Color(140, 160, 150)
+                    window, font,
+                    godMode ? "Nuclear swings  ·  guaranteed HRs" : "Back to standard contact",
+                    12,
+                    {W * 0.5f - 108.0f, H * 0.40f + 6.0f},
+                    sf::Color(210, 190, 220, static_cast<std::uint8_t>(230 * a))
                 );
             }
 
@@ -3663,9 +3722,9 @@ int main() {
                     "- / =      bat crack volume\n"
                     "\n"
                     "Session goal: hit the HR target before swings run out.\n"
-                    "Park: Rogers Centre dome · LF/RF 328 · CF 400 · closed roof\n"
+                    "Park: Rogers Centre (Toronto) · LF/RF 328 · CF 400 · dome\n"
                     "\n"
-                    "Secret: ↑↑↓↓←→←→  nuclear easy mode (guaranteed HRs)",
+                    "Easy mode:  ↑ ↑ ↓ ↓ ← → ← →   (toggle nuclear swings)",
                     14, {px + 28, py + 52}, sf::Color(220, 235, 225)
                 );
                 drawText(
