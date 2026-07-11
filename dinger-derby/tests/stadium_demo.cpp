@@ -310,8 +310,8 @@ int main() {
             const float gr = layout.domeHorizR() + 2.0f;
             gl.drawMesh(glSky, id); // outer roof ring + shell wall
             gl.drawMesh(glStructure, id);
-            // Solid park floor so no "missing ground" sky holes under seats.
-            gl.drawGround(gr, domeC.z - gr, domeC.z + gr, sf::Color(34, 110, 48));
+            // Concrete under-floor (not grass) — field mesh owns the diamond green.
+            gl.drawGround(gr, domeC.z - gr, domeC.z + gr, sf::Color(95, 98, 104));
             gl.drawMesh(glField, id);
             gl.drawMesh(glStands, id);
             gl.drawMesh(glWalls, id);

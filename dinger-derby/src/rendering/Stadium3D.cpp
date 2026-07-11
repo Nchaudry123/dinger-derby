@@ -451,12 +451,95 @@ Mesh3D buildField(const Layout& L) {
     const sf::Color track = warningTrackColor();
     const sf::Color apron(120, 115, 105); // concrete/walkway between fence and seats
 
-    // ── Continuous playable surface (full 360°) ────────────────────────
-    // Every angle has seamless grass from near home out to fence (fair) or
-    // bowl apron (foul). No radial gaps → no wrong-color ground bleeding.
-    for (int i = 0; i < ringSegs; i++) {
-        float t0 = static_cast<float>(i) / ringSegs;
-        float t1 = static_cast<float>(i + 1) / ringSegs;
+    // ── Fair-territory field only (classic diamond + OF pie) ───────────
+    // NOT a 360° heart/blob of grass. Foul territory is concrete apron.
+    // Fair angles only: home → wall between the foul lines.
+    const int fairSegs = 96;
+    for (int i = 0; i < fairSegs; i++) {
+        float t0 = static_cast<float>(i) / fairSegs;
+        float t1 = static_cast<float>(i + 1) / fairSegs;
+        float ang0 = aL + (aR - aL) * t0;
+        float ang1 = aL + (aR - aL) * t1;
+        float rFence0 = L.wallRAtAngle(ang0) - 0.2f;
+        float rFence1 = L.wallRAtAngle(ang1) - 0.2f;
+
+        // Fair grass pie: near home out to warning track.
+        const float trackW = 3.8f;
+        addQuad(
+            m,
+            L.fromHome(0.2f, ang0, 0.0f),
+            L.fromHome(0.2f, ang1, 0.0f),
+            L.fromHome(std::max(0.5f, rFence1 - trackW), ang1, 0.0f),
+            L.fromHome(std::max(0.5f, rFence0 - trackW), ang0, 0.0f),
+            grass
+        );
+
+        // Mowing stripes (OF only).
+        float stripeIn = bp * 1.30f;
+        for (int s = 0; s < 5; s++) {
+            float u0 = 0.42f + s * 0.09f;
+            float u1 = u0 + 0.045f;
+            float mid0 = std::max(stripeIn, rFence0 * u0);
+            float mid1 = std::max(stripeIn, rFence1 * u0);
+            float mid0b = std::min(rFence0 - trackW - 0.5f, rFence0 * u1);
+            float mid1b = std::min(rFence1 - trackW - 0.5f, rFence1 * u1);
+            if (mid0b <= mid0 + 0.4f) {
+                continue;
+            }
+            sf::Color stripe = (s % 2 == 0) ? grassDark : shadeColor(grass, 0.95f);
+            addQuad(
+                m,
+                L.fromHome(mid0, ang0, 0.012f + s * 0.001f),
+                L.fromHome(mid1, ang1, 0.012f + s * 0.001f),
+                L.fromHome(mid1b, ang1, 0.012f + s * 0.001f),
+                L.fromHome(mid0b, ang0, 0.012f + s * 0.001f),
+                stripe
+            );
+        }
+
+        // Warning track inside fence.
+        for (int b = 0; b < 3; b++) {
+            float u0 = static_cast<float>(b) / 3.0f;
+            float u1 = static_cast<float>(b + 1) / 3.0f;
+            float ri0 = rFence0 - trackW * (1.0f - u0);
+            float ro0 = rFence0 - trackW * (1.0f - u1);
+            float ri1 = rFence1 - trackW * (1.0f - u0);
+            float ro1 = rFence1 - trackW * (1.0f - u1);
+            sf::Color tc = shadeColor(track, (b % 2) ? 0.92f : 1.05f);
+            addQuad(
+                m,
+                L.fromHome(ri0, ang0, 0.018f + b * 0.001f),
+                L.fromHome(ri1, ang1, 0.018f + b * 0.001f),
+                L.fromHome(ro1, ang1, 0.018f + b * 0.001f),
+                L.fromHome(ro0, ang0, 0.018f + b * 0.001f),
+                tc
+            );
+        }
+
+        // Concrete apron: fence → first seat row (fair OF only).
+        float wall0 = L.wallRAtAngle(ang0);
+        float wall1 = L.wallRAtAngle(ang1);
+        float bowl0 = L.bowlInnerRadius(ang0) - 0.15f;
+        float bowl1 = L.bowlInnerRadius(ang1) - 0.15f;
+        if (bowl0 > wall0 + 0.2f) {
+            addQuad(
+                m,
+                L.fromHome(wall0, ang0, 0.01f),
+                L.fromHome(wall1, ang1, 0.01f),
+                L.fromHome(bowl1, ang1, 0.01f),
+                L.fromHome(bowl0, ang0, 0.01f),
+                apron
+            );
+        }
+    }
+
+    // ── Foul territory: concrete floor only (not green field) ─────────
+    // Covers home→seats in foul + CF board zone so no sky gaps under board.
+    const int foulSegs = 120;
+    for (int i = 0; i < foulSegs; i++) {
+        float t0 = static_cast<float>(i) / foulSegs;
+        float t1 = static_cast<float>(i + 1) / foulSegs;
+        // Full circle for solid under-seat floor; skip fair OF pie already greened.
         float ang0 = -pi + t0 * 2.0f * pi;
         float ang1 = -pi + t1 * 2.0f * pi;
         float angM = 0.5f * (ang0 + ang1);
@@ -466,113 +549,39 @@ Mesh3D buildField(const Layout& L) {
         while (angM < -pi) {
             angM += 2.0f * pi;
         }
-
         const bool fair = std::abs(angM) <= L.foulAngleRad() + 0.02f;
-        // Continuous outer edge = bowl apron at every angle (no radial voids
-        // at the foul poles where fence radius ≠ bowl radius).
-        float rBowl0 = std::max(2.0f, L.bowlInnerRadius(ang0) - 0.35f);
-        float rBowl1 = std::max(2.0f, L.bowlInnerRadius(ang1) - 0.35f);
-        float rFence0 = fair ? (L.wallRAtAngle(ang0) - 0.25f) : rBowl0;
-        float rFence1 = fair ? (L.wallRAtAngle(ang1) - 0.25f) : rBowl1;
-        // Grass always fills to bowl so foul/fair seams don't gap.
-        float rOut0 = rBowl0;
-        float rOut1 = rBowl1;
-
-        // Base grass (full coverage under dirt diamond).
-        addQuad(
-            m,
-            L.fromHome(0.15f, ang0, 0.0f),
-            L.fromHome(0.15f, ang1, 0.0f),
-            L.fromHome(rOut1, ang1, 0.0f),
-            L.fromHome(rOut0, ang0, 0.0f),
-            grass
-        );
+        float rBowl0 = std::max(2.0f, L.bowlInnerRadius(ang0) - 0.2f);
+        float rBowl1 = std::max(2.0f, L.bowlInnerRadius(ang1) - 0.2f);
 
         if (fair) {
-            // Multi-band mowing stripes beyond diamond (vertex "texture").
-            float stripeIn = bp * 1.30f;
-            for (int s = 0; s < 5; s++) {
-                float u0 = 0.42f + s * 0.09f;
-                float u1 = u0 + 0.045f;
-                float mid0 = std::max(stripeIn, rFence0 * u0);
-                float mid1 = std::max(stripeIn, rFence1 * u0);
-                float mid0b = std::min(rFence0 - 3.8f, rFence0 * u1);
-                float mid1b = std::min(rFence1 - 3.8f, rFence1 * u1);
-                if (mid0b <= mid0 + 0.4f) {
-                    continue;
-                }
-                sf::Color stripe = (s % 2 == 0) ? grassDark : shadeColor(grass, 0.95f);
+            // Under CF board cutout / between fence and shell only if needed.
+            if (L.isCfScoreboardZone(angM)) {
+                float wall0 = L.wallRAtAngle(ang0);
+                float wall1 = L.wallRAtAngle(ang1);
+                // Solid floor from wall out under board (closes scoreboard gaps).
+                float rShell0 = L.clampRadiusInDome(ang0, L.maxRadiusFromHome(ang0), 4.0f);
+                float rShell1 = L.clampRadiusInDome(ang1, L.maxRadiusFromHome(ang1), 4.0f);
                 addQuad(
                     m,
-                    L.fromHome(mid0, ang0, 0.012f + s * 0.001f),
-                    L.fromHome(mid1, ang1, 0.012f + s * 0.001f),
-                    L.fromHome(mid1b, ang1, 0.012f + s * 0.001f),
-                    L.fromHome(mid0b, ang0, 0.012f + s * 0.001f),
-                    stripe
-                );
-            }
-            // Warning track just inside the fence (not the bowl edge).
-            {
-                const float trackW = 3.8f;
-                for (int b = 0; b < 3; b++) {
-                    float t0 = static_cast<float>(b) / 3.0f;
-                    float t1 = static_cast<float>(b + 1) / 3.0f;
-                    float ri0 = rFence0 - trackW * (1.0f - t0);
-                    float ro0 = rFence0 - trackW * (1.0f - t1);
-                    float ri1 = rFence1 - trackW * (1.0f - t0);
-                    float ro1 = rFence1 - trackW * (1.0f - t1);
-                    sf::Color tc = shadeColor(track, (b % 2) ? 0.92f : 1.05f);
-                    addQuad(
-                        m,
-                        L.fromHome(ri0, ang0, 0.018f + b * 0.001f),
-                        L.fromHome(ri1, ang1, 0.018f + b * 0.001f),
-                        L.fromHome(ro1, ang1, 0.018f + b * 0.001f),
-                        L.fromHome(ro0, ang0, 0.018f + b * 0.001f),
-                        tc
-                    );
-                }
-            }
-            // Apron: fence → stands (matches bowl, no void)
-            float wall0 = L.wallRAtAngle(ang0);
-            float wall1 = L.wallRAtAngle(ang1);
-            float bowl0 = L.bowlInnerRadius(ang0) - 0.15f;
-            float bowl1 = L.bowlInnerRadius(ang1) - 0.15f;
-            if (bowl0 > wall0 + 0.2f) {
-                addQuad(
-                    m,
-                    L.fromHome(wall0, ang0, 0.01f),
-                    L.fromHome(wall1, ang1, 0.01f),
-                    L.fromHome(bowl1, ang1, 0.01f),
-                    L.fromHome(bowl0, ang0, 0.01f),
+                    L.fromHome(wall0, ang0, 0.008f),
+                    L.fromHome(wall1, ang1, 0.008f),
+                    L.fromHome(rShell1, ang1, 0.008f),
+                    L.fromHome(rShell0, ang0, 0.008f),
                     apron
                 );
             }
-        } else {
-            // Foul-territory mow: radial bands so plate/foul views aren't flat green.
-            const float foulStripeIn = bp * 0.55f;
-            for (int s = 0; s < 6; s++) {
-                float u0 = 0.18f + s * 0.12f;
-                float u1 = u0 + 0.055f;
-                float mid0 = std::max(foulStripeIn, rOut0 * u0);
-                float mid1 = std::max(foulStripeIn, rOut1 * u0);
-                float mid0b = std::min(rOut0 - 1.2f, rOut0 * u1);
-                float mid1b = std::min(rOut1 - 1.2f, rOut1 * u1);
-                if (mid0b <= mid0 + 0.35f) {
-                    continue;
-                }
-                // Alternate + slight angular variation
-                bool dark = ((s + i) % 2) == 0;
-                sf::Color stripe = dark ? grassDark : shadeColor(grass, 0.97f);
-                addQuad(
-                    m,
-                    L.fromHome(mid0, ang0, 0.011f + s * 0.0008f),
-                    L.fromHome(mid1, ang1, 0.011f + s * 0.0008f),
-                    L.fromHome(mid1b, ang1, 0.011f + s * 0.0008f),
-                    L.fromHome(mid0b, ang0, 0.011f + s * 0.0008f),
-                    stripe
-                );
-            }
+            continue;
         }
+
+        // Foul apron: home vicinity out to seats (grey, not green field).
+        addQuad(
+            m,
+            L.fromHome(0.5f, ang0, 0.005f),
+            L.fromHome(0.5f, ang1, 0.005f),
+            L.fromHome(rBowl1, ang1, 0.005f),
+            L.fromHome(rBowl0, ang0, 0.005f),
+            apron
+        );
     }
     // ── Foul-line dirt strips (inside fair side of chalk) ──────────────
     // Thin dirt apron along each foul line from home out past the infield.
@@ -1591,15 +1600,21 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     for (int i = 0; i < angSamples; i++) {
         float t = (static_cast<float>(i) + 0.5f) / angSamples;
         float ang = -pi + t * 2.0f * pi;
-        if (L.isCfScoreboardZone(ang)) {
-            continue; // empty behind CF scoreboard / hotel
-        }
-
         int sector = static_cast<int>((t * kFanSectorCount)) % kFanSectorCount;
         float rIn = bowlInnerRadius(L, ang);
         float yBase = bowlBaseHeight(L, ang);
         const float rCap =
             L.closedDome ? L.clampRadiusInDome(ang, L.maxRadiusFromHome(ang), 14.0f) : 1.0e6f;
+
+        // CF board zone: only ONE elevated fan row above the scoreboard.
+        if (L.isCfScoreboardZone(ang)) {
+            float wallR = L.wallRAtAngle(ang);
+            float yBoardTop = L.wallHeightAtAngle(ang) + 22.0f;
+            float rFan = L.clampRadiusInDome(ang, wallR + 20.0f, 14.0f);
+            float fill = 0.75f + 0.2f * hash01(i * 11);
+            maybePlace(sectors[sector], rFan, ang, yBoardTop, fill);
+            continue;
+        }
 
         // Field level
         float r = rIn;
@@ -1608,7 +1623,7 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             if (r > rCap - dRow) {
                 break;
             }
-            float fill = 0.70f + 0.25f * hash01(i * 3 + row); // denser field bowl
+            float fill = 0.70f + 0.25f * hash01(i * 3 + row);
             maybePlace(sectors[sector], r + dRow * 0.4f, ang, y + rise0 * 0.7f, fill);
             r += dRow;
             y += rise0;
@@ -1638,6 +1653,35 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             maybePlace(sectors[sector], rUp + dRow * 0.35f, ang, yUp + rise2 * 0.7f, fill);
             rUp += dRow;
             yUp += rise2;
+        }
+    }
+
+    // Straight row of fans directly behind the batter (backstop line).
+    {
+        const float backAng = pi; // dead behind home
+        const int nBack = 28;
+        const float rBack = 18.5f;
+        const float yBack = 2.4f;
+        for (int k = 0; k < nBack; k++) {
+            float u = (static_cast<float>(k) + 0.5f) / static_cast<float>(nBack);
+            // Straight line along +X behind home (not a curve).
+            float x = (u - 0.5f) * 22.0f;
+            Vector3 seat(x, yBack, L.plateZ() + rBack);
+            if (hash01(k * 13 + 2) > 0.82f) {
+                continue; // small random empties
+            }
+            seat.x += (hash01(k * 3) - 0.5f) * 0.2f;
+            int sector = static_cast<int>(((std::atan2(seat.x, -(seat.z - L.plateZ())) + pi) /
+                                           (2.0f * pi)) *
+                                          kFanSectorCount) %
+                         kFanSectorCount;
+            if (sector < 0) {
+                sector += kFanSectorCount;
+            }
+            float scale = 0.88f + 0.2f * hash01(k + 50);
+            addLowPolyFan(
+                sectors[sector], seat, scale, fanShirtColor(k + 200), fanSkinColor(k + 40)
+            );
         }
     }
 
@@ -1988,14 +2032,14 @@ float Layout::clampRadiusInDome(float angleRad, float radius, float margin) cons
 }
 
 bool Layout::isCfScoreboardZone(float angleRad) const {
-    // Narrow empty wedge for CF board only — seats still wrap most of the OF.
+    // CF board / hotel wedge (seats skipped; one fan row allowed above board).
     while (angleRad > pi) {
         angleRad -= 2.0f * pi;
     }
     while (angleRad < -pi) {
         angleRad += 2.0f * pi;
     }
-    return std::abs(angleRad) < 0.22f; // ~±12.5°
+    return std::abs(angleRad) < 0.28f; // ~±16°
 }
 
 float Layout::seatDeckYAtRadius(float radiusFromHome, float angleRad) const {

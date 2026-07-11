@@ -3205,12 +3205,12 @@ int main() {
             gl.drawMesh(glStadiumSky, stadiumXform);
             // Dense steel trusses on top of membrane.
             gl.drawMesh(glStadiumStructure, stadiumXform);
-            // Solid park floor under seats/field so no sky holes from any angle.
+            // Concrete under-floor — fair diamond green comes from field mesh only.
             gl.drawGround(
                 gr,
                 domeC.z - gr,
                 domeC.z + gr,
-                sf::Color(34, 110, 48)
+                sf::Color(95, 98, 104)
             );
             gl.drawMesh(glStadiumField, stadiumXform);
             {
