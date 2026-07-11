@@ -55,11 +55,11 @@ struct Layout {
     // Closed retractable roof (Rogers Centre / SkyDome).
     // Building is a circular plan ~700 ft diameter; roof peak ~282 ft AGL.
     bool closedDome = true;
-    float roofPeakFeet = 310.0f;           // slightly tall so 3 seat decks clear under shell
-    float buildingRadiusFeet = 360.0f;     // ~720 ft shell for roomy upper deck
-    // Dome center is offset from home toward CF so the circular shell covers
-    // field + stands + CF hotel (home sits near the south of the circle).
-    float domeCenterOffsetFeet = 170.0f;
+    float roofPeakFeet = 300.0f;
+    // Large enough to contain full OF fence + continuous seating bowl.
+    float buildingRadiusFeet = 430.0f;     // ~860 ft diameter game shell
+    // Center mid-park so home, CF wall, and seats all fit inside the circle.
+    float domeCenterOffsetFeet = 200.0f;
 
     float plateZ() const { return pitchingDistanceFeet / feetPerUnit; }
     float wallR() const { return wallDistanceFeet / feetPerUnit; }
