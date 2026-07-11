@@ -36,6 +36,7 @@
 #include "DemoFpsCounter.h"
 #include "RasterDemo3D.h"
 #include "audio/ProceduralSfx.h"
+#include "game/DerbyBests.h"
 #include "math/Matrix4.h"
 #include "math/Vector3.h"
 #include "physics/Body3D.h"
@@ -1403,6 +1404,10 @@ int main() {
     };
     DerbyState derby;
     derby.swingsLeft = kDerbySwings;
+    DerbyBests::Stats careerBests = DerbyBests::load();
+    bool careerSavedThisRound = false;
+    std::string careerFlash; // short "NEW BEST" toast
+    float careerFlashTimer = 0.0f;
 
     auto easyContact = [&]() {
         // Generous PCI magnet for derby + practice soft toss.
@@ -1500,6 +1505,24 @@ int main() {
         derby = DerbyState{};
         derby.swingsLeft = kDerbySwings;
         count = AtBatCount{};
+        careerSavedThisRound = false;
+    };
+
+    auto finalizeDerbyRoundIfNeeded = [&]() {
+        if (playMode != PlayMode::Derby || !derby.roundOver || careerSavedThisRound) {
+            return;
+        }
+        careerSavedThisRound = true;
+        bool improved = DerbyBests::recordRound(
+            careerBests, derby.hrCount, derby.longestHrFeet, derby.bestExitMph
+        );
+        if (improved) {
+            careerFlash = "NEW CAREER BEST SAVED";
+            careerFlashTimer = 3.2f;
+        } else {
+            careerFlash = "Round saved";
+            careerFlashTimer = 1.6f;
+        }
     };
 
     auto scheduleNextPitch = [&](float delay) {
@@ -1607,6 +1630,7 @@ int main() {
             }
             if (derby.roundOver) {
                 derby.roundOverTimer = 5.5f;
+                finalizeDerbyRoundIfNeeded();
                 std::ostringstream fin;
                 fin << "ROUND OVER  ·  " << derby.hrCount << " HR  ·  longest ";
                 if (derby.longestHrFeet > 0.5f) {
@@ -1949,6 +1973,9 @@ int main() {
             if (crowdCheerTimer <= 0.0f) {
                 crowdCheerBoost = 1.15f;
             }
+        }
+        if (careerFlashTimer > 0.0f) {
+            careerFlashTimer = std::max(0.0f, careerFlashTimer - dt);
         }
         if (derby.roundOverTimer > 0.0f) {
             derby.roundOverTimer = std::max(0.0f, derby.roundOverTimer - dt);
@@ -2699,6 +2726,23 @@ int main() {
                            ? std::to_string(static_cast<int>(derby.bestExitMph)) + " mph"
                            : std::string("--"));
                 drawText(window, font, s4.str(), 14, {px + 12, py + 100}, sf::Color(180, 220, 255));
+
+                // Career bests (persistent)
+                std::ostringstream cb;
+                cb << "Career HR " << careerBests.mostHrsInRound
+                   << "  L "
+                   << (careerBests.longestHrFeet > 0.5f
+                           ? std::to_string(static_cast<int>(careerBests.longestHrFeet)) + "ft"
+                           : "--");
+                drawText(window, font, cb.str(), 11, {px + 12, py + ph + 8}, sf::Color(150, 170, 160));
+            }
+
+            if (careerFlashTimer > 0.0f && !careerFlash.empty()) {
+                drawText(
+                    window, font, careerFlash, 16,
+                    {W * 0.5f - 110.0f, 90.0f},
+                    sf::Color(255, 230, 100, static_cast<std::uint8_t>(200 + careerFlashTimer * 15))
+                );
             }
 
             // Bottom strip: only the last result (not duplicated "Last:" line).
