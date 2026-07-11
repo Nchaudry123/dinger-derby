@@ -555,20 +555,21 @@ AnimationClip catcherIdle(const SkinnedModel3D& model) {
 namespace {
 
 // Upright athletic set — weight slightly rear, not corkscrewed closed.
-Quaternion ohtaniHipSet() { return eul(0.04f, -0.38f, 0.02f); }
-Quaternion ohtaniSpineSet() { return eul(0.04f, -0.18f, 0.01f); }
-Quaternion ohtaniSpine2Set() { return eul(0.03f, -0.22f, 0.01f); }
-Quaternion ohtaniChestSet() { return eul(0.02f, -0.26f, 0.01f); }
-Quaternion ohtaniHeadSet() { return eul(-0.02f, 0.48f, 0.0f); } // track pitcher
+Quaternion ohtaniHipSet() { return eul(0.04f, -0.42f, 0.02f); }
+Quaternion ohtaniSpineSet() { return eul(0.04f, -0.20f, 0.01f); }
+Quaternion ohtaniSpine2Set() { return eul(0.03f, -0.24f, 0.01f); }
+Quaternion ohtaniChestSet() { return eul(0.02f, -0.28f, 0.01f); }
+Quaternion ohtaniHeadSet() { return eul(-0.02f, 0.50f, 0.0f); } // track pitcher
 
-// High hands via SHOULDER raise — elbows only moderately bent (~45–55°).
-// Hang-bind: −rx raise, +rz open R, −rz open L. Avoid large ry (twists ugly).
-Quaternion ohtaniShoulderR() { return eul(-1.12f, 0.16f, 0.50f); }
-Quaternion ohtaniElbowR() { return eul(0.78f, 0.0f, 0.0f); }   // moderate flex (not 1.50)
-Quaternion ohtaniWristR() { return eul(0.08f, 0.03f, 0.04f); }
-Quaternion ohtaniShoulderL() { return eul(-0.74f, 0.10f, 0.54f); }
-Quaternion ohtaniElbowL() { return eul(0.66f, 0.0f, 0.0f); }
-Quaternion ohtaniWristL() { return eul(0.05f, 0.0f, 0.0f); }
+// Classic MLB ready: hands just above rear shoulder / ear, bat ~45° with
+// barrel high behind the head (not flat across the zone). Hitting Vault etc.
+// Hang-bind: −rx raise, +rz open R, −rz open L. Keep ry small (no noodle twist).
+Quaternion ohtaniShoulderR() { return eul(-1.38f, 0.10f, 0.28f); } // rear/bottom hand high
+Quaternion ohtaniElbowR() { return eul(1.05f, 0.0f, 0.0f); }      // L-shape to ear
+Quaternion ohtaniWristR() { return eul(-0.35f, 0.18f, 0.42f); }    // cock tip up/back
+Quaternion ohtaniShoulderL() { return eul(-1.18f, 0.06f, 0.38f); } // top hand stacked
+Quaternion ohtaniElbowL() { return eul(0.98f, 0.0f, 0.0f); }
+Quaternion ohtaniWristL() { return eul(-0.22f, -0.12f, -0.28f); }
 
 // Athletic base — soft knees, not deep crouch.
 Quaternion ohtaniHipL() { return eul(0.14f, 0.10f, 0.16f); }
@@ -766,43 +767,44 @@ AnimationClip batterStance(const SkinnedModel3D& model) {
 
     pushArmMidStance(clip, model, t);
 
-    // Hands locked high; moderate elbow bend; tiny wrist settle.
+    // Hands locked high by the rear ear; bat tip overhead (tiny live settle).
     pushRot(clip, J("Shoulder_R"), t, {
         ohtaniShoulderR(),
-        eul(-1.03f, 0.17f, 0.49f),
-        eul(-1.07f, 0.19f, 0.47f),
-        eul(-1.04f, 0.18f, 0.48f),
+        eul(-1.36f, 0.09f, 0.29f),
+        eul(-1.40f, 0.11f, 0.27f),
+        eul(-1.37f, 0.10f, 0.28f),
         ohtaniShoulderR()
     });
     pushRot(clip, J("Elbow_R"), t, {
         ohtaniElbowR(),
-        eul(0.84f, 0, 0), eul(0.80f, 0, 0), eul(0.83f, 0, 0), ohtaniElbowR()
+        eul(1.07f, 0, 0), eul(1.02f, 0, 0), eul(1.06f, 0, 0), ohtaniElbowR()
     });
     pushRot(clip, J("Wrist_R"), t, {
         ohtaniWristR(),
-        eul(0.12f, 0.04f, 0.05f),
-        eul(0.06f, 0.02f, 0.03f),
-        eul(0.10f, 0.03f, 0.04f),
+        eul(-0.32f, 0.16f, 0.40f),
+        eul(-0.38f, 0.20f, 0.44f),
+        eul(-0.34f, 0.17f, 0.41f),
         ohtaniWristR()
     });
     pushRot(clip, J("Palm_R"), t, {
-        eul(0.06f, 0.02f, 0), eul(0.07f, 0.02f, 0), eul(0.05f, 0.02f, 0),
-        eul(0.065f, 0.02f, 0), eul(0.06f, 0.02f, 0)
+        eul(-0.12f, 0.04f, 0.08f), eul(-0.10f, 0.04f, 0.08f), eul(-0.14f, 0.05f, 0.09f),
+        eul(-0.11f, 0.04f, 0.08f), eul(-0.12f, 0.04f, 0.08f)
     });
     pushRot(clip, J("Shoulder_L"), t, {
         ohtaniShoulderL(),
-        eul(-0.66f, 0.11f, 0.53f),
-        eul(-0.70f, 0.13f, 0.51f),
-        eul(-0.67f, 0.12f, 0.52f),
+        eul(-1.16f, 0.05f, 0.39f),
+        eul(-1.20f, 0.07f, 0.37f),
+        eul(-1.17f, 0.06f, 0.38f),
         ohtaniShoulderL()
     });
     pushRot(clip, J("Elbow_L"), t, {
         ohtaniElbowL(),
-        eul(0.72f, 0, 0), eul(0.68f, 0, 0), eul(0.71f, 0, 0), ohtaniElbowL()
+        eul(1.00f, 0, 0), eul(0.95f, 0, 0), eul(0.99f, 0, 0), ohtaniElbowL()
     });
     pushRot(clip, J("Wrist_L"), t, {
         ohtaniWristL(),
-        eul(0.06f, 0, 0), eul(0.04f, 0, 0), eul(0.055f, 0, 0), ohtaniWristL()
+        eul(-0.20f, -0.11f, -0.26f), eul(-0.24f, -0.13f, -0.30f),
+        eul(-0.21f, -0.12f, -0.27f), ohtaniWristL()
     });
 
     pushRot(clip, J("Index_R"), t, {
@@ -991,68 +993,67 @@ AnimationClip batterSwing(const SkinnedModel3D& model) {
     pushArmMidSwing(clip, model, t);
     pushLegMidSwing(clip, model, t);
 
-    // 3–4) ARMS / HANDS last — quiet high hands through plant, then slot.
-    // Elbows stay moderate (no chicken-wing); extension into contact.
+    // 3–4) ARMS: hold high-tip load → quiet through plant → slot → contact.
     pushRot(clip, J("Shoulder_R"), t, {
         ohtaniShoulderR(),
-        eul(-1.08f, 0.16f, 0.46f),  // load holds high
-        eul(-1.05f, 0.10f, 0.38f),  // stride — still back
-        eul(-1.00f, 0.04f, 0.28f),  // plant — hands quiet
-        eul(-0.95f, -0.08f, 0.12f), // slot after hips
+        eul(-1.40f, 0.10f, 0.26f),  // load — hands still high
+        eul(-1.32f, 0.08f, 0.24f),  // stride
+        eul(-1.22f, 0.04f, 0.20f),  // plant — still connected high
+        eul(-1.05f, -0.06f, 0.10f), // slot after hips
         ohtaniContactShR(),
         eul(-0.62f, -0.40f, -0.40f),
         ohtaniFinishShR()
     });
     pushRot(clip, J("Elbow_R"), t, {
         ohtaniElbowR(),
-        eul(0.85f, 0, 0),
-        eul(0.88f, 0, 0),
-        eul(0.80f, 0, 0),  // still connected at plant
-        eul(0.55f, 0, 0),
+        eul(1.08f, 0, 0),
+        eul(1.05f, 0, 0),
+        eul(0.95f, 0, 0),  // still bent at plant
+        eul(0.58f, 0, 0),
         ohtaniContactElR(),
-        eul(0.25f, 0, 0),  // extend through
+        eul(0.25f, 0, 0),
         ohtaniFinishElR()
     });
     pushRot(clip, J("Wrist_R"), t, {
-        eul(0.10f, 0.04f, 0.05f),
-        eul(0.12f, 0.05f, 0.06f),
-        eul(0.11f, 0.04f, 0.05f),
-        eul(0.08f, 0.03f, 0.04f),
-        eul(0.04f, 0.01f, 0.02f),
+        ohtaniWristR(),
+        eul(-0.38f, 0.20f, 0.44f),  // tip still high on load
+        eul(-0.28f, 0.14f, 0.32f),
+        eul(-0.12f, 0.06f, 0.16f),
+        eul(0.02f, 0.0f, 0.04f),
         eul(-0.02f, -0.02f, -0.02f), // square at contact
         eul(-0.12f, -0.08f, -0.06f),
         eul(-0.03f, -0.02f, -0.02f)
     });
     pushRot(clip, J("Palm_R"), t, {
-        eul(0.06f, 0.02f, 0), eul(0.08f, 0.02f, 0), eul(0.07f, 0.02f, 0),
-        eul(0.05f, 0.01f, 0), eul(0.03f, 0.01f, 0), eul(0.01f, 0, 0),
+        eul(-0.12f, 0.04f, 0.08f), eul(-0.14f, 0.05f, 0.09f), eul(-0.08f, 0.03f, 0.05f),
+        eul(-0.02f, 0.01f, 0.02f), eul(0.02f, 0.0f, 0), eul(0.01f, 0, 0),
         eul(-0.04f, -0.02f, 0), eul(-0.02f, 0, 0)
     });
 
     pushRot(clip, J("Shoulder_L"), t, {
         ohtaniShoulderL(),
-        eul(-0.70f, 0.10f, 0.50f),
-        eul(-0.72f, 0.06f, 0.40f),
-        eul(-0.74f, 0.02f, 0.28f),
-        eul(-0.74f, -0.04f, 0.16f),
+        eul(-1.20f, 0.06f, 0.36f),
+        eul(-1.12f, 0.04f, 0.32f),
+        eul(-1.00f, 0.02f, 0.24f),
+        eul(-0.85f, -0.04f, 0.14f),
         ohtaniContactShL(),
         eul(-0.55f, -0.20f, 0.30f),
         ohtaniFinishShL()
     });
     pushRot(clip, J("Elbow_L"), t, {
         ohtaniElbowL(),
-        eul(0.72f, 0, 0),
-        eul(0.75f, 0, 0),
-        eul(0.68f, 0, 0),
-        eul(0.52f, 0, 0),
+        eul(1.00f, 0, 0),
+        eul(0.96f, 0, 0),
+        eul(0.88f, 0, 0),
+        eul(0.55f, 0, 0),
         ohtaniContactElL(),
         eul(0.55f, 0, 0),
         ohtaniFinishElL()
     });
     pushRot(clip, J("Wrist_L"), t, {
-        eul(0.05f, 0, 0), eul(0.05f, 0, 0), eul(0.05f, 0, 0), eul(0.04f, 0, 0),
-        eul(0.03f, 0, 0), eul(0.02f, 0, 0), eul(-0.02f, 0.02f, 0.02f),
-        eul(-0.01f, 0.01f, 0.01f)
+        ohtaniWristL(), eul(-0.24f, -0.12f, -0.30f), eul(-0.16f, -0.08f, -0.18f),
+        eul(-0.06f, -0.03f, -0.08f), eul(0.02f, 0, 0), eul(0.02f, 0, 0),
+        eul(-0.02f, 0.02f, 0.02f), eul(-0.01f, 0.01f, 0.01f)
     });
 
     auto grip = [&](const char* name, float g0, float gC, float gF) {

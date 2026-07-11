@@ -14,9 +14,10 @@ AnimationClip pitcherIdle(const SkinnedModel3D& model);
 // Simple catcher crouch idle.
 AnimationClip catcherIdle(const SkinnedModel3D& model);
 
-// RHB plate stance — biomechanics-informed (upright, high hands, shoulder-width+
-// base, quiet rhythm). Model faces +Z (world rotY(π) → looks at mound / −Z).
-// Refs: athletic stance cues; Ohtani MLB high-hand set; Welch rear-load posture.
+// RHB plate stance — classic high hands at rear ear/shoulder, bat tip overhead
+// (~45°) behind the head. Quiet rhythm, shoulder-width+ base.
+// Model faces +Z (world rotY(π) → looks at mound / −Z).
+// Refs: Hitting Vault stance cues; MLB high-hand set (not flat across the zone).
 AnimationClip batterStance(const SkinnedModel3D& model);
 
 // RHB swing keyed to 1-2-3-4 kinematic sequence: pelvis → torso → arm → hand.

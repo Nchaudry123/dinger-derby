@@ -14,8 +14,8 @@
 //   Center field is −Z from home (past the mound)
 //   +X = first-base side when facing CF from home
 //
-// Asymmetric OF with a signature short RF porch:
-//   LF 329 · CF 401 · RF porch 318 (pull-side juice)
+// MLB-accurate diamond (90' bases, 60'6" mound) + asymmetric OF:
+//   LF 330 · CF 400 · RF porch 318 (signature short porch)
 //
 // 1 world unit ≈ feetPerUnit feet (default 2).
 
@@ -35,7 +35,7 @@ struct Layout {
     float feetPerUnit = 2.0f;
     float pitchingDistanceFeet = 60.5f;
     // Fallback nominal CF (overridden by wallFeetAtAngle for the fence).
-    float wallDistanceFeet = 401.0f;
+    float wallDistanceFeet = 400.0f;
     float wallHeightFeet = 11.0f;
     float foulAngleDegrees = 45.0f;
     float infieldRadiusFeet = 95.0f;

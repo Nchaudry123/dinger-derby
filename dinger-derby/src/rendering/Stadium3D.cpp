@@ -677,12 +677,12 @@ Mesh3D buildField(const Layout& L) {
     // Mound circle: MLB 18 ft diameter → radius 9 ft → 4.5 world units.
     const float moundCircleR = 4.5f;
     addTexturedDirtDisk(m, L.mound(), moundCircleR, 0.026f, 7, 40, dirt);
-    // Heavy wear ring around the rubber / landing zone (front of mound toward plate)
+    // Landing zone toward plate (slope starts 6" in front of rubber).
     addDiskRing(
         m,
-        L.mound() + Vector3(0, 0, 0.9f),
+        L.mound() + Vector3(0, 0, 1.1f),
         0.9f,
-        2.1f,
+        2.2f,
         0.029f,
         24,
         shadeColor(dirtDark, 0.92f)
@@ -690,22 +690,26 @@ Mesh3D buildField(const Layout& L) {
     addDirtWearBlotch(m, L.mound() + Vector3(0.25f, 0, 1.3f), 0.85f, 0.030f, dirtDark, 3);
     addDirtWearBlotch(m, L.mound() + Vector3(-0.3f, 0, 1.1f), 0.7f, 0.030f, dirtDark, 5);
     {
-        Vector3 c(0.0f, 0.10f, L.moundZ());
-        const int n = 28;
-        // Raised mound table ~18 ft circle already drawn; table top ~5 ft radius feel.
-        float mr = 2.6f;
-        for (int ring = 0; ring < 3; ring++) {
-            float r0 = mr * (static_cast<float>(ring) / 3.0f);
-            float r1 = mr * (static_cast<float>(ring + 1) / 3.0f);
-            float y0 = 0.04f + ring * 0.045f;
-            float y1 = 0.04f + (ring + 1) * 0.045f;
-            sf::Color col = shadeColor(dirtDark, 0.92f + ring * 0.04f);
+        // Raised mound: table 5 ft wide, peak 10" above plate (0.417 world units).
+        const int n = 32;
+        const float tableR = 2.5f; // ~5 ft plateau
+        const float peakY = 0.42f; // 10 inches
+        for (int ring = 0; ring < 4; ring++) {
+            float r0 = tableR * (static_cast<float>(ring) / 4.0f);
+            float r1 = tableR * (static_cast<float>(ring + 1) / 4.0f);
+            float y0 = 0.05f + (peakY - 0.05f) * (static_cast<float>(ring) / 4.0f);
+            float y1 = 0.05f + (peakY - 0.05f) * (static_cast<float>(ring + 1) / 4.0f);
+            sf::Color col = shadeColor(dirtDark, 0.90f + ring * 0.035f);
             for (int i = 0; i < n; i++) {
                 float a0 = (static_cast<float>(i) / n) * pi * 2.0f;
                 float a1 = (static_cast<float>(i + 1) / n) * pi * 2.0f;
-                // Slight oval along pitch axis
+                // Oval elongated toward plate (+Z)
                 auto pt = [&](float a, float r, float y) {
-                    return Vector3(std::cos(a) * r, y, L.moundZ() + std::sin(a) * r * 0.72f);
+                    return Vector3(
+                        std::cos(a) * r,
+                        y,
+                        L.moundZ() + std::sin(a) * r * 0.78f
+                    );
                 };
                 if (ring == 0 && r0 < 1e-3f) {
                     addTri(
@@ -720,8 +724,15 @@ Mesh3D buildField(const Layout& L) {
                 }
             }
         }
-        // Rubber
-        addBox(m, Vector3(0.0f, 0.20f, L.moundZ()), 1.05f, 0.05f, 0.28f, sf::Color(235, 230, 215));
+        // Pitcher's rubber: 24" × 6" (1.0 × 0.25 units), top at ~10".
+        addBox(
+            m,
+            Vector3(0.0f, peakY + 0.02f, L.moundZ()),
+            1.0f,
+            0.04f,
+            0.25f,
+            sf::Color(240, 236, 220)
+        );
     }
 
     // Home plate circle: MLB 26 ft diameter → radius 13 ft → 6.5 world units.
@@ -753,49 +764,59 @@ Mesh3D buildField(const Layout& L) {
     addDirtWearBlotch(m, b2 + Vector3(0.0f, 0, 0.4f), 0.6f, 0.032f, dirtDark, 22);
     addDirtWearBlotch(m, b3 + Vector3(0.3f, 0, 0.25f), 0.55f, 0.032f, dirtDark, 23);
 
-    // Home plate (regulation-ish silhouette, tip to catcher +Z)
+    // Home plate — MLB 17" pentagon (tip to catcher +Z, flat face to pitcher −Z).
+    // 17" ≈ 1.417 ft → 0.708 world units full front width.
     {
         float z = plateZ;
-        Vector3 tip(0.0f, 0.055f, z + 0.52f);
-        Vector3 bl(-0.52f, 0.055f, z - 0.12f);
-        Vector3 br(0.52f, 0.055f, z - 0.12f);
-        Vector3 fl(-0.32f, 0.055f, z - 0.52f);
-        Vector3 fr(0.32f, 0.055f, z - 0.52f);
-        sf::Color plate(245, 242, 230);
+        const float halfFront = 0.354f; // 8.5"
+        const float side = 0.354f;      // 8.5" sides along plate
+        const float pointLen = 0.50f;   // toward catcher (~12" sides at 45°)
+        const float frontDepth = 0.354f;
+        float y = 0.055f;
+        Vector3 tip(0.0f, y, z + pointLen);                    // catcher tip
+        Vector3 bl(-halfFront, y, z);                          // back-left of flat
+        Vector3 br(halfFront, y, z);                           // back-right of flat
+        Vector3 fl(-halfFront, y, z - frontDepth);             // front-left (pitcher)
+        Vector3 fr(halfFront, y, z - frontDepth);              // front-right
+        (void)side;
+        sf::Color plate(248, 246, 235);
         addTri(m, tip, br, bl, plate);
         addQuad(m, bl, br, fr, fl, plate);
+        // Slight bevel shadow under plate
+        addBox(m, Vector3(0.0f, 0.04f, z - 0.05f), 0.72f, 0.02f, 0.95f, sf::Color(200, 195, 180));
     }
 
-    // Base bags — rotated diamond squares (point toward next base)
+    // Base bags — MLB 15" square (was 18"; 15" since 2023) → 0.625 ft side ≈ 0.31 units half.
     auto placeBaseBag = [&](const Vector3& p, float yaw) {
-        float s = 0.55f; // half-diagonal-ish
+        float half = 0.32f; // ~15" / 2 in world units (1u≈2ft)
         float c = std::cos(yaw);
         float sn = std::sin(yaw);
         auto rot = [&](float x, float z) {
             return Vector3(p.x + c * x - sn * z, 0.065f, p.z + sn * x + c * z);
         };
-        // Diamond outline (rotated square)
-        Vector3 v0 = rot(0.0f, s);
-        Vector3 v1 = rot(s, 0.0f);
-        Vector3 v2 = rot(0.0f, -s);
-        Vector3 v3 = rot(-s, 0.0f);
-        addFlatQuad(m, v0, v1, v2, v3, 0.065f, sf::Color(250, 248, 235));
-        // Slight raised top
-        addBox(m, Vector3(p.x, 0.09f, p.z), 0.85f, 0.04f, 0.85f, sf::Color(248, 245, 230));
+        Vector3 v0 = rot(0.0f, half * 1.35f);
+        Vector3 v1 = rot(half * 1.35f, 0.0f);
+        Vector3 v2 = rot(0.0f, -half * 1.35f);
+        Vector3 v3 = rot(-half * 1.35f, 0.0f);
+        addFlatQuad(m, v0, v1, v2, v3, 0.065f, sf::Color(252, 250, 240));
+        addBox(m, Vector3(p.x, 0.09f, p.z), 0.72f, 0.045f, 0.72f, sf::Color(250, 248, 235));
     };
-    // 1B bag aligned along 1B line; 2B faces home; 3B along 3B line
     placeBaseBag(b1, L.foulAngleRad() * 0.5f);
     placeBaseBag(b2, 0.0f);
     placeBaseBag(b3, -L.foulAngleRad() * 0.5f);
 
-    // Batter's boxes (left + right) — flat dirt rectangles, chalk rim via lines mesh
+    // Batter's boxes: regulation 4 ft wide × 6 ft long, 6" from plate edge.
+    // 4×6 ft → 2×3 world units. Plate half-width ~0.35; box center at ~1.35.
     {
         sf::Color box = shadeColor(dirtDark, 1.05f);
-        // Batter's boxes ~4×6 ft → 2×3 world units, centered beside plate.
-        addBox(m, Vector3(-1.65f, 0.035f, plateZ - 0.35f), 2.0f, 0.03f, 3.0f, box);
-        addBox(m, Vector3(1.65f, 0.035f, plateZ - 0.35f), 2.0f, 0.03f, 3.0f, box);
-        // Catcher's box hint (~43 in wide area → ~1.8 units)
-        addBox(m, Vector3(0.0f, 0.032f, plateZ + 1.05f), 1.8f, 0.02f, 1.0f, shadeColor(dirt, 0.93f));
+        const float boxW = 2.0f;  // 4 ft
+        const float boxL = 3.0f;  // 6 ft
+        const float boxX = 1.35f; // center from plate midline
+        const float boxZ = plateZ - 0.15f;
+        addBox(m, Vector3(-boxX, 0.035f, boxZ), boxW, 0.03f, boxL, box);
+        addBox(m, Vector3(boxX, 0.035f, boxZ), boxW, 0.03f, boxL, box);
+        // Catcher's box ~43" wide × 8' (simplified)
+        addBox(m, Vector3(0.0f, 0.032f, plateZ + 1.15f), 1.8f, 0.02f, 2.2f, shadeColor(dirt, 0.93f));
     }
 
     // On-deck circles — 5 ft diameter → radius 2.5 ft → 1.25 world units.
@@ -949,7 +970,7 @@ Mesh3D buildWalls(const Layout& L) {
     const float aR = L.foulAngleRad();
     const int segs = 112; // denser fence silhouette
 
-    // Main fence — Citizens Bank–style distances (329 LF … 404 deep … 330 RF).
+    // Main fence — MLB-accurate arc (330 LF · 400 CF · 318 RF porch).
     sf::Color wall(55, 70, 95);
     sf::Color wallTop(70, 88, 115);
     sf::Color pad(40, 55, 75);
@@ -1044,10 +1065,10 @@ Mesh3D buildWalls(const Layout& L) {
         // Accent bar under plate
         addBox(m, c + Vector3(0, -1.55f, 0.2f), 3.6f, 0.2f, 0.15f, sf::Color(200, 40, 50));
     };
-    mark(-45.0f, 3, 2, 9); // LF 329
-    mark(-18.0f, 3, 7, 4); // LCF ~374
-    mark(0.0f, 4, 0, 1);   // CF 401
-    mark(18.0f, 3, 6, 9);  // RCF ~369
+    mark(-45.0f, 3, 3, 0); // LF 330
+    mark(-18.0f, 3, 7, 5); // LCF 375
+    mark(0.0f, 4, 0, 0);   // CF 400
+    mark(22.0f, 3, 5, 5);  // RCF 355
     mark(45.0f, 3, 1, 8);  // RF porch 318
 
     // CF scoreboard chassis (screen face is a separate mesh for pulse).
@@ -1624,17 +1645,20 @@ float Layout::wallFeetAtAngle(float angleRad) const {
     aDeg = std::clamp(aDeg, -foulAngleDegrees, foulAngleDegrees);
 
     // (angleDeg, feet) — sorted LF → RF.
-    // Signature quirk: short RF porch (318) for pull-happy righties / opposite-field LHB.
+    // MLB rulebook minima for parks after 1958: 325 foul lines, 400 CF.
+    // Signature: short RF porch (318) under the absolute min (older-park character).
     static const float samples[][2] = {
-        {-45.0f, 329.0f}, // LF
-        {-30.0f, 358.0f},
-        {-15.0f, 388.0f},
-        {0.0f, 401.0f},  // CF deep
-        {15.0f, 372.0f},
-        {30.0f, 340.0f},
-        {45.0f, 318.0f}, // RF porch — park character
+        {-45.0f, 330.0f}, // LF foul pole
+        {-32.0f, 355.0f},
+        {-18.0f, 375.0f},
+        {-8.0f, 392.0f},
+        {0.0f, 400.0f},   // dead CF (rulebook 400)
+        {10.0f, 385.0f},
+        {22.0f, 355.0f},
+        {35.0f, 332.0f},
+        {45.0f, 318.0f},  // RF porch — park signature
     };
-    constexpr int n = 7;
+    constexpr int n = static_cast<int>(sizeof(samples) / sizeof(samples[0]));
     if (aDeg <= samples[0][0]) {
         return samples[0][1];
     }

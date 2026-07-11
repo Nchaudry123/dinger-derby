@@ -2774,8 +2774,8 @@ int main() {
             Matrix4::translation(Vector3(kBatterBoxX, 0.0f, kBatterBoxZ)) *
             Matrix4::rotationY(pi); // model +Z faces mound (−Z)
 
-        // Bat–hand lockup: knob sits between palms; barrel follows auto-tilt.
-        // Slight lag on display angle keeps grip silky without fighting gameplay.
+        // Bat–hand lockup: classic high-tip stance (barrel ~45–60° overhead /
+        // behind the head). Reticle tilt still biases tip direction so aim reads.
         if (!bat.swinging()) {
             Vector3 palmLocal = batterAnim.jointWorldPosition("Palm_R");
             Vector3 palmLLocal = batterAnim.jointWorldPosition("Palm_L");
@@ -2783,19 +2783,21 @@ int main() {
             Vector3 palmW = batterXform.transformPoint(palmLocal);
             Vector3 palmLW = batterXform.transformPoint(palmLLocal);
             Vector3 wristW = batterXform.transformPoint(wristR);
-            // Grip center biased slightly toward bottom hand (R for RHB).
             Vector3 gripMid = palmW * 0.58f + palmLW * 0.42f;
-            // Nudge knob toward wrists so the bat doesn't float off the hands.
-            gripMid = gripMid * 0.72f + wristW * 0.28f;
+            gripMid = gripMid * 0.70f + wristW * 0.30f;
             float ang = reticle.plateAngleDisplay;
+            // Strong tip-up (overhead) + small horizontal bias from PCI height.
+            // y dominant = bat tip high behind head, not flat across the zone.
             Vector3 tipDir = safeNorm(
-                Vector3(std::cos(ang), std::sin(ang), -0.10f - 0.05f * std::abs(ang)),
-                Vector3(0.85f, 0.2f, -0.15f)
+                Vector3(
+                    0.22f + 0.28f * std::cos(ang),
+                    0.86f + 0.10f * std::sin(ang),
+                    0.12f - 0.06f * std::abs(ang)
+                ),
+                Vector3(0.25f, 0.92f, 0.12f)
             );
-            // Knob slightly behind grip mid along −tipDir so hands wrap the handle.
-            bat.hands = gripMid - tipDir * 0.04f;
-            // Soft-follow axis so micro reticle noise doesn't jitter the bat.
-            bat.axis = safeNorm(lastGripAxis * 0.35f + tipDir * 0.65f, tipDir);
+            bat.hands = gripMid - tipDir * 0.05f;
+            bat.axis = safeNorm(lastGripAxis * 0.40f + tipDir * 0.60f, tipDir);
             lastGripHands = bat.hands;
             lastGripAxis = bat.axis;
         }
@@ -3187,7 +3189,7 @@ int main() {
                 // Park dimensions / signature quirk.
                 drawText(
                     window, font,
-                    "PARK  LF 329  ·  CF 401  ·  RF porch 318",
+                    "PARK  LF 330  ·  CF 400  ·  RF porch 318",
                     12, {22, 98},
                     sf::Color(130, 175, 145)
                 );
@@ -3241,7 +3243,7 @@ int main() {
                     "- / =      bat crack volume\n"
                     "\n"
                     "Session goal: hit the HR target before swings run out.\n"
-                    "Park quirk: short RF porch (318 ft)  ·  CF 401  ·  LF 329",
+                    "Park: 90' bases · 60'6\" mound · LF 330 · CF 400 · RF porch 318",
                     14, {px + 28, py + 52}, sf::Color(220, 235, 225)
                 );
                 drawText(
@@ -3298,7 +3300,7 @@ int main() {
                            : std::string("--"));
                 drawText(window, font, s4.str(), 13, {px + 12, py + 94}, sf::Color(180, 220, 255));
                 drawText(
-                    window, font, "RF porch 318 · CF 401", 11,
+                    window, font, "RF porch 318 · CF 400", 11,
                     {px + 12, py + 114}, sf::Color(140, 180, 150)
                 );
 
