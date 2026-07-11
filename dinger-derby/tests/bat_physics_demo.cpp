@@ -1244,6 +1244,7 @@ int main() {
     Vector3 holdLandPos(0.0f, 0.5f, plateZ - 20.0f);
     float camShakeTimer = 0.0f;
     float camShakeIntensity = 0.0f;
+    float fovPunch = 0.0f; // barrel FOV kick on contact
 
     // Same assets as pitching sim
     Mesh3D baseballMesh = BaseballVisual3D::makeMesh(48, 96);
@@ -1723,6 +1724,7 @@ int main() {
         returnPlateTimer = 0.0f;
         camShakeTimer = 0.0f;
         camShakeIntensity = 0.0f;
+        fovPunch = 0.0f;
         applyCatcherCamera(camera);
         practiceRepitchTimer = -1.0f;
         trail.clear();
@@ -2167,6 +2169,12 @@ int main() {
                     camShakeIntensity = 0.45f + lastHit.sweet * 0.85f;
                     if (isDingerQuality(lastHit.quality)) {
                         camShakeIntensity += 0.35f;
+                        // FOV punch on barrels / dingers
+                        fovPunch = 0.85f + lastHit.sweet * 0.35f;
+                    } else if (lastHit.sweet > 0.7f && lastHit.exitMph >= 95.0f) {
+                        fovPunch = 0.45f;
+                    } else {
+                        fovPunch = 0.0f;
                     }
                     resolvePitch("HIT");
                     float zErr = baseball.position.z - plateZ;
@@ -2245,8 +2253,14 @@ int main() {
         if (hasHit && ballSettled && broadcastCam == BroadcastCam::Chase) {
             holdLandPos = baseball.position;
             bool dinger = isDingerQuality(lastHit.quality);
-            // Snappier broadcast hold so the next toss comes sooner.
-            holdLandTimer = dinger ? 1.05f : (lastHit.hitsWallFace ? 0.75f : 0.55f);
+            // Longer hold for jaw-droppers / moonballs; snappy otherwise.
+            bool hero =
+                lastHit.quality &&
+                (std::string(lastHit.quality) == "Jaw Dropper" ||
+                 std::string(lastHit.quality) == "Moonball");
+            holdLandTimer = hero ? 1.65f
+                : (dinger ? 1.15f
+                   : (lastHit.hitsWallFace ? 0.75f : 0.55f));
             broadcastCam = BroadcastCam::HoldLand;
         }
 
@@ -2270,8 +2284,12 @@ int main() {
         if (camShakeTimer > 0.0f) {
             camShakeTimer = std::max(0.0f, camShakeTimer - dt);
         }
+        if (fovPunch > 0.0f) {
+            fovPunch = std::max(0.0f, fovPunch - dt * 1.8f);
+        }
         if (broadcastCam == BroadcastCam::Chase && hasHit && !ballSettled) {
             applyBallFollowCamera(camera, baseball.position, baseball.velocity);
+            camera.fieldOfView += fovPunch * 95.0f;
             applyCameraShake(camera, camShakeTimer, camShakeIntensity);
         } else if (broadcastCam == BroadcastCam::HoldLand) {
             holdLandTimer -= dt;

@@ -160,6 +160,27 @@ inline bool synthesizeBatCrack(sf::SoundBuffer& buffer, float quality) {
     );
 }
 
+// Foul tip / weak handle — thin high click, not a full wood crack.
+inline bool makeFoulTip(sf::SoundBuffer& buffer) {
+    constexpr unsigned sampleRate = 44100;
+    constexpr float duration = 0.08f;
+    const std::size_t n = static_cast<std::size_t>(sampleRate * duration);
+    std::vector<std::int16_t> samples(n, 0);
+    std::uint32_t rng = 0x71F71Fu;
+    for (std::size_t i = 0; i < n; i++) {
+        float t = static_cast<float>(i) / static_cast<float>(sampleRate);
+        float env = std::exp(-t * 70.0f);
+        float n1 = frand(rng);
+        float tick = std::sin(2.0f * kPi * 4200.0f * t) * std::exp(-t * 110.0f);
+        float tick2 = std::sin(2.0f * kPi * 6800.0f * t) * std::exp(-t * 140.0f);
+        float v = softClip((n1 * 0.35f + tick * 0.7f + tick2 * 0.4f) * env) * 20000.0f;
+        samples[i] = static_cast<std::int16_t>(std::clamp(v, -32000.0f, 32000.0f));
+    }
+    return buffer.loadFromSamples(
+        samples.data(), samples.size(), 1, sampleRate, {sf::SoundChannel::Mono}
+    );
+}
+
 // Wall / fence hit thud (solid park collision).
 inline bool makeWallBang(sf::SoundBuffer& buffer) {
     constexpr unsigned sampleRate = 44100;
@@ -216,11 +237,13 @@ struct BatParkSfx {
     sf::SoundBuffer crackSoftBuf;
     sf::SoundBuffer crowdBuf;
     sf::SoundBuffer wallBuf;
+    sf::SoundBuffer tipBuf;
     sf::Sound crackBarrel;
     sf::Sound crackSolid;
     sf::Sound crackSoft;
     sf::Sound crowd;
     sf::Sound wall;
+    sf::Sound tip;
     bool ok = false;
     bool usedFileSample = false;
 
@@ -229,7 +252,8 @@ struct BatParkSfx {
         , crackSolid(crackSolidBuf)
         , crackSoft(crackSoftBuf)
         , crowd(crowdBuf)
-        , wall(wallBuf) {
+        , wall(wallBuf)
+        , tip(tipBuf) {
         // Prefer shipped / user WAVs (modal wood cracks in assets/sfx/).
         bool fileBarrel = loadMonoWav(crackBarrelBuf, resolveSfxPath("bat_crack.wav"));
         bool fileSolid = loadMonoWav(crackSolidBuf, resolveSfxPath("bat_crack_solid.wav"));
@@ -255,12 +279,14 @@ struct BatParkSfx {
             makeCrowdPop(crowdBuf);
         }
         makeWallBang(wallBuf);
+        makeFoulTip(tipBuf);
 
         crackBarrel = sf::Sound(crackBarrelBuf);
         crackSolid = sf::Sound(crackSolidBuf);
         crackSoft = sf::Sound(crackSoftBuf);
         crowd = sf::Sound(crowdBuf);
         wall = sf::Sound(wallBuf);
+        tip = sf::Sound(tipBuf);
         ok = true;
 
         // Wooden cracks read a bit hot; keep headroom.
@@ -269,6 +295,7 @@ struct BatParkSfx {
         crackSoft.setVolume(70.0f);
         crowd.setVolume(72.0f);
         wall.setVolume(80.0f);
+        tip.setVolume(55.0f);
 
         std::cerr << "ProceduralSfx: bat crack "
                   << (usedFileSample ? "from assets/sfx/*.wav" : "modal wood synthesis")
@@ -282,6 +309,14 @@ struct BatParkSfx {
         }
         sweet01 = std::clamp(sweet01, 0.0f, 1.0f);
         float mphNorm = std::clamp((exitMph - 70.0f) / 50.0f, 0.0f, 1.0f);
+
+        // Foul tip / weak handle: thin tick, not full wood.
+        if (!barrelHr && (sweet01 < 0.32f || exitMph < 72.0f)) {
+            tip.setPitch(1.05f + sweet01 * 0.15f);
+            tip.setVolume(40.0f + sweet01 * 25.0f + mphNorm * 10.0f);
+            tip.play();
+            return;
+        }
 
         sf::Sound* s = &crackSoft;
         if (barrelHr || (sweet01 > 0.82f && exitMph >= 100.0f)) {
