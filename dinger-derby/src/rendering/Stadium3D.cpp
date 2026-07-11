@@ -1636,27 +1636,24 @@ float Layout::foulAngleRad() const {
     return foulAngleDegrees * (pi / 180.0f);
 }
 
-// OF fence distances (feet) vs angle from CF (deg). Mild asymmetry for park
-// character, but smooth enough that the overhead bowl reads as a diamond —
-// not a heart with a deep LCF pocket.
+// Rogers Centre OF fence (feet) vs angle from CF (deg). Symmetric-ish bowl:
+// LF/RF foul poles 328 · alleys ~375 · CF 400.
 float Layout::wallFeetAtAngle(float angleRad) const {
     // Clamp to foul territory angles.
     float aDeg = angleRad * (180.0f / pi);
     aDeg = std::clamp(aDeg, -foulAngleDegrees, foulAngleDegrees);
 
-    // (angleDeg, feet) — sorted LF → RF.
-    // MLB rulebook minima for parks after 1958: 325 foul lines, 400 CF.
-    // Signature: short RF porch (318) under the absolute min (older-park character).
+    // (angleDeg, feet) — sorted LF → RF. Rogers Centre dimensions.
     static const float samples[][2] = {
-        {-45.0f, 330.0f}, // LF foul pole
-        {-32.0f, 355.0f},
-        {-18.0f, 375.0f},
+        {-45.0f, 328.0f}, // LF foul pole
+        {-30.0f, 350.0f},
+        {-18.0f, 375.0f}, // LCF power alley
         {-8.0f, 392.0f},
-        {0.0f, 400.0f},   // dead CF (rulebook 400)
-        {10.0f, 385.0f},
-        {22.0f, 355.0f},
-        {35.0f, 332.0f},
-        {45.0f, 318.0f},  // RF porch — park signature
+        {0.0f, 400.0f},   // dead CF
+        {8.0f, 392.0f},
+        {18.0f, 375.0f},  // RCF power alley
+        {30.0f, 350.0f},
+        {45.0f, 328.0f},  // RF foul pole
     };
     constexpr int n = static_cast<int>(sizeof(samples) / sizeof(samples[0]));
     if (aDeg <= samples[0][0]) {
@@ -1677,12 +1674,23 @@ float Layout::wallFeetAtAngle(float angleRad) const {
 }
 
 float Layout::wallHeightAtAngle(float angleRad) const {
-    // LF wall taller (classic short-porch high wall); RF lower.
+    // Rogers: relatively uniform ~10' outfield wall (slight LF rise).
     float aDeg = angleRad * (180.0f / pi);
     float t = (aDeg + 45.0f) / 90.0f; // 0 at LF, 1 at RF
     t = std::clamp(t, 0.0f, 1.0f);
-    float feet = 13.0f + (1.0f - t) * 8.0f; // ~21 ft LF → ~13 ft RF
+    float feet = 10.0f + (1.0f - t) * 2.0f; // ~12 ft LF → ~10 ft RF
     return feet / feetPerUnit;
+}
+
+float Layout::domeRoofYAtRadius(float radiusFromHome) const {
+    // Ellipsoid shell: high over the diamond, sloping down past the upper deck.
+    const float R = std::max(roofShellR(), 1.0f);
+    const float H = std::max(roofPeakY(), wallH() + 20.0f);
+    float u = std::clamp(radiusFromHome / R, 0.0f, 1.0f);
+    float y = H * std::sqrt(std::max(0.0f, 1.0f - u * u));
+    // Keep clearance over the upper bowl so seats aren't clipped.
+    float minY = wallH() + 14.0f + (1.0f - u) * 8.0f;
+    return std::max(y, minY);
 }
 
 Vector3 Layout::fromHome(float radius, float angleRad, float y) const {
@@ -2123,6 +2131,48 @@ BallCollisionHit collideBall(
         );
     }
 
+    // ── Closed dome roof + outer shell (Rogers Centre) ─────────────────
+    // Keeps the ball inside the park so rockets don't fly forever.
+    if (layout.closedDome) {
+        layout.polarFromHome(position, r, ang);
+        const float shellR = layout.roofShellR();
+        const float roofY = layout.domeRoofYAtRadius(std::min(r, shellR));
+
+        // Underside of roof — bounce down hard with damping.
+        if (position.y + radius > roofY) {
+            position.y = roofY - radius - 0.02f;
+            if (velocity.y > 0.0f) {
+                velocity.y = -velocity.y * 0.22f;
+            }
+            velocity.x *= 0.55f;
+            velocity.z *= 0.55f;
+            hit.surface = HitSurface::Roof;
+            hit.impactY = position.y;
+            if (stickOnContact && velocity.magnitude() < 8.0f) {
+                velocity = Vector3();
+                hit.stuck = true;
+            }
+        }
+
+        // Outer cylindrical shell past the upper deck.
+        if (r + radius > shellR) {
+            float scale = (shellR - radius - 0.05f) / std::max(r, 1e-4f);
+            position.x *= scale;
+            // Keep plate-relative z: recompute from polar.
+            Vector3 onShell = layout.fromHome(shellR - radius - 0.05f, ang, position.y);
+            softSnapPosition(position, onShell, 0.75f);
+            Vector3 nOut(std::sin(ang), 0.0f, -std::cos(ang));
+            killOutwardVelocity(velocity, nOut, false);
+            velocity = velocity * 0.40f;
+            hit.surface = HitSurface::DomeShell;
+            hit.impactY = position.y;
+            if (stickOnContact && velocity.magnitude() < 6.0f) {
+                velocity = Vector3();
+                hit.stuck = true;
+            }
+        }
+    }
+
     // Re-clamp ground after other resolves — absolute floor, always.
     if (position.y < groundY) {
         position.y = groundY;
@@ -2264,32 +2314,101 @@ WallClearResult evaluateWallClear(
 }
 
 Layout defaultPlayLayout() {
+    // Rogers Centre (Toronto) — closed retractable roof, symmetric OF.
     Layout L;
-    L.wallDistanceFeet = 401.0f;
+    L.wallDistanceFeet = 400.0f;
+    L.wallHeightFeet = 10.0f;
+    L.closedDome = true;
+    L.roofPeakFeet = 205.0f;
+    L.roofShellPaddingFeet = 95.0f;
     return L;
 }
 
 Mesh3D buildSkyDome(const Layout& L) {
     Mesh3D m;
-    // Large hemisphere centered over the park; vertex colors = zenith → horizon gradient.
+    if (L.closedDome) {
+        // Rogers Centre closed roof: panelized ellipsoid shell + steel ribs.
+        // Drawn from the inside (inward-facing quads). Matches domeRoofYAtRadius.
+        const float R = L.roofShellR();
+        const int rings = 14;
+        const int segs = 48;
+        sf::Color panel = domePanelColor();
+        sf::Color panelAlt(193, 202, 213);
+        sf::Color rib = domeRibColor();
+        sf::Color wash = skyColor();
+
+        auto roofFromPolar = [&](float rFrac, float ang) {
+            float r = rFrac * R;
+            float y = L.domeRoofYAtRadius(r);
+            return L.fromHome(r, ang, y);
+        };
+
+        for (int i = 0; i < rings; i++) {
+            float u0 = static_cast<float>(i) / rings;
+            float u1 = static_cast<float>(i + 1) / rings;
+            float r0 = std::sin(u0 * pi * 0.5f);
+            float r1 = std::sin(u1 * pi * 0.5f);
+            for (int j = 0; j < segs; j++) {
+                float a0 = -pi + (static_cast<float>(j) / segs) * 2.0f * pi;
+                float a1 = -pi + (static_cast<float>(j + 1) / segs) * 2.0f * pi;
+                bool ribSeg = (j % 6) == 0;
+                bool alt = ((i + j) % 2) == 0;
+                sf::Color col = ribSeg ? rib : (alt ? panel : panelAlt);
+                float elevMix = 0.55f + 0.45f * u0;
+                col = sf::Color(
+                    static_cast<std::uint8_t>(
+                        col.r * elevMix + wash.r * (1.0f - elevMix) * 0.35f
+                    ),
+                    static_cast<std::uint8_t>(
+                        col.g * elevMix + wash.g * (1.0f - elevMix) * 0.35f
+                    ),
+                    static_cast<std::uint8_t>(
+                        col.b * elevMix + wash.b * (1.0f - elevMix) * 0.35f
+                    )
+                );
+                addQuad(
+                    m,
+                    roofFromPolar(r1, a0),
+                    roofFromPolar(r1, a1),
+                    roofFromPolar(r0, a1),
+                    roofFromPolar(r0, a0),
+                    col
+                );
+            }
+        }
+        // Vertical outer ring (shell wall above upper deck).
+        const float baseY = L.domeRoofYAtRadius(R * 0.98f);
+        for (int j = 0; j < segs; j++) {
+            float a0 = -pi + (static_cast<float>(j) / segs) * 2.0f * pi;
+            float a1 = -pi + (static_cast<float>(j + 1) / segs) * 2.0f * pi;
+            Vector3 b0 = L.fromHome(R, a0, 0.0f);
+            Vector3 b1 = L.fromHome(R, a1, 0.0f);
+            Vector3 t0 = L.fromHome(R, a0, baseY);
+            Vector3 t1 = L.fromHome(R, a1, baseY);
+            sf::Color wallCol = (j % 2) ? sf::Color(82, 98, 118) : rib;
+            addQuad(m, b0, b1, t1, t0, wallCol);
+            addQuad(m, b1, b0, t0, t1, wallCol);
+        }
+        m.rebuildNormals();
+        return m;
+    }
+
+    // Open-air fallback: large hemisphere gradient sky.
     const Vector3 center(0.0f, 0.0f, L.plateZ() - L.maxWallR() * 0.25f);
     const float R = std::max(900.0f, L.maxWallR() * 8.0f);
     const int rings = 18;
     const int segs = 48;
     sf::Color zenith = skyZenithColor();
     sf::Color horizon = skyColor();
-    // Slight warm haze near horizon
     sf::Color haze(190, 210, 225);
 
     auto skyPoint = [&](float elev, float azim) {
-        // elev 0 = horizon, elev pi/2 = zenith
         float y = std::sin(elev) * R;
         float rr = std::cos(elev) * R;
         return center + Vector3(std::sin(azim) * rr, y, -std::cos(azim) * rr);
     };
     auto skyCol = [&](float elev) {
         float t = std::clamp(elev / (pi * 0.5f), 0.0f, 1.0f);
-        // Soft ease: more haze low, deeper blue high
         float u = t * t * (3.0f - 2.0f * t);
         sf::Color lo = (t < 0.25f) ? haze : horizon;
         float v = (t < 0.25f) ? (t / 0.25f) : ((t - 0.25f) / 0.75f);
@@ -2312,7 +2431,6 @@ Mesh3D buildSkyDome(const Layout& L) {
         float e1 = (static_cast<float>(i + 1) / rings) * (pi * 0.5f);
         sf::Color c0 = skyCol(e0);
         sf::Color c1 = skyCol(e1);
-        // Average band color (per-quad solid color — still reads as gradient)
         sf::Color band(
             static_cast<std::uint8_t>((c0.r + c1.r) / 2),
             static_cast<std::uint8_t>((c0.g + c1.g) / 2),
@@ -2321,7 +2439,6 @@ Mesh3D buildSkyDome(const Layout& L) {
         for (int j = 0; j < segs; j++) {
             float a0 = (static_cast<float>(j) / segs) * pi * 2.0f;
             float a1 = (static_cast<float>(j + 1) / segs) * pi * 2.0f;
-            // Inward-facing so we see the dome from inside
             addQuad(
                 m,
                 skyPoint(e0, a0),
@@ -2338,6 +2455,10 @@ Mesh3D buildSkyDome(const Layout& L) {
 
 Mesh3D buildClouds(const Layout& L) {
     Mesh3D m;
+    // No outdoor clouds under a closed retractable roof.
+    if (L.closedDome) {
+        return m;
+    }
     const Vector3 park = L.parkCenter();
     const float baseR = L.maxWallR();
 

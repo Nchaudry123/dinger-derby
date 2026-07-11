@@ -14,32 +14,43 @@
 //   Center field is −Z from home (past the mound)
 //   +X = first-base side when facing CF from home
 //
-// MLB-accurate diamond (90' bases, 60'6" mound) + asymmetric OF:
-//   LF 330 · CF 400 · RF porch 318 (signature short porch)
+// Default park = Rogers Centre (Toronto) closed dome:
+//   LF/RF 328 · alleys 375 · CF 400 · ~10' walls · retractable roof closed
+//   so fly balls hit the roof/shell instead of traveling forever.
 //
 // 1 world unit ≈ feetPerUnit feet (default 2).
 
 namespace Stadium3D {
 
-// Shared palette so field / ground / city suburbs never fight.
-inline sf::Color grassColor() { return sf::Color(34, 110, 48); }
-inline sf::Color grassDarkColor() { return sf::Color(28, 92, 40); }
+// Shared palette — FieldTurf + indoor dome lighting (Rogers Centre vibe).
+inline sf::Color grassColor() { return sf::Color(42, 128, 58); }
+inline sf::Color grassDarkColor() { return sf::Color(34, 108, 48); }
 inline sf::Color dirtColor() { return sf::Color(168, 120, 70); }
 inline sf::Color warningTrackColor() { return sf::Color(150, 120, 70); }
-// Daylight sky (clear color matches dome horizon so seams disappear).
-inline sf::Color skyColor() { return sf::Color(148, 190, 228); }
-inline sf::Color skyZenithColor() { return sf::Color(72, 130, 200); }
+// Indoor dome wash (soft cool white-blue) — matches closed-roof interior.
+inline sf::Color skyColor() { return sf::Color(168, 188, 210); }
+inline sf::Color skyZenithColor() { return sf::Color(120, 150, 185); }
 inline sf::Color groundClearColor() { return grassColor(); }
+// Structural roof panel colors (white membrane + steel ribs).
+inline sf::Color domePanelColor() { return sf::Color(210, 220, 232); }
+inline sf::Color domeRibColor() { return sf::Color(70, 85, 105); }
 
 struct Layout {
     float feetPerUnit = 2.0f;
     float pitchingDistanceFeet = 60.5f;
     // Fallback nominal CF (overridden by wallFeetAtAngle for the fence).
     float wallDistanceFeet = 400.0f;
-    float wallHeightFeet = 11.0f;
+    float wallHeightFeet = 10.0f;
     float foulAngleDegrees = 45.0f;
     float infieldRadiusFeet = 95.0f;
     float basePathFeet = 90.0f;
+    // Closed retractable roof (Rogers Centre). Balls bounce off the shell.
+    bool closedDome = true;
+    // Peak roof height above field (ft). High enough for normal HRs into seats;
+    // still catches moonshots / lasers that would leave the universe.
+    float roofPeakFeet = 205.0f;
+    // Dome base radius = max wall + this padding (ft) past the OF fence.
+    float roofShellPaddingFeet = 95.0f;
 
     float plateZ() const { return pitchingDistanceFeet / feetPerUnit; }
     float wallR() const { return wallDistanceFeet / feetPerUnit; }
@@ -48,14 +59,20 @@ struct Layout {
     float infieldR() const { return infieldRadiusFeet / feetPerUnit; }
     float basePath() const { return basePathFeet / feetPerUnit; }
     float moundZ() const { return 0.0f; }
+    float roofPeakY() const { return roofPeakFeet / feetPerUnit; }
+    float roofShellR() const {
+        return maxWallR() + roofShellPaddingFeet / feetPerUnit;
+    }
+    // Roof underside Y at a horizontal radius from home (world units).
+    float domeRoofYAtRadius(float radiusFromHome) const;
 
-    // Asymmetric OF fence distance (feet) vs spray angle from CF.
+    // OF fence distance (feet) vs spray angle from CF.
     // angleRad = 0 is CF (−Z); +angle toward +X (RF / 1B).
     float wallFeetAtAngle(float angleRad) const;
     float wallRAtAngle(float angleRad) const {
         return wallFeetAtAngle(angleRad) / feetPerUnit;
     }
-    // Slight height variation (LF wall taller, like many parks).
+    // Rogers-style relatively uniform wall height.
     float wallHeightAtAngle(float angleRad) const;
 
     // Point on foul/outfield arc measured from home toward CF (−Z).
@@ -115,7 +132,7 @@ WallClearResult evaluateWallClear(
     float dragK = 0.012f
 );
 
-// Solid stadium collision for a sphere (fence, backstop, dugouts, board, ground).
+// Solid stadium collision for a sphere (fence, backstop, dugouts, board, ground, dome).
 // Mutates pos/vel so the ball cannot travel through park geometry.
 enum class HitSurface {
     None = 0,
@@ -126,7 +143,9 @@ enum class HitSurface {
     Dugout,
     Scoreboard,
     Stands,
-    FoulPole
+    FoulPole,
+    Roof,      // closed dome underside
+    DomeShell  // outer vertical shell of the dome
 };
 
 struct BallCollisionHit {

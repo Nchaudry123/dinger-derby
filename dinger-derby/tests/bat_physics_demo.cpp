@@ -793,7 +793,8 @@ HitInfo tryHit(
     bool& hasHit,
     float dt,
     bool practiceMode,
-    float contactEase = 1.0f // 1 = normal easy, higher = fatter sweet (derby difficulty)
+    float contactEase = 1.0f, // 1 = normal easy, higher = fatter sweet (derby difficulty)
+    bool godMode = false      // Konami easy mode: nuclear barrels, guaranteed HR
 ) {
     HitInfo h;
     if (hasHit || !bat.swinging()) {
@@ -805,8 +806,15 @@ HitInfo tryHit(
     closestOnBat(bat, cfg, ball.position, s, closest);
 
     // Fatter collision + sweet magnet. contactEase scales both practice and derby.
+    // God mode = enormous barrel so any near-zone swing connects.
     contactEase = clampf(contactEase, 0.55f, 1.55f);
-    float rScale = (practiceMode ? 2.9f : 1.95f) * contactEase;
+    if (godMode) {
+        contactEase = 1.85f;
+    }
+    float rScale = (practiceMode || godMode ? 2.9f : 1.95f) * contactEase;
+    if (godMode) {
+        rScale *= 1.45f;
+    }
     float rBat = batRadius(cfg, s) * rScale;
     Vector3 delta = ball.position - closest;
     float dist = delta.magnitude();
@@ -821,14 +829,19 @@ HitInfo tryHit(
     float dAim = (ball.position - aimPt).magnitude();
     float nearPlate = std::abs(ball.position.z - plateZ);
     bool contactWindow = bat.swingT >= 0.28f && bat.swingT <= 0.58f;
-    float magnetR = (practiceMode ? 0.36f : 0.28f) * contactEase;
-    float plateBand = (practiceMode ? 0.70f : 0.58f) * contactEase;
+    float magnetR = (practiceMode || godMode ? 0.36f : 0.28f) * contactEase;
+    float plateBand = (practiceMode || godMode ? 0.70f : 0.58f) * contactEase;
+    if (godMode) {
+        magnetR *= 1.8f;
+        plateBand *= 1.6f;
+        contactWindow = bat.swingT >= 0.18f && bat.swingT <= 0.72f;
+    }
     // Prefer magnet when ball is near aim OR near barrel sweet — prediction feel.
-    bool nearAim = dAim < magnetR * 1.15f || dSweet < magnetR;
+    bool nearAim = dAim < magnetR * 1.15f || dSweet < magnetR || godMode;
     if (contactWindow && nearPlate < plateBand && nearAim) {
         // Pull toward the PCI first (what the player aimed at), then sweet on bat.
         Vector3 target = aimPt * 0.55f + sweetPt * 0.45f;
-        if (practiceMode) {
+        if (practiceMode || godMode) {
             closest = target;
             s = cfg.sweetFromKnob;
             delta = ball.position - closest;
@@ -926,6 +939,7 @@ HitInfo tryHit(
 
     // Shape exit toward HR-derby chart: EV ~90–110 mph, LA 15–35° for barrels.
     // Hard cap prevents 160+ mph teleports / physics blowups.
+    // God mode: nuclear barrel — fair, ~118 mph @ ~29° — clears Rogers Centre easily.
     {
         Vector3 raw = ball.velocity;
         // Prefer spray toward PCI-relative aim (bat face), not pure raw scatter.
@@ -937,19 +951,29 @@ HitInfo tryHit(
         float spray = std::atan2(towardOut.x, -towardOut.z);
         // Soft clamp spray to fair-ish for solid contact; mishits can foul.
         float maxSpray = sweet > 0.55f ? 0.70f : 1.15f; // rad ≈ 40° / 66°
+        if (godMode) {
+            maxSpray = 0.42f; // keep it fair / toward the seats
+        }
         spray = clampf(spray, -maxSpray, maxSpray);
 
         float q = std::pow(clampf(sweet, 0.0f, 1.0f), 0.85f);
+        if (godMode) {
+            q = 1.0f;
+            sweet = 1.0f;
+        }
 
         float desiredMph = lerp(52.0f, 106.0f, q);
         desiredMph *= lerp(0.94f, 1.05f, (prof.power - 0.7f) / 0.55f);
         if (practiceMode) {
             desiredMph = lerp(68.0f, 102.0f, std::pow(clampf(sweet, 0.0f, 1.0f), 0.72f));
         }
-        if (sweet < 0.35f) {
+        if (sweet < 0.35f && !godMode) {
             desiredMph = std::min(desiredMph, lerp(42.0f, 72.0f, sweet / 0.35f));
         }
         desiredMph = clampf(desiredMph, 35.0f, 112.0f); // hard product cap
+        if (godMode) {
+            desiredMph = 118.0f; // guaranteed yard
+        }
 
         // Undercut → loft; on top → line drive. Keep within realistic band.
         float desiredLA = 10.0f + undercut * 14.0f + sweet * 7.0f;
@@ -957,8 +981,12 @@ HitInfo tryHit(
         if (sweet > 0.75f && undercut > 0.12f) {
             desiredLA = clampf(desiredLA, 16.0f, 34.0f);
         }
-        if (sweet < 0.40f) {
+        if (sweet < 0.40f && !godMode) {
             desiredLA = lerp(desiredLA, 5.0f, 0.50f);
+        }
+        if (godMode) {
+            desiredLA = 28.5f + undercut * 2.0f; // classic HR launch
+            desiredLA = clampf(desiredLA, 24.0f, 32.0f);
         }
 
         float speed = mphToWorldUnitsPerSecond(desiredMph);
@@ -972,11 +1000,14 @@ HitInfo tryHit(
         if (practiceMode) {
             blend = lerp(0.50f, 0.94f, q);
         }
+        if (godMode) {
+            blend = 0.98f;
+        }
         ball.velocity = raw * (1.0f - blend) + chartVel * blend;
 
-        // Final speed clamp (world units/s).
+        // Final speed clamp (world units/s). God mode slightly above chart cap.
         float spd = ball.velocity.magnitude();
-        const float maxSpd = mphToWorldUnitsPerSecond(114.0f);
+        const float maxSpd = mphToWorldUnitsPerSecond(godMode ? 120.0f : 114.0f);
         if (spd > maxSpd) {
             ball.velocity = ball.velocity * (maxSpd / spd);
         }
@@ -990,13 +1021,28 @@ HitInfo tryHit(
     hasHit = true;
     h.hit = true;
     h.s = s;
-    h.sweet = sweet;
+    h.sweet = godMode ? 1.0f : sweet;
     h.point = closest;
     h.batMph = vBat.magnitude() * 2.236936f;
     h.exitMph = ball.velocity.magnitude() * 2.236936f;
     float horiz = std::sqrt(ball.velocity.x * ball.velocity.x + ball.velocity.z * ball.velocity.z);
     h.launchDeg = std::atan2(ball.velocity.y, std::max(horiz, 1e-4f)) * kDeg;
     classifyHit(h, ball.velocity, ball.position, Stadium3D::defaultPlayLayout());
+    if (godMode && h.fair) {
+        // Force HR call for the cheat (still respects foul if somehow sprayed out).
+        h.clearsWall = true;
+        h.hitsWallFace = false;
+        h.wallMarginFeet = std::max(h.wallMarginFeet, 8.0f);
+        if (h.distanceFeet < 400.0f) {
+            h.distanceFeet = 420.0f + h.exitMph * 0.4f;
+        }
+        if (!h.quality || std::string(h.quality) == "Line Drive" ||
+            std::string(h.quality) == "Fly Ball" || std::string(h.quality) == "Soft Liner" ||
+            std::string(h.quality) == "Contact" || std::string(h.quality) == "Wall Ball" ||
+            std::string(h.quality) == "Off the Wall" || std::string(h.quality) == "Flare") {
+            h.quality = (h.exitMph >= 112.0f) ? "Jaw Dropper" : "Home Run";
+        }
+    }
     return h;
 }
 
@@ -1711,6 +1757,10 @@ int main() {
     int sessionGoalHrs = DerbyBests::sessionGoalHrs(static_cast<int>(derbyDiff));
     sfx.setMasterVolumes(settings.sfxVolume, 0.0f);
     bool showHelp = settings.showHelpOnLaunch;
+    // Konami: ↑↑↓↓←→←→ unlocks nuclear-swing easy mode (guaranteed HRs).
+    bool godMode = false;
+    int konamiStep = 0;
+    float godModeFlash = 0.0f;
     bool careerSavedThisRound = false;
     std::string careerFlash; // short "NEW BEST" toast
     float careerFlashTimer = 0.0f;
@@ -2198,6 +2248,37 @@ int main() {
             }
             if (const auto* key = event->getIf<sf::Event::KeyPressed>()) {
                 using K = sf::Keyboard::Key;
+                // Konami code: Up Up Down Down Left Right Left Right
+                {
+                    static const K kCode[] = {
+                        K::Up, K::Up, K::Down, K::Down,
+                        K::Left, K::Right, K::Left, K::Right
+                    };
+                    const bool isArrow =
+                        key->code == K::Up || key->code == K::Down ||
+                        key->code == K::Left || key->code == K::Right;
+                    if (isArrow) {
+                        if (key->code == kCode[konamiStep]) {
+                            konamiStep += 1;
+                            if (konamiStep >= 8) {
+                                godMode = !godMode;
+                                konamiStep = 0;
+                                godModeFlash = 3.2f;
+                                if (godMode) {
+                                    status =
+                                        "EASY MODE ON  ·  nuclear swings  ·  guaranteed HRs";
+                                    statusCol = sf::Color(255, 80, 220);
+                                } else {
+                                    status = "Easy mode off  ·  back to real baseball";
+                                    statusCol = sf::Color(180, 200, 220);
+                                }
+                            }
+                        } else {
+                            // Allow restarting the sequence on a fresh first Up.
+                            konamiStep = (key->code == kCode[0]) ? 1 : 0;
+                        }
+                    }
+                }
                 if (key->code == K::Escape) {
                     window.close();
                 } else if (key->code == K::Z) {
@@ -2336,6 +2417,9 @@ int main() {
         stadiumCheerTime += rawDt; // park atmosphere keeps moving during hit-stop
         if (hrBannerTimer > 0.0f) {
             hrBannerTimer = std::max(0.0f, hrBannerTimer - rawDt);
+        }
+        if (godModeFlash > 0.0f) {
+            godModeFlash = std::max(0.0f, godModeFlash - rawDt);
         }
         if (crowdCheerTimer > 0.0f) {
             crowdCheerTimer = std::max(0.0f, crowdCheerTimer - rawDt);
@@ -2738,7 +2822,7 @@ int main() {
                     ? (playMode == PlayMode::Derby ? derbyContactEase() : 1.0f)
                     : 1.0f;
                 HitInfo hit = tryHit(
-                    baseball, bat, batCfg, prof, hasHit, fixedStep, easyContact(), ease
+                    baseball, bat, batCfg, prof, hasHit, fixedStep, easyContact(), ease, godMode
                 );
                 if (hit.hit) {
                     lastHit = hit;
@@ -3446,15 +3530,41 @@ int main() {
             // Show active swing type without a separate tilt panel.
             title += std::string("  ·  ") + prof.name;
             drawText(window, font, title, 20, {22, 12}, titleCol);
+            if (godMode) {
+                float pulse = 0.55f + 0.45f * std::sin(poseClock * 7.0f);
+                sf::Color gcol(
+                    255,
+                    static_cast<std::uint8_t>(60 + pulse * 80),
+                    static_cast<std::uint8_t>(200 + pulse * 40)
+                );
+                drawText(
+                    window, font, "EASY MODE  ★  nuclear swing  ★  ↑↑↓↓←→←→ to toggle",
+                    13, {22, 58}, gcol
+                );
+            }
             // Truncate long status so it doesn't cover the park.
             std::string statusLine = status;
             if (statusLine.size() > 72) {
                 statusLine = statusLine.substr(0, 71) + "...";
             }
-            drawText(window, font, statusLine, 14, {22, 38}, statusCol);
+            drawText(
+                window, font, statusLine, 14,
+                {22.0f, godMode ? 78.0f : 38.0f}, statusCol
+            );
+            if (godModeFlash > 0.0f) {
+                float a = clampf(godModeFlash / 3.2f, 0.0f, 1.0f);
+                drawText(
+                    window, font,
+                    godMode ? "★★  EASY MODE UNLOCKED  ★★" : "Easy mode disabled",
+                    22,
+                    {W * 0.5f - 160.0f, H * 0.42f},
+                    sf::Color(255, 100, 230, static_cast<std::uint8_t>(220 * a))
+                );
+            }
 
             // Derby goal + career strip (product-facing).
             if (playMode == PlayMode::Derby && !chasing) {
+                const float stripY = godMode ? 100.0f : 58.0f;
                 std::ostringstream goal;
                 goal << "GOAL  " << derby.hrCount << " / " << sessionGoalHrs << " HR";
                 if (derby.goalMet) {
@@ -3462,7 +3572,7 @@ int main() {
                 }
                 goal << "   ·   swings " << derby.swingsLeft << "/" << kDerbySwings;
                 drawText(
-                    window, font, goal.str(), 14, {22, 58},
+                    window, font, goal.str(), 14, {22, stripY},
                     derby.goalMet ? sf::Color(120, 255, 170) : sf::Color(200, 220, 255)
                 );
                 std::ostringstream career;
@@ -3474,12 +3584,15 @@ int main() {
                 if (careerBests.hardUnlocked) {
                     career << "  ·  HARD unlocked";
                 }
-                drawText(window, font, career.str(), 12, {22, 78}, sf::Color(150, 170, 165));
-                // Park dimensions / signature quirk.
+                drawText(
+                    window, font, career.str(), 12, {22, stripY + 20.0f},
+                    sf::Color(150, 170, 165)
+                );
+                // Rogers Centre dimensions.
                 drawText(
                     window, font,
-                    "PARK  LF 330  ·  CF 400  ·  RF porch 318",
-                    12, {22, 98},
+                    "ROGERS CENTRE  LF/RF 328  ·  CF 400  ·  DOME CLOSED",
+                    12, {22, stripY + 40.0f},
                     sf::Color(130, 175, 145)
                 );
                 drawText(
@@ -3532,7 +3645,9 @@ int main() {
                     "- / =      bat crack volume\n"
                     "\n"
                     "Session goal: hit the HR target before swings run out.\n"
-                    "Park: 90' bases · 60'6\" mound · LF 330 · CF 400 · RF porch 318",
+                    "Park: Rogers Centre dome · LF/RF 328 · CF 400 · closed roof\n"
+                    "\n"
+                    "Secret: ↑↑↓↓←→←→  nuclear easy mode (guaranteed HRs)",
                     14, {px + 28, py + 52}, sf::Color(220, 235, 225)
                 );
                 drawText(
