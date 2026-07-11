@@ -2517,12 +2517,11 @@ int main() {
                                 baseball.velocity.y = 0.0f;
                             }
                         }
-                        bool nearGroundStick = hasHit && baseball.position.y < 5.0f &&
-                            baseball.velocity.magnitude() < 24.0f;
-                        if (hasHit && baseball.position.y <= floorY + 0.18f &&
-                            baseball.velocity.y <= 2.5f) {
-                            nearGroundStick = true;
-                        }
+                        // Only settle when nearly dead on the dirt — bounce otherwise.
+                        bool nearGroundStick =
+                            hasHit && baseball.position.y < floorY + 0.55f &&
+                            baseball.velocity.magnitude() < 4.2f &&
+                            baseball.velocity.y <= 0.8f;
                         col = Stadium3D::collideBall(
                             stadiumLayout,
                             baseball.position,
@@ -2546,11 +2545,18 @@ int main() {
                     }
                     if (baseball.position.y < floorY) {
                         baseball.position.y = floorY;
-                        baseball.velocity = Vector3();
-                        col.stuck = true;
-                        if (col.surface == Stadium3D::HitSurface::None ||
-                            col.surface == Stadium3D::HitSurface::FenceTopClear) {
-                            col.surface = Stadium3D::HitSurface::Ground;
+                        if (baseball.velocity.y < 0.0f) {
+                            baseball.velocity.y = -baseball.velocity.y * 0.32f;
+                            baseball.velocity.x *= 0.86f;
+                            baseball.velocity.z *= 0.86f;
+                        }
+                        if (baseball.velocity.magnitude() < 3.0f) {
+                            baseball.velocity = Vector3();
+                            col.stuck = true;
+                            if (col.surface == Stadium3D::HitSurface::None ||
+                                col.surface == Stadium3D::HitSurface::FenceTopClear) {
+                                col.surface = Stadium3D::HitSurface::Ground;
+                            }
                         }
                     }
                     // Absolute Rogers shell containment (same ellipsoid as the roof mesh).
@@ -2860,7 +2866,7 @@ int main() {
                     world.setAtmosphere(0.07f);
                     baseball.dragCoefficient = 0.35f;
                     baseball.airResistanceScale = 0.95f;
-                    baseball.restitution = 0.0f;
+                    baseball.restitution = 0.22f; // light park bounce (not freeze)
                     baseball.magnusScale = 0.0f; // no weird post-contact rise from residual spin
                     // Bat crack / thud on contact; crowd waits for confirmed HR call.
                     sfx.playContact(

@@ -22,21 +22,26 @@
 
 namespace Stadium3D {
 
-// Rogers Centre palette — FieldTurf, Jays blue seats, indoor roof wash.
-inline sf::Color grassColor() { return sf::Color(38, 122, 62); }
-inline sf::Color grassDarkColor() { return sf::Color(30, 100, 50); }
-inline sf::Color dirtColor() { return sf::Color(175, 128, 78); }
-inline sf::Color warningTrackColor() { return sf::Color(145, 115, 72); }
-// Indoor clear / void outside the shell (no outdoor sky or city).
-inline sf::Color skyColor() { return sf::Color(22, 28, 38); }
-inline sf::Color skyZenithColor() { return sf::Color(36, 48, 64); }
-inline sf::Color groundClearColor() { return sf::Color(22, 28, 38); }
-inline sf::Color domePanelColor() { return sf::Color(198, 210, 224); }
-inline sf::Color domeRibColor() { return sf::Color(58, 72, 92); }
-inline sf::Color seatBlueColor() { return sf::Color(28, 78, 168); }
-inline sf::Color seatBlueAltColor() { return sf::Color(22, 64, 145); }
-inline sf::Color concourseColor() { return sf::Color(88, 92, 98); }
-inline sf::Color hotelFacadeColor() { return sf::Color(210, 200, 185); }
+// Rogers Centre palette (photo reference) — deep navy seats, FieldTurf, steel roof.
+inline sf::Color grassColor() { return sf::Color(48, 140, 58); }
+inline sf::Color grassDarkColor() { return sf::Color(36, 112, 48); }
+inline sf::Color dirtColor() { return sf::Color(188, 118, 62); }
+inline sf::Color warningTrackColor() { return sf::Color(160, 105, 58); }
+// Indoor clear / void outside the shell.
+inline sf::Color skyColor() { return sf::Color(18, 24, 34); }
+inline sf::Color skyZenithColor() { return sf::Color(40, 70, 110); }
+inline sf::Color groundClearColor() { return sf::Color(18, 24, 34); }
+inline sf::Color domePanelColor() { return sf::Color(215, 222, 232); }
+inline sf::Color domeRibColor() { return sf::Color(48, 58, 72); }
+// Deep navy seating (photo: dark blue bowl, not bright royal).
+inline sf::Color seatBlueColor() { return sf::Color(18, 42, 98); }
+inline sf::Color seatBlueAltColor() { return sf::Color(14, 34, 82); }
+inline sf::Color seatMidColor() { return sf::Color(16, 38, 90); }
+inline sf::Color seatUpperColor() { return sf::Color(20, 48, 108); }
+inline sf::Color concourseColor() { return sf::Color(95, 98, 104); }
+inline sf::Color hotelFacadeColor() { return sf::Color(232, 228, 218); }
+inline sf::Color ofWallColor() { return sf::Color(18, 42, 78); }
+inline sf::Color boardChassisColor() { return sf::Color(12, 18, 28); }
 
 struct Layout {
     float feetPerUnit = 2.0f;
