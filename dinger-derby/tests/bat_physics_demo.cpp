@@ -1764,6 +1764,7 @@ int main() {
     bool ballSettled = false; // true once batted ball sticks on the ground
     bool wallResolved = false; // live fence cross handled this flight
     bool swingConsumed = false; // derby: one swing budget spent this pitch
+    float flightAge = 0.0f; // seconds since contact (failsafe settle)
     float hrBannerTimer = 0.0f;
     float prevBallR = 0.0f; // radial distance from home (for fence cross detect)
     Vector3 plateCrossPos = strikeZoneCenter;
@@ -2068,6 +2069,7 @@ int main() {
         ballSettled = false;
         wallResolved = false;
         swingConsumed = false;
+        flightAge = 0.0f;
         hrBannerTimer = 0.0f;
         prevBallZ = hand0.z;
         prevBallR = 0.0f;
@@ -2408,17 +2410,29 @@ int main() {
                 prevBallZ = baseball.position.z;
 
                 if (ballSettled) {
-                    // Stay planted — no bounce, no roll.
+                    // Stay planted — no bounce, no roll, never sink.
                     baseball.velocity = Vector3();
                     baseball.angularVelocity = Vector3();
                     baseball.acceleration = Vector3();
-                    baseball.position.y = std::max(baseball.position.y, baseball.radius + 0.01f);
+                    baseball.position.y =
+                        std::max(baseball.position.y, baseball.radius + 0.01f);
                 } else {
                     world.step(fixedStep);
-                    // Solid park: fence, backstop, dugouts, board, stands, ground.
-                    // Stick only when ball is slow and near the ground (never mid-air stick/teleport).
-                    bool nearGroundStick = hasHit && baseball.position.y < 2.5f &&
-                        baseball.velocity.magnitude() < 12.0f;
+                    const float floorY = baseball.radius + 0.01f;
+                    // Absolute floor before park collision (open bounds can micro-tunnel).
+                    if (baseball.position.y < floorY) {
+                        baseball.position.y = floorY;
+                        if (baseball.velocity.y < 0.0f) {
+                            baseball.velocity.y = 0.0f;
+                        }
+                    }
+                    // Stick near ground so HRs settle (chase cam + next pitch unfreeze).
+                    bool nearGroundStick = hasHit && baseball.position.y < 4.0f &&
+                        baseball.velocity.magnitude() < 22.0f;
+                    if (hasHit && baseball.position.y <= floorY + 0.15f &&
+                        baseball.velocity.y <= 2.0f) {
+                        nearGroundStick = true;
+                    }
                     Stadium3D::BallCollisionHit col = Stadium3D::collideBall(
                         stadiumLayout,
                         baseball.position,
@@ -2426,24 +2440,34 @@ int main() {
                         baseball.radius,
                         nearGroundStick
                     );
+                    // Hard floor after park resolves (scoreboard / stands soft-snaps).
+                    if (baseball.position.y < floorY) {
+                        baseball.position.y = floorY;
+                        baseball.velocity = Vector3();
+                        col.stuck = true;
+                        if (col.surface == Stadium3D::HitSurface::None ||
+                            col.surface == Stadium3D::HitSurface::FenceTopClear) {
+                            col.surface = Stadium3D::HitSurface::Ground;
+                        }
+                    }
                     if (hasHit && !ballSettled) {
-                        // Once the ball has cleared the wall (live flight), never
-                        // reclassify as Wall Ball. Prevents line-drive-over-crowd →
-                        // teleport-to-wall / "Wall Ball" on landing.
                         const bool alreadyCleared = lastHit.clearsWall;
-
                         float rNow = stadiumLayout.radiusFromHome(baseball.position);
                         float angNow = 0.0f;
                         float rPolar = 0.0f;
                         stadiumLayout.polarFromHome(baseball.position, rPolar, angNow);
                         float wallRNow = stadiumLayout.wallRAtAngle(angNow);
                         const bool deepPast = lastHit.fair && rNow > wallRNow + 0.75f;
+                        const bool onDirt =
+                            col.surface == Stadium3D::HitSurface::Ground ||
+                            col.stuck ||
+                            baseball.position.y <= floorY + 0.08f;
 
-                        if (col.surface == Stadium3D::HitSurface::FenceTopClear ||
-                            (deepPast && !lastHit.hitsWallFace)) {
+                        // Airborne clear bookkeeping only (never steals ground settle).
+                        if (!onDirt &&
+                            (col.surface == Stadium3D::HitSurface::FenceTopClear ||
+                             (deepPast && !lastHit.hitsWallFace))) {
                             float margin = (col.impactY - col.wallTopY) * feetPerWorldUnit;
-                            // Live clear: over top with margin, already past fence, or
-                            // previously locked clear this flight.
                             if (margin >= 0.25f || deepPast || alreadyCleared ||
                                 col.surface == Stadium3D::HitSurface::FenceTopClear) {
                                 wallResolved = true;
@@ -2455,7 +2479,6 @@ int main() {
                                     lastHit.wallMarginFeet =
                                         std::max(margin, lastHit.wallMarginFeet);
                                 }
-                                // Deep past without a measured margin still counts as out.
                                 if (deepPast && lastHit.wallMarginFeet < 0.25f) {
                                     lastHit.wallMarginFeet =
                                         std::max(lastHit.wallMarginFeet, 0.5f);
@@ -2467,19 +2490,16 @@ int main() {
                                 lastHit.distanceFeet = std::max(
                                     lastHit.distanceFeet, rNow * feetPerWorldUnit
                                 );
-                                // Upgrade line drives / soft contact that actually go out.
                                 if (!isDingerQuality(lastHit.quality) &&
                                     lastHit.exitMph >= 95.0f && lastHit.fair) {
                                     lastHit.quality = "Home Run";
                                 }
                             }
-                        } else if (alreadyCleared &&
+                        } else if (!onDirt && alreadyCleared &&
                                    (col.surface == Stadium3D::HitSurface::Stands ||
                                     col.surface == Stadium3D::HitSurface::Fence ||
                                     col.surface == Stadium3D::HitSurface::Scoreboard ||
                                     col.surface == Stadium3D::HitSurface::FoulPole)) {
-                            // Cleared flight: update distance only, keep HR / clear call.
-                            // Never snap quality to Wall Ball after a true clear.
                             lastHit.distanceFeet =
                                 std::max(lastHit.distanceFeet, rNow * feetPerWorldUnit);
                             lastHit.clearsWall = true;
@@ -2487,29 +2507,7 @@ int main() {
                             if (!isDingerQuality(lastHit.quality) && lastHit.exitMph >= 95.0f) {
                                 lastHit.quality = "Home Run";
                             }
-                            if (col.stuck) {
-                                baseball.angularVelocity = Vector3();
-                                baseball.acceleration = Vector3();
-                                ballSettled = true;
-                                if (!landingLogged) {
-                                    landingLogged = true;
-                                    if (playMode == PlayMode::Derby &&
-                                        lastHit.exitMph > derby.bestExitMph) {
-                                        derby.bestExitMph = lastHit.exitMph;
-                                    }
-                                    if (lastHit.quality) {
-                                        setDerbyLastResult(lastHit.quality);
-                                    }
-                                    std::ostringstream oss;
-                                    oss << std::fixed << std::setprecision(0)
-                                        << (lastHit.quality ? lastHit.quality : "Blocked")
-                                        << "  solid park  " << lastHit.exitMph << " mph  ·  "
-                                        << countString();
-                                    status = oss.str();
-                                    statusCol = sf::Color(255, 170, 90);
-                                }
-                            }
-                        } else if (!alreadyCleared &&
+                        } else if (!onDirt && !alreadyCleared &&
                                    (col.surface == Stadium3D::HitSurface::Fence ||
                                     col.surface == Stadium3D::HitSurface::FoulPole ||
                                     col.surface == Stadium3D::HitSurface::Scoreboard ||
@@ -2523,8 +2521,6 @@ int main() {
                                 sfx.playWallBang(lastHit.exitMph);
                             }
                             if (col.surface == Stadium3D::HitSurface::Fence) {
-                                // If the ball is already past the wall plane, this is not
-                                // a face hit — treat as clear (defense against residual snaps).
                                 if (deepPast) {
                                     lastHit.clearsWall = true;
                                     lastHit.hitsWallFace = false;
@@ -2556,7 +2552,6 @@ int main() {
                                     }
                                 }
                             } else if (col.surface == Stadium3D::HitSurface::Stands) {
-                                // Seats past the fence: live radius decides out vs wall.
                                 if (deepPast || rNow > wallRNow) {
                                     lastHit.clearsWall = true;
                                     lastHit.hitsWallFace = false;
@@ -2584,9 +2579,15 @@ int main() {
                                     }
                                 }
                             }
-                        } else if (col.surface == Stadium3D::HitSurface::Ground && col.stuck) {
+                        }
+
+                        // Ground / stuck settle — always, including past-fence HRs.
+                        // (FenceTopClear used to overwrite Ground and freeze chase cam.)
+                        if (onDirt && (col.stuck || baseball.position.y <= floorY + 0.08f)) {
+                            baseball.velocity = Vector3();
                             baseball.angularVelocity = Vector3();
                             baseball.acceleration = Vector3();
+                            baseball.position.y = floorY;
                             ballSettled = true;
                             if (!landingLogged) {
                                 landingLogged = true;
@@ -2596,13 +2597,10 @@ int main() {
                                 float landR2 = 0.0f;
                                 stadiumLayout.polarFromHome(baseball.position, landR2, landAng);
                                 float wallAtLand = stadiumLayout.wallRAtAngle(landAng);
-                                // Truth from where the ball actually lands.
                                 const bool landedBeyondFence =
                                     lastHit.fair && landR > wallAtLand + 0.5f;
                                 if (landedBeyondFence ||
                                     (lastHit.clearsWall && landR > wallAtLand - 0.25f)) {
-                                    // Physically past the fence (or confirmed clear) — out.
-                                    // Never reclassify as Wall Ball after over-the-crowd flight.
                                     lastHit.clearsWall = true;
                                     lastHit.hitsWallFace = false;
                                     lastHit.distanceFeet = landR * feetPerWorldUnit;
@@ -2617,12 +2615,10 @@ int main() {
                                         lastHit.exitMph >= 90.0f &&
                                         lastHit.launchDeg < 18.0f
                                     ) {
-                                        // Laser that still left the yard.
                                         lastHit.quality = "Home Run";
                                     }
                                     wallResolved = true;
                                 } else {
-                                    // Never left the yard — reclassify from exit (no false HR).
                                     classifyHit(
                                         lastHit, lastHit.exitVel, lastHit.exitPos, stadiumLayout
                                     );
@@ -2638,7 +2634,6 @@ int main() {
                                             ? lastHit.fenceFeet
                                             : wallAtLand * feetPerWorldUnit;
                                     } else if (isDingerQuality(lastHit.quality)) {
-                                        // Predicted HR but ball is inside — downgrade.
                                         lastHit.quality =
                                             lastHit.exitMph >= 90.0f ? "Fly Ball" : "Flare";
                                     }
@@ -2652,10 +2647,12 @@ int main() {
                                         hrBannerTimer = 3.2f;
                                         resultBannerTimer = 3.0f;
                                         resultBannerTitle =
-                                            (lastHit.quality && std::string(lastHit.quality) == "Moonball")
+                                            (lastHit.quality &&
+                                             std::string(lastHit.quality) == "Moonball")
                                                 ? "MOONBALL"
                                                 : (lastHit.quality &&
-                                                           std::string(lastHit.quality) == "Jaw Dropper"
+                                                           std::string(lastHit.quality) ==
+                                                               "Jaw Dropper"
                                                        ? "JAW DROPPER"
                                                        : "HOME RUN");
                                         resultBannerCol = sf::Color(255, 220, 60);
@@ -2665,7 +2662,8 @@ int main() {
                                                 << lastHit.distanceFeet << " ft   "
                                                 << lastHit.exitMph << " mph";
                                             if (lastHit.clearsWall) {
-                                                sub << "   CLEAR +" << lastHit.wallMarginFeet << " ft";
+                                                sub << "   CLEAR +" << lastHit.wallMarginFeet
+                                                    << " ft";
                                             }
                                             resultBannerSub = sub.str();
                                         }
@@ -2679,7 +2677,6 @@ int main() {
                                             (std::string(lastHit.quality) == "Jaw Dropper" ||
                                              std::string(lastHit.quality) == "Moonball")
                                         );
-                                        // Session goal check.
                                         if (!derby.goalMet && derby.hrCount >= sessionGoalHrs) {
                                             derby.goalMet = true;
                                             goalFlashTimer = 3.5f;
@@ -2699,7 +2696,6 @@ int main() {
                                     if (lastHit.quality) {
                                         setDerbyLastResult(lastHit.quality);
                                     }
-                                    // Non-HR land result card.
                                     if (!isDinger && lastHit.quality) {
                                         resultBannerTimer = 2.0f;
                                         if (lastHit.hitsWallFace) {
@@ -2733,8 +2729,6 @@ int main() {
                             }
                         }
                     } else if (!hasHit) {
-                        // Soft toss / pitch: still cannot fall through ground or enter stands.
-                        // Don't stick — light bounce already handled when stick=false.
                         (void)col;
                     }
                     prevBallR = stadiumLayout.radiusFromHome(baseball.position);
@@ -2750,6 +2744,7 @@ int main() {
                     lastHit = hit;
                     followBallCam = true;
                     wallResolved = false;
+                    flightAge = 0.0f;
                     prevBallR = stadiumLayout.radiusFromHome(baseball.position);
                     // Flight: drag on, no bounce when it eventually lands.
                     world.airResistanceEnabled = true;
@@ -2767,16 +2762,15 @@ int main() {
                     // Broadcast: leave plate, chase the ball; shake on solid wood.
                     broadcastCam = BroadcastCam::Chase;
                     followBallCam = true;
-                    // Premium hit-stop + screen flash (scales with sweet/EV).
+                    // Brief hit-stop only (never long enough to feel like a freeze).
                     float wood = clampf(lastHit.sweet * 0.65f + (lastHit.exitMph / 120.0f) * 0.35f, 0.0f, 1.0f);
-                    hitFreezeTimer = 0.045f + wood * 0.085f;
+                    hitFreezeTimer = 0.035f + wood * 0.055f; // ~35–90ms
                     contactFlash = 0.55f + wood * 0.45f;
                     camShakeTimer = 0.18f + lastHit.sweet * 0.16f;
                     camShakeIntensity = 0.50f + lastHit.sweet * 0.95f;
                     if (isDingerQuality(lastHit.quality)) {
                         camShakeIntensity += 0.40f;
                         fovPunch = 0.95f + lastHit.sweet * 0.40f;
-                        hitFreezeTimer += 0.04f;
                     } else if (lastHit.sweet > 0.7f && lastHit.exitMph >= 95.0f) {
                         fovPunch = 0.55f;
                     } else if (lastHit.sweet > 0.4f) {
@@ -2891,6 +2885,44 @@ int main() {
                 }
             }
         }
+        // Flight age + hard failsafe: never hang forever in chase cam.
+        if (hasHit && !ballSettled) {
+            flightAge += dt;
+            const float floorY = baseball.radius + 0.01f;
+            // After ~8s airborne or if ball is already on dirt, force settle.
+            if (flightAge > 8.0f ||
+                (flightAge > 0.35f && baseball.position.y <= floorY + 0.15f &&
+                 baseball.velocity.magnitude() < 6.0f)) {
+                baseball.position.y = std::max(baseball.position.y, floorY);
+                baseball.velocity = Vector3();
+                baseball.angularVelocity = Vector3();
+                baseball.acceleration = Vector3();
+                ballSettled = true;
+                if (!landingLogged) {
+                    landingLogged = true;
+                    float landR = stadiumLayout.radiusFromHome(baseball.position);
+                    float landAng = 0.0f;
+                    float landR2 = 0.0f;
+                    stadiumLayout.polarFromHome(baseball.position, landR2, landAng);
+                    float wallAtLand = stadiumLayout.wallRAtAngle(landAng);
+                    const bool beyond = lastHit.fair && landR > wallAtLand + 0.5f;
+                    if (beyond || lastHit.clearsWall) {
+                        lastHit.clearsWall = true;
+                        lastHit.hitsWallFace = false;
+                        lastHit.distanceFeet = landR * feetPerWorldUnit;
+                        if (!isDingerQuality(lastHit.quality) && lastHit.exitMph >= 95.0f) {
+                            lastHit.quality = "Home Run";
+                        }
+                    } else {
+                        lastHit.distanceFeet = landR * feetPerWorldUnit;
+                    }
+                    if (lastHit.quality) {
+                        setDerbyLastResult(lastHit.quality);
+                    }
+                }
+            }
+        }
+
         // Enter broadcast hold the frame the batted ball settles.
         if (hasHit && ballSettled && broadcastCam == BroadcastCam::Chase) {
             holdLandPos = baseball.position;
@@ -2912,6 +2944,12 @@ int main() {
                 hasHit && (broadcastCam == BroadcastCam::Chase ||
                            broadcastCam == BroadcastCam::HoldLand ||
                            broadcastCam == BroadcastCam::ReturnPlate);
+            // Safety: if chase never settled for 12s, stop blocking next pitch.
+            if (packageBusy && broadcastCam == BroadcastCam::Chase && flightAge > 12.0f) {
+                packageBusy = false;
+                broadcastCam = BroadcastCam::Plate;
+                followBallCam = false;
+            }
             if (packageBusy) {
                 // Freeze countdown until full broadcast package finishes.
             } else {

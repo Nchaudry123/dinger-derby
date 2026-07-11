@@ -1895,21 +1895,35 @@ BallCollisionHit collideBall(
     const float plateZ = layout.plateZ();
     const float fa = layout.foulAngleRad();
 
-    // ── Ground ────────────────────────────────────────────────────────
+    // ── Ground (absolute floor — never allow the ball through y=0) ────
     const float groundY = radius + 0.01f;
+    bool onGround = false;
     if (position.y < groundY) {
         position.y = groundY;
-        if (velocity.y < 0.0f) {
+        onGround = true;
+        if (velocity.y < 0.0f || stickOnContact) {
             hit.surface = HitSurface::Ground;
             hit.impactY = groundY;
-            if (stickOnContact) {
+            // Stick whenever asked, or when speed is not extreme — demos need a
+            // reliable land event so chase-cam / next-pitch do not freeze.
+            if (stickOnContact || velocity.magnitude() < 16.0f) {
                 velocity = Vector3();
                 hit.stuck = true;
-            } else {
-                velocity.y = -velocity.y * 0.15f;
-                velocity.x *= 0.7f;
-                velocity.z *= 0.7f;
+            } else if (velocity.y < 0.0f) {
+                velocity.y = -velocity.y * 0.12f;
+                velocity.x *= 0.65f;
+                velocity.z *= 0.65f;
             }
+        }
+    } else if (position.y < groundY + 0.10f && velocity.y <= 0.05f) {
+        // Near-ground settle band catches grazing landings before tunneling.
+        onGround = true;
+        if (stickOnContact || velocity.magnitude() < 12.0f) {
+            position.y = groundY;
+            velocity = Vector3();
+            hit.surface = HitSurface::Ground;
+            hit.impactY = groundY;
+            hit.stuck = true;
         }
     }
 
@@ -1923,6 +1937,8 @@ BallCollisionHit collideBall(
     // IMPORTANT: once the ball is past the fence (over the top OR already deep
     // beyond the plane), do NOT pull it back to the wall face when it drops.
     // That caused "line drive over the crowd → teleport to wall → Wall Ball".
+    // Also: never overwrite a Ground landing with FenceTopClear — that blocked
+    // settle and froze HRs in chase cam while the ball sank through the dirt.
     bool clearedFenceTop = false;
     if (fair && r > 1.0f) {
         float wallR = layout.wallRAtAngle(ang);
@@ -1938,7 +1954,12 @@ BallCollisionHit collideBall(
             const float vOut =
                 velocity.x * nOut.x + velocity.y * nOut.y + velocity.z * nOut.z;
 
-            if (position.y > clearY) {
+            if (onGround || hit.stuck) {
+                // Already landed — keep Ground. Track clear geometrically only.
+                if (pastDepth > 0.15f || position.y > clearY) {
+                    clearedFenceTop = true;
+                }
+            } else if (position.y > clearY) {
                 // Over the top — free flight (HR path).
                 clearedFenceTop = true;
                 hit.surface = HitSurface::FenceTopClear;
@@ -2102,13 +2123,18 @@ BallCollisionHit collideBall(
         );
     }
 
-    // Re-clamp ground after other resolves
+    // Re-clamp ground after other resolves — absolute floor, always.
     if (position.y < groundY) {
         position.y = groundY;
-        if (stickOnContact) {
+        if (velocity.y < 0.0f) {
+            velocity.y = 0.0f;
+        }
+        if (stickOnContact || velocity.magnitude() < 8.0f) {
             velocity = Vector3();
             hit.stuck = true;
-            if (hit.surface == HitSurface::None) {
+            // Prefer Ground for settle logic (do not leave FenceTopClear on dirt).
+            if (hit.surface == HitSurface::None ||
+                hit.surface == HitSurface::FenceTopClear) {
                 hit.surface = HitSurface::Ground;
             }
         }
