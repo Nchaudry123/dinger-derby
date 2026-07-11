@@ -14,8 +14,8 @@
 //   Center field is −Z from home (past the mound)
 //   +X = first-base side when facing CF from home
 //
-// Dimensions inspired by Citizens Bank Park (asymmetric OF):
-//   LF 329 · LCF ~374–387 · deepest ~404 · CF ~401 · RCF ~369 · RF 330
+// Asymmetric OF with a signature short RF porch:
+//   LF 329 · CF 401 · RF porch 318 (pull-side juice)
 //
 // 1 world unit ≈ feetPerUnit feet (default 2).
 

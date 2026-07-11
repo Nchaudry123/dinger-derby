@@ -5,10 +5,14 @@
 
 #include "SkinnedModel3D.h"
 
-// Realistic procedural baseball athlete rebuilt from human proportions.
-// ~1.78 m male, 8-head canon, natural standing rest (arms hang straight).
-// Multi-bone arms (Shoulder→UpperArm→HumTwist→Elbow→Forearm→ProTwist→Wrist→Palm)
-// for fluid throw skinning. throw_preview = RHP sideways set → windup → plate.
+// Procedural baseball athlete v3 — bold silhouette, team colors, solid volumes.
+// ~1.78 m male, game-readable head/shoulders; natural stand (arms hang −Y).
+// Fluid game-rig (same joint names for BaseballAnims / optional glTF):
+//   Spine: Hips→Spine→Spine2→Chest→Neck→Head
+//   Arms:  Clavicle→Shoulder→UpperArm→HumTwist→Elbow→Forearm→ProTwist→Wrist→Palm
+//   Legs:  Hip→Thigh→ThighTwist→Knee→Shin→ShinTwist→Ankle→Toe
+// Roles: Athlete (blue sleeves + number), Pitcher (white jersey/navy cap),
+//        Catcher (navy gear + helmet cage).
 namespace CharacterModel3D {
 
 enum class Role {

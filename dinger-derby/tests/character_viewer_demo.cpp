@@ -1,6 +1,6 @@
-// Character model workshop — orbit, scrub, and compare poses of the new
-// CharacterModel3D athlete. Tune the model here before wiring it into the
-// pitching simulator.
+// Character model workshop — orbit, scrub, and compare poses of CharacterModel3D.
+// Multi-bone fluid rig: 3-spine torso, arm twists, multi-leg + twist bones,
+// fingers, plus BaseballAnims batter_stance / batter_swing on Athlete.
 //
 // Controls:
 //   Mouse drag        orbit camera
@@ -8,11 +8,12 @@
 //   A / D             yaw model
 //   W / S             pitch model (tilt)
 //   Left / Right      previous / next clip
-//   1..8              jump to clip
+//   1..9              jump to clip
 //   Space             play / pause
 //   , / .             scrub −/+ 0.05
 //   R                 reset camera + model orientation
 //   G                 toggle skeleton overlay
+//   N                 toggle joint name labels (with skeleton)
 //   B                 toggle ground
 //   P / C / T         Pitcher / Catcher / aThlete role
 //   Q                 cycle detail Low→Med→High (rebuilds mesh)
@@ -26,12 +27,15 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <limits>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "math/Matrix4.h"
 #include "math/Vector3.h"
+#include "rendering/BaseballAnims.h"
 #include "rendering/BaseballVisual3D.h"
 #include "rendering/Camera3D.h"
 #include "rendering/CharacterModel3D.h"
@@ -42,9 +46,6 @@
 #include "rendering/SkinnedModel3D.h"
 #include "DemoFpsCounter.h"
 #include "RasterDemo3D.h"
-
-#include <limits>
-#include <optional>
 
 namespace {
 
@@ -108,12 +109,105 @@ struct OrbitCam {
     }
 };
 
+enum class BoneGroup { Core, Arm, Leg, Finger, Other };
+
+BoneGroup classifyJoint(const std::string& jn) {
+    if (jn.find("Index") != std::string::npos ||
+        jn.find("Middle") != std::string::npos ||
+        jn.find("Ring") != std::string::npos ||
+        jn.find("Pinky") != std::string::npos ||
+        jn.find("Thumb") != std::string::npos) {
+        return BoneGroup::Finger;
+    }
+    if (jn.find("Shoulder") != std::string::npos ||
+        jn.find("UpperArm") != std::string::npos ||
+        jn.find("HumTwist") != std::string::npos ||
+        jn.find("Elbow") != std::string::npos ||
+        jn.find("Forearm") != std::string::npos ||
+        jn.find("ProTwist") != std::string::npos ||
+        jn.find("Wrist") != std::string::npos ||
+        jn.find("Clavicle") != std::string::npos ||
+        jn.find("Palm") != std::string::npos) {
+        return BoneGroup::Arm;
+    }
+    if (jn.find("Hip_") != std::string::npos ||
+        jn.find("Thigh") != std::string::npos ||
+        jn.find("Knee") != std::string::npos ||
+        jn.find("Shin") != std::string::npos ||
+        jn.find("Ankle") != std::string::npos ||
+        jn.find("Toe_") != std::string::npos) {
+        return BoneGroup::Leg;
+    }
+    if (jn == "Root" || jn == "Hips" || jn == "Spine" || jn == "Spine2" ||
+        jn == "Chest" || jn == "Neck" || jn == "Head" || jn == "Ball") {
+        return BoneGroup::Core;
+    }
+    return BoneGroup::Other;
+}
+
+sf::Color groupColor(BoneGroup g) {
+    switch (g) {
+        case BoneGroup::Core: return sf::Color(120, 255, 200);   // mint torso
+        case BoneGroup::Arm: return sf::Color(255, 180, 60);     // amber arms
+        case BoneGroup::Leg: return sf::Color(120, 180, 255);    // sky legs
+        case BoneGroup::Finger: return sf::Color(255, 120, 200); // pink fingers
+        default: return sf::Color(200, 200, 210);
+    }
+}
+
+sf::Color lineColor(BoneGroup g) {
+    sf::Color c = groupColor(g);
+    c.a = 190;
+    return c;
+}
+
+// Resolve clip by name: built-in model clips, then BaseballAnims for batter.
+const AnimationClip* resolveClip(
+    const SkinnedModel3D& model,
+    const std::string& name,
+    const AnimationClip* batterStance,
+    const AnimationClip* batterSwing
+) {
+    if (const AnimationClip* c = model.findClip(name)) {
+        return c;
+    }
+    if (name == "batter_stance" && batterStance && !batterStance->channels.empty()) {
+        return batterStance;
+    }
+    if (name == "batter_swing" && batterSwing && !batterSwing->channels.empty()) {
+        return batterSwing;
+    }
+    return nullptr;
+}
+
+void rebuildClipList(
+    const SkinnedModel3D& model,
+    CharacterModel3D::Role role,
+    std::vector<std::string>& clips
+) {
+    clips = CharacterModel3D::clipNames(model);
+    // Athlete is the batter body — expose plate anims from BaseballAnims.
+    if (role == CharacterModel3D::Role::Athlete) {
+        auto has = [&](const std::string& n) {
+            return std::find(clips.begin(), clips.end(), n) != clips.end();
+        };
+        if (!has("batter_stance")) {
+            clips.push_back("batter_stance");
+        }
+        if (!has("batter_swing")) {
+            clips.push_back("batter_swing");
+        }
+    }
+}
+
 void drawSkeletonOverlay(
     sf::RenderWindow& window,
     const Camera3D& camera,
     const SkinnedModel3D& model,
     const SkeletonAnimator& anim,
-    const Matrix4& world
+    const Matrix4& world,
+    const sf::Font* font,
+    bool showNames
 ) {
     auto project = [&](const Vector3& worldPt) -> sf::Vector2f {
         ProjectedPoint3D p = camera.projectPoint(
@@ -125,38 +219,62 @@ void drawSkeletonOverlay(
     };
 
     const auto& globals = anim.globalPose();
-    for (int i = 0; i < static_cast<int>(model.joints.size()); i++) {
+    const int nJ = static_cast<int>(model.joints.size());
+
+    // Bones first, then joints on top.
+    for (int i = 0; i < nJ; i++) {
         Vector3 a = world.transformPoint(globals[i].transformPoint(Vector3()));
         int parent = model.joints[i].parent;
-        if (parent >= 0 && parent < static_cast<int>(model.joints.size())) {
+        if (parent >= 0 && parent < nJ) {
             Vector3 b = world.transformPoint(globals[parent].transformPoint(Vector3()));
+            BoneGroup g = classifyJoint(model.joints[i].name);
             sf::Vertex line[] = {
-                sf::Vertex{project(a), sf::Color(80, 220, 255, 200)},
-                sf::Vertex{project(b), sf::Color(80, 220, 255, 120)}
+                sf::Vertex{project(a), lineColor(g)},
+                sf::Vertex{project(b), sf::Color(lineColor(g).r, lineColor(g).g, lineColor(g).b, 90)}
             };
             window.draw(line, 2, sf::PrimitiveType::Lines);
         }
-        sf::CircleShape dot(3.0f);
-        dot.setOrigin(sf::Vector2f(3.0f, 3.0f));
+    }
+
+    for (int i = 0; i < nJ; i++) {
+        Vector3 a = world.transformPoint(globals[i].transformPoint(Vector3()));
+        const std::string& jn = model.joints[i].name;
+        BoneGroup g = classifyJoint(jn);
+        bool isTwist = jn.find("Twist") != std::string::npos || jn == "Spine2";
+        float r = isTwist ? 4.5f : 3.0f;
+        sf::CircleShape dot(r);
+        dot.setOrigin(sf::Vector2f(r, r));
         sf::Vector2f sp = project(a);
         dot.setPosition(sp);
-        const std::string& jn = model.joints[i].name;
-        bool isArm = jn.find("Shoulder") != std::string::npos ||
-                     jn.find("UpperArm") != std::string::npos ||
-                     jn.find("HumTwist") != std::string::npos ||
-                     jn.find("Elbow") != std::string::npos ||
-                     jn.find("Forearm") != std::string::npos ||
-                     jn.find("ProTwist") != std::string::npos ||
-                     jn.find("Wrist") != std::string::npos ||
-                     jn.find("Clavicle") != std::string::npos ||
-                     jn.find("Palm") != std::string::npos ||
-                     jn.find("Index") != std::string::npos ||
-                     jn.find("Middle") != std::string::npos ||
-                     jn.find("Ring") != std::string::npos ||
-                     jn.find("Pinky") != std::string::npos ||
-                     jn.find("Thumb") != std::string::npos;
-        dot.setFillColor(isArm ? sf::Color(255, 180, 60) : sf::Color(120, 255, 180));
+        dot.setFillColor(groupColor(g));
+        if (isTwist) {
+            dot.setOutlineThickness(1.2f);
+            dot.setOutlineColor(sf::Color(255, 255, 255, 180));
+        }
         window.draw(dot);
+
+        if (showNames && font != nullptr) {
+            // Skip dense finger labels unless looking close — always show
+            // structural + twist names so multi-bone rig is readable.
+            bool showLabel =
+                g == BoneGroup::Core ||
+                isTwist ||
+                jn.find("Shoulder") != std::string::npos ||
+                jn.find("Elbow") != std::string::npos ||
+                jn.find("Wrist") != std::string::npos ||
+                jn.find("Hip_") != std::string::npos ||
+                jn.find("Knee") != std::string::npos ||
+                jn.find("Ankle") != std::string::npos ||
+                jn.find("Thigh_") != std::string::npos ||
+                jn.find("Shin_") != std::string::npos;
+            if (showLabel) {
+                drawText(
+                    window, *font, jn, 10,
+                    sf::Vector2f(sp.x + 6.0f, sp.y - 6.0f),
+                    sf::Color(230, 240, 255, 210)
+                );
+            }
+        }
     }
 }
 
@@ -178,7 +296,7 @@ int main(int argc, char** argv) {
 
     sf::RenderWindow window(
         sf::VideoMode(sf::Vector2u(1280, 800)),
-        "Character Viewer | new CharacterModel3D",
+        "Character Viewer | multi-bone fluid rig",
         sf::Style::Default,
         sf::State::Windowed,
         glSettings
@@ -195,7 +313,18 @@ int main(int argc, char** argv) {
 
     SkinnedModel3D model = CharacterModel3D::build(role, detail);
     CharacterModel3D::BuildInfo info = CharacterModel3D::inspect(model);
-    std::vector<std::string> clips = CharacterModel3D::clipNames(model);
+
+    // Authored plate anims (retargeted when Athlete rebuilds).
+    AnimationClip batterStanceClip;
+    AnimationClip batterSwingClip;
+    auto rebuildBatterClips = [&]() {
+        batterStanceClip = BaseballAnims::batterStance(model);
+        batterSwingClip = BaseballAnims::batterSwing(model);
+    };
+    rebuildBatterClips();
+
+    std::vector<std::string> clips;
+    rebuildClipList(model, role, clips);
     int clipIndex = 0;
     auto pickClip = [&](const std::string& name) {
         for (int i = 0; i < static_cast<int>(clips.size()); i++) {
@@ -207,7 +336,6 @@ int main(int argc, char** argv) {
         return false;
     };
     if (startClip.empty() || !pickClip(startClip)) {
-        // Prefer natural standing rest (straight arms) for first look.
         if (!pickClip("rest")) {
             clipIndex = 0;
         }
@@ -240,7 +368,8 @@ int main(int argc, char** argv) {
     float modelYaw = 0.0f;
     float modelPitch = 0.0f;
     bool playing = true;
-    bool showSkeleton = false; // mesh first; press G for bones
+    bool showSkeleton = false;
+    bool showJointNames = false;
     bool showGround = true;
     bool autoRotate = false;
     float animTime = 0.0f;
@@ -249,18 +378,33 @@ int main(int argc, char** argv) {
     bool dragging = false;
     sf::Vector2i lastMouse;
 
+    auto currentClip = [&]() -> const AnimationClip* {
+        if (clips.empty()) {
+            return nullptr;
+        }
+        return resolveClip(
+            model,
+            clips[static_cast<size_t>(clipIndex)],
+            &batterStanceClip,
+            &batterSwingClip
+        );
+    };
+
     auto rebuildModel = [&]() {
         model = CharacterModel3D::build(role, detail);
         info = CharacterModel3D::inspect(model);
-        clips = CharacterModel3D::clipNames(model);
+        rebuildBatterClips();
+        rebuildClipList(model, role, clips);
         clipIndex = std::clamp(clipIndex, 0, std::max(0, static_cast<int>(clips.size()) - 1));
+        // Athlete defaults to batter stance so multi-bone plate pose is visible.
+        if (role == CharacterModel3D::Role::Athlete && startClip.empty()) {
+            pickClip("batter_stance");
+        }
         anim.setModel(model);
         anim.resetToRest();
         animTime = 0.0f;
-        if (!clips.empty()) {
-            if (const AnimationClip* c = model.findClip(clips[static_cast<size_t>(clipIndex)])) {
-                anim.applyClip(*c, 0.0f, true);
-            }
+        if (const AnimationClip* c = currentClip()) {
+            anim.applyClip(*c, 0.0f, true);
         }
         posed = model.skinToMesh(anim.skinMatrices());
         if (useOpenGL) {
@@ -269,12 +413,18 @@ int main(int argc, char** argv) {
         std::cerr << "Rebuilt " << CharacterModel3D::roleName(role)
                   << " detail=" << CharacterModel3D::detailName(detail)
                   << " | " << info.summary << "\n";
+        std::cerr << "Clips:";
+        for (const auto& n : clips) {
+            std::cerr << " " << n;
+        }
+        std::cerr << "\n";
     };
 
     auto applyCurrentPose = [&]() {
-        if (clips.empty()) {
+        const AnimationClip* c = currentClip();
+        if (!c) {
             anim.resetToRest();
-        } else if (const AnimationClip* c = model.findClip(clips[static_cast<size_t>(clipIndex)])) {
+        } else {
             float t = animTime;
             if (c->duration > 1e-4f) {
                 t = std::fmod(std::max(animTime, 0.0f), c->duration);
@@ -297,6 +447,8 @@ int main(int argc, char** argv) {
         std::cerr << " " << n;
     }
     std::cerr << "\n";
+    std::cerr << "Multi-bone: Spine2 · Thigh/ShinTwist · arm twists · fingers L/R\n";
+    std::cerr << "Athlete (T): batter_stance + batter_swing from BaseballAnims\n";
 
     sf::Clock clock;
     while (window.isOpen()) {
@@ -320,6 +472,11 @@ int main(int argc, char** argv) {
                     playing = !playing;
                 } else if (key->code == K::G) {
                     showSkeleton = !showSkeleton;
+                } else if (key->code == K::N) {
+                    showJointNames = !showJointNames;
+                    if (showJointNames) {
+                        showSkeleton = true;
+                    }
                 } else if (key->code == K::B) {
                     showGround = !showGround;
                 } else if (key->code == K::Tab) {
@@ -398,7 +555,6 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Held keys for continuous rotate / zoom
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A)) {
             modelYaw += dt * 1.4f;
         }
@@ -424,8 +580,8 @@ int main(int argc, char** argv) {
             modelYaw += dt * 0.55f;
         }
 
-        if (playing && !clips.empty()) {
-            if (const AnimationClip* c = model.findClip(clips[static_cast<size_t>(clipIndex)])) {
+        if (playing) {
+            if (const AnimationClip* c = currentClip()) {
                 animTime += dt * animSpeed;
                 if (c->duration > 1e-4f && animTime > c->duration) {
                     animTime = std::fmod(animTime, c->duration);
@@ -438,13 +594,11 @@ int main(int argc, char** argv) {
             Matrix4::rotationY(modelYaw) *
             Matrix4::rotationX(modelPitch);
 
-        // Prop baseball on Ball joint (or throw palm) so set→break→release reads clearly.
         Vector3 ballWorld = anim.throwHandWorld(modelXform);
         Matrix4 ballXform =
             Matrix4::translation(ballWorld) *
             Matrix4::scale(Vector3(kBallR, kBallR, kBallR));
 
-        // ── render ──────────────────────────────────────────────────────
         if (useOpenGL) {
             gl.beginFrame(window, camera, sf::Color(12, 16, 24));
             if (showGround) {
@@ -477,21 +631,23 @@ int main(int argc, char** argv) {
         }
 
         if (showSkeleton) {
-            drawSkeletonOverlay(window, camera, model, anim, modelXform);
+            drawSkeletonOverlay(
+                window, camera, model, anim, modelXform,
+                fontLoaded ? &font : nullptr,
+                showJointNames
+            );
         }
 
-        // ── HUD ─────────────────────────────────────────────────────────
         if (fontLoaded) {
-            sf::RectangleShape panel(sf::Vector2f(430.0f, 250.0f));
+            const float panelH = 300.0f;
+            sf::RectangleShape panel(sf::Vector2f(460.0f, panelH));
             panel.setPosition(sf::Vector2f(16.0f, 16.0f));
             panel.setFillColor(sf::Color(6, 10, 16, 210));
             panel.setOutlineThickness(1.0f);
             panel.setOutlineColor(sf::Color(80, 180, 190, 140));
             window.draw(panel);
 
-            const AnimationClip* cur = clips.empty()
-                ? nullptr
-                : model.findClip(clips[static_cast<size_t>(clipIndex)]);
+            const AnimationClip* cur = currentClip();
             float dur = cur ? cur->duration : 0.0f;
             float tShow = dur > 1e-4f ? std::fmod(animTime, dur) : animTime;
 
@@ -510,13 +666,12 @@ int main(int argc, char** argv) {
             clipLine << tShow << " / " << dur << "s";
             drawText(window, font, clipLine.str(), 14, {28, 78}, sf::Color(255, 220, 140));
 
-            // Timeline bar
-            sf::RectangleShape track(sf::Vector2f(380.0f, 8.0f));
+            sf::RectangleShape track(sf::Vector2f(400.0f, 8.0f));
             track.setPosition(sf::Vector2f(28.0f, 104.0f));
             track.setFillColor(sf::Color(40, 55, 70));
             window.draw(track);
             float frac = (dur > 1e-4f) ? std::clamp(tShow / dur, 0.0f, 1.0f) : 0.0f;
-            sf::RectangleShape fill(sf::Vector2f(380.0f * frac, 8.0f));
+            sf::RectangleShape fill(sf::Vector2f(400.0f * frac, 8.0f));
             fill.setPosition(sf::Vector2f(28.0f, 104.0f));
             fill.setFillColor(sf::Color(90, 210, 200));
             window.draw(fill);
@@ -528,23 +683,42 @@ int main(int argc, char** argv) {
             );
             drawText(
                 window, font,
-                "←/→ clip  1-7 jump  Space play  ,/. scrub  G bones  B ground",
+                "←/→ clip  1-9 jump  Space play  ,/. scrub  G bones  N names",
                 12, {28, 144}, sf::Color(150, 170, 185)
             );
             drawText(
                 window, font,
-                "P pitcher  C catcher  T athlete  Q detail  R reset cam",
+                "P pitcher  C catcher  T athlete (batter clips)  Q detail  R reset",
                 12, {28, 164}, sf::Color(150, 170, 185)
+            );
+
+            // Bone legend
+            drawText(window, font, "Bones:", 12, {28, 188}, sf::Color(180, 200, 210));
+            auto legendDot = [&](float x, sf::Color col, const char* label) {
+                sf::CircleShape d(4.0f);
+                d.setOrigin(sf::Vector2f(4.0f, 4.0f));
+                d.setPosition(sf::Vector2f(x, 210.0f));
+                d.setFillColor(col);
+                window.draw(d);
+                drawText(window, font, label, 11, {x + 8.0f, 202.0f}, col);
+            };
+            legendDot(88.0f, groupColor(BoneGroup::Core), "torso");
+            legendDot(155.0f, groupColor(BoneGroup::Arm), "arms");
+            legendDot(220.0f, groupColor(BoneGroup::Leg), "legs");
+            legendDot(285.0f, groupColor(BoneGroup::Finger), "fingers");
+            drawText(
+                window, font, "ring = Twist / Spine2", 11, {350.0f, 202.0f},
+                sf::Color(220, 220, 230)
             );
 
             std::ostringstream flags;
             flags << "skeleton " << (showSkeleton ? "ON" : "off")
-                  << "   ground " << (showGround ? "ON" : "off")
-                  << "   auto " << (autoRotate ? "ON" : "off")
-                  << "   " << (useOpenGL ? "OpenGL" : "software");
-            drawText(window, font, flags.str(), 12, {28, 190}, sf::Color(120, 200, 160));
+                  << "  names " << (showJointNames ? "ON" : "off")
+                  << "  ground " << (showGround ? "ON" : "off")
+                  << "  auto " << (autoRotate ? "ON" : "off")
+                  << "  " << (useOpenGL ? "OpenGL" : "software");
+            drawText(window, font, flags.str(), 12, {28, 228}, sf::Color(120, 200, 160));
 
-            // Clip list
             std::ostringstream list;
             list << "Clips: ";
             for (int i = 0; i < static_cast<int>(clips.size()); i++) {
@@ -554,12 +728,11 @@ int main(int argc, char** argv) {
                     list << clips[static_cast<size_t>(i)] << " ";
                 }
             }
-            drawText(window, font, list.str(), 11, {28, 214}, sf::Color(170, 180, 200));
+            drawText(window, font, list.str(), 11, {28, 252}, sf::Color(170, 180, 200));
 
-            // Help corner
             drawText(
                 window, font,
-                "Fine-tune CharacterModel3D.cpp then press Q/P/C/T to rebuild.",
+                "Rig: Spine→Spine2→Chest · arm/leg twists · fingers L/R  ·  T then ←/→ for batter swing",
                 12,
                 {16.0f, static_cast<float>(window.getSize().y) - 28.0f},
                 sf::Color(130, 150, 165)

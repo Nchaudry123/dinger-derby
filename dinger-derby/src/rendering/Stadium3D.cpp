@@ -1048,7 +1048,7 @@ Mesh3D buildWalls(const Layout& L) {
     mark(-18.0f, 3, 7, 4); // LCF ~374
     mark(0.0f, 4, 0, 1);   // CF 401
     mark(18.0f, 3, 6, 9);  // RCF ~369
-    mark(45.0f, 3, 3, 0);  // RF 330
+    mark(45.0f, 3, 1, 8);  // RF porch 318
 
     // CF scoreboard chassis (screen face is a separate mesh for pulse).
     float cfR = L.wallRAtAngle(0.0f);
@@ -1623,15 +1623,16 @@ float Layout::wallFeetAtAngle(float angleRad) const {
     float aDeg = angleRad * (180.0f / pi);
     aDeg = std::clamp(aDeg, -foulAngleDegrees, foulAngleDegrees);
 
-    // (angleDeg, feet) — sorted LF → RF. Corners short, CF deep, no sharp notch.
+    // (angleDeg, feet) — sorted LF → RF.
+    // Signature quirk: short RF porch (318) for pull-happy righties / opposite-field LHB.
     static const float samples[][2] = {
-        {-45.0f, 330.0f},
-        {-30.0f, 355.0f},
-        {-15.0f, 385.0f},
-        {0.0f, 400.0f},  // CF
-        {15.0f, 382.0f},
-        {30.0f, 352.0f},
-        {45.0f, 330.0f},
+        {-45.0f, 329.0f}, // LF
+        {-30.0f, 358.0f},
+        {-15.0f, 388.0f},
+        {0.0f, 401.0f},  // CF deep
+        {15.0f, 372.0f},
+        {30.0f, 340.0f},
+        {45.0f, 318.0f}, // RF porch — park character
     };
     constexpr int n = 7;
     if (aDeg <= samples[0][0]) {

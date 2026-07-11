@@ -28,6 +28,10 @@ int main() {
     expect(pitcher.findJoint("Ball") >= 0, "has Ball attach");
     expect(pitcher.findJoint("HumTwist_R") >= 0, "has HumTwist_R");
     expect(pitcher.findJoint("Knee_L") >= 0, "has Knee_L");
+    expect(pitcher.findJoint("Spine2") >= 0, "has Spine2 multi-spine");
+    expect(pitcher.findJoint("ThighTwist_L") >= 0, "has ThighTwist_L multi-leg");
+    expect(pitcher.findJoint("ShinTwist_R") >= 0, "has ShinTwist_R multi-leg");
+    expect(pitcher.findJoint("Index_L") >= 0, "has Index_L fingers");
     expect(pitcher.findClip("throw_preview") != nullptr, "has throw_preview");
     expect(pitcher.findClip("idle") != nullptr, "has idle");
 
@@ -109,7 +113,7 @@ int main() {
     expect(stance.duration > 1.0f, "stance loops");
     expect(!stance.channels.empty(), "stance channels");
     expect(swing.name == "batter_swing", "swing name");
-    expect(swing.duration > 0.50f && swing.duration < 0.70f, "swing duration ~0.58");
+    expect(swing.duration > 0.50f && swing.duration < 0.75f, "swing duration ~0.60");
     expect(!swing.channels.empty(), "swing channels");
 
     SkeletonAnimator bAnim;

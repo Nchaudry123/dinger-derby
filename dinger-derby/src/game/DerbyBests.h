@@ -8,7 +8,7 @@
 #include <sstream>
 #include <string>
 
-// Local career bests for HR Derby (simple key=value file, no JSON dependency).
+// Local career bests + light unlocks for HR Derby (key=value file).
 namespace DerbyBests {
 
 struct Stats {
@@ -16,6 +16,11 @@ struct Stats {
     float longestHrFeet = 0.0f;
     float bestExitMph = 0.0f;
     int roundsPlayed = 0;
+    // Unlocks / milestones (persisted).
+    int totalHrsCareer = 0;
+    int hardUnlocked = 0;   // 1 after 3+ HR on Normal in one round
+    int goalsCleared = 0;   // session goals completed
+    int moonballs = 0;
 };
 
 inline std::filesystem::path bestsPath() {
@@ -43,8 +48,15 @@ inline Stats load() {
             in >> s.bestExitMph;
         } else if (key == "rounds") {
             in >> s.roundsPlayed;
+        } else if (key == "total_hrs") {
+            in >> s.totalHrsCareer;
+        } else if (key == "hard_unlocked") {
+            in >> s.hardUnlocked;
+        } else if (key == "goals") {
+            in >> s.goalsCleared;
+        } else if (key == "moonballs") {
+            in >> s.moonballs;
         } else {
-            // skip unknown
             std::string junk;
             std::getline(in, junk);
         }
@@ -65,13 +77,26 @@ inline bool save(const Stats& s) {
     out << "longest_ft " << s.longestHrFeet << "\n";
     out << "best_ev " << s.bestExitMph << "\n";
     out << "rounds " << s.roundsPlayed << "\n";
+    out << "total_hrs " << s.totalHrsCareer << "\n";
+    out << "hard_unlocked " << s.hardUnlocked << "\n";
+    out << "goals " << s.goalsCleared << "\n";
+    out << "moonballs " << s.moonballs << "\n";
     return true;
 }
 
 // Merge a finished round into career bests; returns true if any record broken.
-inline bool recordRound(Stats& career, int hrCount, float longestFeet, float bestEv) {
+inline bool recordRound(
+    Stats& career,
+    int hrCount,
+    float longestFeet,
+    float bestEv,
+    int difficulty, // 0 Easy 1 Normal 2 Hard
+    int moonballCount = 0
+) {
     bool improved = false;
     career.roundsPlayed += 1;
+    career.totalHrsCareer += std::max(0, hrCount);
+    career.moonballs += std::max(0, moonballCount);
     if (hrCount > career.mostHrsInRound) {
         career.mostHrsInRound = hrCount;
         improved = true;
@@ -84,8 +109,25 @@ inline bool recordRound(Stats& career, int hrCount, float longestFeet, float bes
         career.bestExitMph = bestEv;
         improved = true;
     }
+    // Unlock Hard after a solid Normal (or Hard) round.
+    if (difficulty >= 1 && hrCount >= 3 && career.hardUnlocked == 0) {
+        career.hardUnlocked = 1;
+        improved = true;
+    }
     save(career);
     return improved;
+}
+
+// Session goal HRs for a difficulty (product targets).
+inline int sessionGoalHrs(int difficulty) {
+    switch (difficulty) {
+        case 0:
+            return 4; // Easy
+        case 2:
+            return 3; // Hard
+        default:
+            return 5; // Normal
+    }
 }
 
 } // namespace DerbyBests

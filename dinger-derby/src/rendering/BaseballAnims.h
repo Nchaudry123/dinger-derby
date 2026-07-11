@@ -14,13 +14,17 @@ AnimationClip pitcherIdle(const SkinnedModel3D& model);
 // Simple catcher crouch idle.
 AnimationClip catcherIdle(const SkinnedModel3D& model);
 
-// Ohtani-inspired RHB plate stance — upright, high hands, wide base, rhythm loop.
-// Model faces +Z (apply world rotY(π) so batter looks at mound / −Z).
+// RHB plate stance — biomechanics-informed (upright, high hands, shoulder-width+
+// base, quiet rhythm). Model faces +Z (world rotY(π) → looks at mound / −Z).
+// Refs: athletic stance cues; Ohtani MLB high-hand set; Welch rear-load posture.
 AnimationClip batterStance(const SkinnedModel3D& model);
 
-// Ohtani-inspired RHB swing: coil → quick toe-tap → plant → contact → high wrap.
-// Duration 0.55s; contact at t_norm ≈ 0.42 (matches BatPose). Drive with
-// applyClipNormalized(clip, bat.swingT).
+// RHB swing keyed to 1-2-3-4 kinematic sequence: pelvis → torso → arm → hand.
+// Phases: load/coil · toe-tap · stride · early plant · hip fire · contact ·
+// extend · wrap. Duration 0.60s; contact at t_norm ≈ 0.42 (BatPose.swingT).
+// Drive with applyClipNormalized(clip, bat.swingT).
+// Refs: Welch et al. JOSPT 1995; Fortenbaugh 2011 phases; K-Vest/Driveline/RPP
+// sequencing; Ohtani MLB toe-tap (not NPB high kick) + early foot down.
 AnimationClip batterSwing(const SkinnedModel3D& model);
 
 } // namespace BaseballAnims

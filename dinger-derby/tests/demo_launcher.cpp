@@ -56,7 +56,7 @@ std::vector<DemoEntry> makeDemoEntries() {
 
         // Dev / engine tools (hidden under Dev category by default)
         {"Character Viewer", "character_viewer_demo",
-         "CharacterModel3D workshop — orbit, clips, bones", "Dev", false},
+         "Multi-bone workshop — Spine2/twists, batter clips, skeleton", "Dev", false},
         {"Baseball 3D", "baseball_3d_demo",
          "High-poly baseball mesh showcase", "Dev", false},
         {"Physics 3D", "physics3d_demo",

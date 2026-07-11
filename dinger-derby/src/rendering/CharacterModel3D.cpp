@@ -5,60 +5,70 @@
 #include <sstream>
 
 // ============================================================================
-// CharacterModel3D — aligned skinned humanoid
+// CharacterModel3D — prominent product athlete (v3 silhouette)
 // ----------------------------------------------------------------------------
-// Design rules for non-janky deformation:
-//  1. Every limb is a multi-bone chain (shoulder/upper/twist/elbow/fore/twist/wrist).
-//  2. Weights come from distance along the bone chain (hard mid-shaft falloffs).
-//  3. Bind pose = natural standing, arms hang straight (−Y), tiny elbow flex.
-//  4. Animations key FULL body chains, not isolated limbs.
-//  5. Joint locals: child translation is along the bone axis (−Y for limbs).
-//  6. Twist bones (HumTwist / ProTwist) isolate humeral ER and forearm pronation
-//     so skin does not melt when the throw lays back and snaps.
+// Game-readable baseball body: bold silhouette, punchy team colors, solid
+// volumes that read at stadium camera distance. Joint names unchanged.
+//
+//  1. Multi-bone limbs + 3-spine torso (Spine → Spine2 → Chest).
+//  2. Hard mid-shaft skin weights (no melted elbows/knees).
+//  3. Bind = natural stand, arms hang (−Y), slight outward hang, soft knees.
+//  4. Limb lengths fixed for tests: UA 0.325, FA 0.265, thigh 0.43, shin 0.405.
+//  5. Twist bones isolate roll (throw ER, swing IR, lead-leg plant).
 // ============================================================================
 
 namespace CharacterModel3D {
 namespace {
 
-const sf::Color kSkin(222, 175, 142);
-const sf::Color kSkinDeep(195, 148, 118);
-const sf::Color kSkinLight(235, 192, 162);
-const sf::Color kSkinShadow(175, 132, 105);
-// Home whites with subtle blue-grey shadow so lit jersey reads cleaner outdoors.
-const sf::Color kJersey(252, 253, 255);
-const sf::Color kJerseyDeep(200, 208, 222);
-const sf::Color kPants(36, 44, 62);
-const sf::Color kPantsDeep(26, 32, 46);
-const sf::Color kPantsLight(52, 62, 82);
-const sf::Color kCap(16, 32, 78);
-const sf::Color kCapDeep(10, 20, 54);
-const sf::Color kAccent(210, 28, 42);
-const sf::Color kCleat(26, 26, 32);
-const sf::Color kSole(42, 42, 48);
-const sf::Color kMitt(158, 106, 66);
-const sf::Color kMittDeep(118, 76, 44);
-const sf::Color kMittPad(176, 126, 84);
-const sf::Color kGear(34, 48, 76);
-const sf::Color kGearDeep(26, 38, 58);
-const sf::Color kSock(242, 242, 248);
-const sf::Color kBelt(30, 32, 38);
-const sf::Color kHair(36, 26, 22);
-const sf::Color kEye(24, 20, 18);
-const sf::Color kUndershirt(218, 222, 230);
+// High-contrast outdoor palette — characters pop against grass/dirt/sky.
+const sf::Color kSkin(236, 184, 148);
+const sf::Color kSkinDeep(204, 152, 118);
+const sf::Color kSkinLight(248, 208, 176);
+const sf::Color kSkinShadow(168, 122, 94);
+const sf::Color kJersey(255, 255, 255);
+const sf::Color kJerseyDeep(196, 208, 228);
+const sf::Color kPants(24, 32, 52);
+const sf::Color kPantsDeep(14, 20, 34);
+const sf::Color kPantsLight(56, 68, 92);
+const sf::Color kCap(12, 36, 96);           // navy team cap
+const sf::Color kCapDeep(6, 20, 58);
+const sf::Color kAccent(232, 28, 48);       // hot red piping / number
+const sf::Color kAccentLite(255, 90, 70);
+const sf::Color kCleat(18, 18, 24);
+const sf::Color kSole(48, 48, 56);
+const sf::Color kMitt(176, 108, 58);        // warm glove leather
+const sf::Color kMittDeep(128, 72, 36);
+const sf::Color kMittPad(198, 138, 88);
+const sf::Color kGear(28, 48, 88);          // catcher navy armor
+const sf::Color kGearDeep(16, 30, 56);
+const sf::Color kGearLite(48, 72, 120);
+const sf::Color kSock(252, 252, 255);
+const sf::Color kBelt(18, 18, 24);
+const sf::Color kHair(28, 18, 14);
+const sf::Color kHairLite(48, 32, 24);
+const sf::Color kEye(12, 10, 10);
+const sf::Color kEyeWhite(248, 246, 242);
+const sf::Color kUndershirt(48, 92, 180);   // bold blue batting sleeves
+const sf::Color kUndershirtDeep(32, 64, 140);
+const sf::Color kPantsStripe(232, 232, 240);
 
-
+// ~1.78 m male. Limb lengths locked for skinned_model_test.
 constexpr float kPi = 3.14159265f;
 constexpr float kHU = 1.78f / 8.0f;
 constexpr float kHeight = 1.78f;
-constexpr float kHeadR = kHU * 0.47f;
-constexpr float kHipY = 4.20f * kHU;          // pelvis
-constexpr float kShoulderY = 6.45f * kHU;
+constexpr float kHeadR = kHU * 0.56f;         // larger game-readable head
+constexpr float kHipY = 4.12f * kHU;
+constexpr float kShoulderY = 6.50f * kHU;
 constexpr float kHeadY = kHeight - kHeadR;
-constexpr float kUpperArm = 0.325f;
-constexpr float kForearm = 0.265f;
-constexpr float kHand = 0.090f;
+constexpr float kUpperArm = 0.325f;           // test lock
+constexpr float kForearm = 0.265f;            // test lock
+constexpr float kHand = 0.100f;
 constexpr float kThigh = 0.430f;
 constexpr float kShin = 0.405f;
+// Bold athletic silhouette — wide shoulders, taper waist.
+constexpr float kShoulderHalf = 0.195f;
+constexpr float kWaistR = 0.112f;
+constexpr float kChestR = 0.168f;
 
 Vector3 safeNorm(const Vector3& v, const Vector3& fb = Vector3(0.0f, 1.0f, 0.0f)) {
     float m = v.magnitude();
@@ -376,6 +386,9 @@ void attachClips(SkinnedModel3D& m, Role role) {
         pushRot(clip, J("Spine"), t, {
             eul(0.02f, 0, 0), eul(0.03f, 0.02f, 0), eul(0.035f, 0, 0), eul(0.03f, -0.02f, 0), eul(0.02f, 0, 0)
         });
+        pushRot(clip, J("Spine2"), t, {
+            eul(0.015f, 0, 0), eul(0.025f, 0.015f, 0), eul(0.03f, 0, 0), eul(0.025f, -0.015f, 0), eul(0.015f, 0, 0)
+        });
         pushRot(clip, J("Chest"), t, {
             eul(0.01f, 0, 0), eul(0.02f, 0.015f, 0), eul(0.025f, 0, 0), eul(0.02f, -0.015f, 0), eul(0.01f, 0, 0)
         });
@@ -399,6 +412,13 @@ void attachClips(SkinnedModel3D& m, Role role) {
         });
         pushRot(clip, J("Knee_L"), t, holdQ(eul(0.06f, 0, 0), n));
         pushRot(clip, J("Knee_R"), t, holdQ(eul(0.06f, 0, 0), n));
+        // Quiet femoral roll so idle isn't a frozen tube.
+        pushRot(clip, J("ThighTwist_L"), t, {
+            eul(0, 0.01f, 0), eul(0, 0.02f, 0), eul(0, 0.01f, 0), eul(0, 0.015f, 0), eul(0, 0.01f, 0)
+        });
+        pushRot(clip, J("ThighTwist_R"), t, {
+            eul(0, -0.01f, 0), eul(0, -0.02f, 0), eul(0, -0.01f, 0), eul(0, -0.015f, 0), eul(0, -0.01f, 0)
+        });
         m.clips.push_back(std::move(clip));
     }
 
@@ -555,6 +575,14 @@ void attachClips(SkinnedModel3D& m, Role role) {
             eul(0.10f, -0.26f, 0.01f), eul(0.13f, -0.28f, 0.02f), eul(0.15f, -0.04f, 0.04f),
             eul(0.16f,  0.26f, 0.04f), eul(0.13f,  0.42f, 0.03f), eul(0.09f,  0.20f, 0.02f),
             eul(0.05f,  0.07f, 0.01f), eul(0.02f,  0.02f, 0)
+        });
+        // Spine2 mid corkscrew — lag Spine, lead Chest for fluid trunk whip.
+        pushRot(clip, J("Spine2"), t, {
+            eul(0.045f, -0.055f, 0), eul(0.055f, -0.11f, -0.02f), eul(0.04f, -0.15f, -0.02f),
+            eul(0.03f, -0.17f, -0.02f), eul(0.03f, -0.17f, -0.02f), eul(0.045f, -0.21f, -0.01f),
+            eul(0.085f, -0.28f, 0.005f), eul(0.12f, -0.30f, 0.02f), eul(0.145f, -0.05f, 0.04f),
+            eul(0.155f,  0.28f, 0.045f), eul(0.12f,  0.44f, 0.035f), eul(0.08f,  0.21f, 0.02f),
+            eul(0.045f,  0.07f, 0.01f), eul(0.02f,  0.02f, 0)
         });
         pushRot(clip, J("Chest"), t, {
             eul(0.04f, -0.05f, 0), eul(0.05f, -0.10f, -0.02f), eul(0.04f, -0.14f, -0.02f),
@@ -746,11 +774,23 @@ void attachClips(SkinnedModel3D& m, Role role) {
             eul(0.04f, 0.00f, 0.00f),
             eul(0.05f, 0.00f, 0.02f)
         });
+        pushRot(clip, J("ThighTwist_L"), t, {
+            eul(0, 0.04f, 0), eul(0, 0.10f, 0), eul(0, 0.14f, 0), eul(0, 0.16f, 0),
+            eul(0, 0.16f, 0), eul(0, 0.10f, 0), eul(0, 0.04f, 0), eul(0, -0.04f, 0),
+            eul(0, -0.08f, 0), eul(0, -0.10f, 0), eul(0, -0.06f, 0), eul(0, -0.02f, 0),
+            eul(0, 0.0f, 0), eul(0, 0.0f, 0)
+        });
         pushRot(clip, J("Knee_L"), t, {
             eul(0.12f, 0, 0), eul(0.72f, 0, 0), eul(1.28f, 0, 0), eul(1.62f, 0, 0),
             eul(1.64f, 0, 0), eul(1.15f, 0, 0), eul(0.52f, 0, 0), eul(0.26f, 0, 0),
             eul(0.20f, 0, 0), eul(0.16f, 0, 0), eul(0.14f, 0, 0), eul(0.12f, 0, 0),
             eul(0.10f, 0, 0), eul(0.10f, 0, 0)
+        });
+        pushRot(clip, J("ShinTwist_L"), t, {
+            eul(0, 0.02f, 0), eul(0, 0.06f, 0), eul(0, 0.10f, 0), eul(0, 0.12f, 0),
+            eul(0, 0.12f, 0), eul(0, 0.06f, 0), eul(0, 0.02f, 0), eul(0, -0.04f, 0),
+            eul(0, -0.08f, 0), eul(0, -0.06f, 0), eul(0, -0.03f, 0), eul(0, 0.0f, 0),
+            eul(0, 0.0f, 0), eul(0, 0.0f, 0)
         });
         pushRot(clip, J("Ankle_L"), t, {
             eul(-0.06f, 0, 0), eul(0.32f, 0, 0), eul(0.52f, 0, 0), eul(0.62f, 0, 0),
@@ -773,11 +813,23 @@ void attachClips(SkinnedModel3D& m, Role role) {
             eul(0.42f, 0, 0.06f), eul(0.28f, 0, 0.05f), eul(0.18f, 0, 0.03f),
             eul(0.12f, 0, 0.01f), eul(0.08f, 0, -0.02f)
         });
+        pushRot(clip, J("ThighTwist_R"), t, {
+            eul(0, -0.04f, 0), eul(0, -0.06f, 0), eul(0, -0.08f, 0), eul(0, -0.08f, 0),
+            eul(0, -0.08f, 0), eul(0, -0.04f, 0), eul(0, 0.02f, 0), eul(0, 0.06f, 0),
+            eul(0, 0.10f, 0), eul(0, 0.12f, 0), eul(0, 0.06f, 0), eul(0, 0.02f, 0),
+            eul(0, 0.0f, 0), eul(0, 0.0f, 0)
+        });
         pushRot(clip, J("Knee_R"), t, {
             eul(0.24f, 0, 0), eul(0.34f, 0, 0), eul(0.40f, 0, 0), eul(0.44f, 0, 0),
             eul(0.48f, 0, 0), eul(0.55f, 0, 0), eul(0.60f, 0, 0), eul(0.56f, 0, 0),
             eul(0.48f, 0, 0), eul(0.42f, 0, 0), eul(0.32f, 0, 0), eul(0.24f, 0, 0),
             eul(0.18f, 0, 0), eul(0.12f, 0, 0)
+        });
+        pushRot(clip, J("ShinTwist_R"), t, {
+            eul(0, -0.02f, 0), eul(0, -0.04f, 0), eul(0, -0.05f, 0), eul(0, -0.05f, 0),
+            eul(0, -0.05f, 0), eul(0, -0.02f, 0), eul(0, 0.02f, 0), eul(0, 0.05f, 0),
+            eul(0, 0.08f, 0), eul(0, 0.10f, 0), eul(0, 0.05f, 0), eul(0, 0.02f, 0),
+            eul(0, 0.0f, 0), eul(0, 0.0f, 0)
         });
         pushRot(clip, J("Ankle_R"), t, {
             eul(-0.10f, 0, 0), eul(-0.16f, 0, 0), eul(-0.18f, 0, 0), eul(-0.20f, 0, 0),
@@ -1005,111 +1057,137 @@ void attachClips(SkinnedModel3D& m, Role role) {
     (void)role;
 }
 
-// ── main builder ────────────────────────────────────────────────────────
+
+// ── main builder (v2 athletic rebuild) ──────────────────────────────────
 
 SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     SkinnedModel3D m;
     int d = static_cast<int>(detailLevel);
-    // Higher default mesh density for product demos (still lightweight vs glTF).
-    int rings = d >= 2 ? 22 : (d >= 1 ? 14 : 8);
-    int segs = d >= 2 ? 24 : (d >= 1 ? 16 : 10);
-    int hr = d >= 2 ? 11 : 8;
-    int hs = d >= 2 ? 16 : 12;
+    // Dense enough for product demos; still CPU-skin friendly.
+    int rings = d >= 2 ? 24 : (d >= 1 ? 16 : 10);
+    int segs = d >= 2 ? 26 : (d >= 1 ? 18 : 12);
+    int hr = d >= 2 ? 12 : 9;
+    int hs = d >= 2 ? 18 : 14;
 
     const bool catcher = role == Role::Catcher;
     const bool pitcher = role == Role::Pitcher;
     const bool athlete = role == Role::Athlete;
 
-    // ── skeleton: hang-down arms, straight legs ─────────────────────────
-    // Vertical spacing targets ~1.78 m crown height (head center ~1.67).
+    // ── skeleton: multi-spine + multi-bone limbs ────────────────────────
     int root = addJoint(m, "Root", -1, Vector3());
     int hips = addJoint(m, "Hips", root, Vector3(0.0f, kHipY, 0.0f));
-    int spine = addJoint(m, "Spine", hips, Vector3(0.0f, 0.18f, 0.015f));
-    int chest = addJoint(m, "Chest", spine, Vector3(0.0f, 0.20f, 0.012f));
-    int neck = addJoint(m, "Neck", chest, Vector3(0.0f, 0.13f, 0.010f));
-    int head = addJoint(m, "Head", neck, Vector3(0.0f, 0.145f, 0.018f));
+    int spine = addJoint(m, "Spine", hips, Vector3(0.0f, 0.115f, 0.016f));
+    int spine2 = addJoint(m, "Spine2", spine, Vector3(0.0f, 0.125f, 0.014f));
+    int chest = addJoint(m, "Chest", spine2, Vector3(0.0f, 0.145f, 0.012f));
+    int neck = addJoint(m, "Neck", chest, Vector3(0.0f, 0.125f, 0.012f));
+    int head = addJoint(m, "Head", neck, Vector3(0.0f, 0.150f, 0.020f));
 
-    int clavL = addJoint(m, "Clavicle_L", chest, Vector3(-0.05f, 0.10f, 0.015f));
-    int clavR = addJoint(m, "Clavicle_R", chest, Vector3(0.05f, 0.10f, 0.015f));
+    // Broad clavicle shelf — hero shoulder width.
+    int clavL = addJoint(m, "Clavicle_L", chest, Vector3(-0.065f, 0.110f, 0.020f));
+    int clavR = addJoint(m, "Clavicle_R", chest, Vector3(0.065f, 0.110f, 0.020f));
 
-    // Multi-bone hang arms (−Y). Extra joints let the throw distribute
-    // elevation / humeral ER / elbow flex / forearm pronation separately:
-    //   Clavicle → Shoulder → UpperArm → HumTwist → Elbow
-    //            → Forearm → ProTwist → Wrist → Palm
-    // rz>0 swings bone toward +X, so R opens with +rz, L opens with −rz.
-    // ry on HumTwist / ProTwist = twist about the bone axis (ER / pronation).
     const float uaA = kUpperArm * 0.48f;
     const float uaB = kUpperArm * 0.52f;
     const float faA = kForearm * 0.52f;
     const float faB = kForearm * 0.48f;
+    const float thA = kThigh * 0.48f;
+    const float thB = kThigh * 0.52f;
+    const float shA = kShin * 0.52f;
+    const float shB = kShin * 0.48f;
 
-    int shL = addJoint(m, "Shoulder_L", clavL, Vector3(-0.14f, 0.0f, 0.0f), eul(0, 0, -0.10f));
-    int uaL = addJoint(m, "UpperArm_L", shL, Vector3(0.0f, -uaA, 0.006f));
-    int htL = addJoint(m, "HumTwist_L", uaL, Vector3(0.0f, -uaB, 0.006f));
-    int elL = addJoint(m, "Elbow_L", htL, Vector3(0.0f, 0.0f, 0.0f), eul(0.08f, 0, 0));
-    int faL = addJoint(m, "Forearm_L", elL, Vector3(0.0f, -faA, 0.005f));
-    int ptL = addJoint(m, "ProTwist_L", faL, Vector3(0.0f, -faB, 0.003f));
+    // Soft A-pose hang; shoulders sit wide of the torso.
+    int shL = addJoint(m, "Shoulder_L", clavL, Vector3(-kShoulderHalf + 0.02f, 0.0f, 0.0f), eul(0.02f, 0, -0.14f));
+    int uaL = addJoint(m, "UpperArm_L", shL, Vector3(0.0f, -uaA, 0.008f));
+    int htL = addJoint(m, "HumTwist_L", uaL, Vector3(0.0f, -uaB, 0.008f));
+    int elL = addJoint(m, "Elbow_L", htL, Vector3(0.0f, 0.0f, 0.0f), eul(0.06f, 0, 0));
+    int faL = addJoint(m, "Forearm_L", elL, Vector3(0.0f, -faA, 0.006f));
+    int ptL = addJoint(m, "ProTwist_L", faL, Vector3(0.0f, -faB, 0.004f));
     int wrL = addJoint(m, "Wrist_L", ptL, Vector3(0.0f, 0.0f, 0.0f));
-    int palmL = addJoint(m, "Palm_L", wrL, Vector3(0.0f, -kHand * 0.55f, 0.014f));
+    int palmL = addJoint(m, "Palm_L", wrL, Vector3(0.0f, -kHand * 0.55f, 0.016f));
 
-    int shR = addJoint(m, "Shoulder_R", clavR, Vector3(0.14f, 0.0f, 0.0f), eul(0, 0, +0.10f));
-    int uaR = addJoint(m, "UpperArm_R", shR, Vector3(0.0f, -uaA, 0.006f));
-    int htR = addJoint(m, "HumTwist_R", uaR, Vector3(0.0f, -uaB, 0.006f));
-    int elR = addJoint(m, "Elbow_R", htR, Vector3(0.0f, 0.0f, 0.0f), eul(0.08f, 0, 0));
-    int faR = addJoint(m, "Forearm_R", elR, Vector3(0.0f, -faA, 0.005f));
-    int ptR = addJoint(m, "ProTwist_R", faR, Vector3(0.0f, -faB, 0.003f));
+    int shR = addJoint(m, "Shoulder_R", clavR, Vector3(kShoulderHalf - 0.02f, 0.0f, 0.0f), eul(0.02f, 0, +0.14f));
+    int uaR = addJoint(m, "UpperArm_R", shR, Vector3(0.0f, -uaA, 0.008f));
+    int htR = addJoint(m, "HumTwist_R", uaR, Vector3(0.0f, -uaB, 0.008f));
+    int elR = addJoint(m, "Elbow_R", htR, Vector3(0.0f, 0.0f, 0.0f), eul(0.06f, 0, 0));
+    int faR = addJoint(m, "Forearm_R", elR, Vector3(0.0f, -faA, 0.006f));
+    int ptR = addJoint(m, "ProTwist_R", faR, Vector3(0.0f, -faB, 0.004f));
     int wrR = addJoint(m, "Wrist_R", ptR, Vector3(0.0f, 0.0f, 0.0f));
-    int palmR = addJoint(m, "Palm_R", wrR, Vector3(0.0f, -kHand * 0.55f, 0.016f));
+    int palmR = addJoint(m, "Palm_R", wrR, Vector3(0.0f, -kHand * 0.55f, 0.018f));
 
-    // Throw-hand finger bones (mesh follows palm; joints enable grip/snap keys).
-    int fIdx = addJoint(m, "Index_R", palmR, Vector3(0.012f, -0.030f, 0.010f));
-    int fMid = addJoint(m, "Middle_R", palmR, Vector3(0.004f, -0.034f, 0.012f));
-    int fRng = addJoint(m, "Ring_R", palmR, Vector3(-0.006f, -0.032f, 0.010f));
-    int fPnk = addJoint(m, "Pinky_R", palmR, Vector3(-0.014f, -0.028f, 0.006f));
-    int fThm = addJoint(m, "Thumb_R", palmR, Vector3(0.022f, -0.008f, 0.008f), eul(0.15f, 0.4f, 0.55f));
-    // Baseball rides the throw palm: nestled in glove at set, pulled out on break.
-    int ballJ = addJoint(m, "Ball", palmR, Vector3(0.0f, -0.012f, 0.028f));
-    (void)fIdx; (void)fMid; (void)fRng; (void)fPnk; (void)fThm;
+    int fIdxR = addJoint(m, "Index_R", palmR, Vector3(0.013f, -0.032f, 0.011f));
+    int fMidR = addJoint(m, "Middle_R", palmR, Vector3(0.004f, -0.036f, 0.013f));
+    int fRngR = addJoint(m, "Ring_R", palmR, Vector3(-0.007f, -0.034f, 0.011f));
+    int fPnkR = addJoint(m, "Pinky_R", palmR, Vector3(-0.015f, -0.030f, 0.007f));
+    int fThmR = addJoint(m, "Thumb_R", palmR, Vector3(0.024f, -0.008f, 0.009f), eul(0.15f, 0.4f, 0.55f));
+    int fIdxL = addJoint(m, "Index_L", palmL, Vector3(-0.013f, -0.032f, 0.011f));
+    int fMidL = addJoint(m, "Middle_L", palmL, Vector3(-0.004f, -0.036f, 0.013f));
+    int fRngL = addJoint(m, "Ring_L", palmL, Vector3(0.007f, -0.034f, 0.011f));
+    int fPnkL = addJoint(m, "Pinky_L", palmL, Vector3(0.015f, -0.030f, 0.007f));
+    int fThmL = addJoint(m, "Thumb_L", palmL, Vector3(-0.024f, -0.008f, 0.009f), eul(0.15f, -0.4f, -0.55f));
+    int ballJ = addJoint(m, "Ball", palmR, Vector3(0.0f, -0.012f, 0.030f));
+    (void)fIdxR; (void)fMidR; (void)fRngR; (void)fPnkR; (void)fThmR;
+    (void)fIdxL; (void)fMidL; (void)fRngL; (void)fPnkL; (void)fThmL;
 
-    int hipR = addJoint(m, "Hip_R", hips, Vector3(0.10f, -0.03f, 0.0f));
-    int knR = addJoint(m, "Knee_R", hipR, Vector3(0.0f, -kThigh, 0.012f));
-    int anR = addJoint(m, "Ankle_R", knR, Vector3(0.0f, -kShin, 0.0f));
-    int toeR = addJoint(m, "Toe_R", anR, Vector3(0.0f, -0.015f, 0.09f));
+    // Legs: wider stance, multi-bone + twist.
+    int hipR = addJoint(m, "Hip_R", hips, Vector3(0.105f, -0.028f, 0.0f), eul(0.02f, 0, -0.04f));
+    int thR = addJoint(m, "Thigh_R", hipR, Vector3(0.0f, -thA, 0.008f));
+    int ttR = addJoint(m, "ThighTwist_R", thR, Vector3(0.0f, -thB, 0.008f));
+    int knR = addJoint(m, "Knee_R", ttR, Vector3(0.0f, 0.0f, 0.0f), eul(0.05f, 0, 0));
+    int shinR = addJoint(m, "Shin_R", knR, Vector3(0.0f, -shA, 0.005f));
+    int stR = addJoint(m, "ShinTwist_R", shinR, Vector3(0.0f, -shB, 0.003f));
+    int anR = addJoint(m, "Ankle_R", stR, Vector3(0.0f, 0.0f, 0.0f), eul(-0.04f, 0, 0));
+    int toeR = addJoint(m, "Toe_R", anR, Vector3(0.0f, -0.012f, 0.095f));
 
-    int hipL = addJoint(m, "Hip_L", hips, Vector3(-0.10f, -0.03f, 0.0f));
-    int knL = addJoint(m, "Knee_L", hipL, Vector3(0.0f, -kThigh, 0.012f));
-    int anL = addJoint(m, "Ankle_L", knL, Vector3(0.0f, -kShin, 0.0f));
-    int toeL = addJoint(m, "Toe_L", anL, Vector3(0.0f, -0.015f, 0.09f));
+    int hipL = addJoint(m, "Hip_L", hips, Vector3(-0.105f, -0.028f, 0.0f), eul(0.02f, 0, 0.04f));
+    int thL = addJoint(m, "Thigh_L", hipL, Vector3(0.0f, -thA, 0.008f));
+    int ttL = addJoint(m, "ThighTwist_L", thL, Vector3(0.0f, -thB, 0.008f));
+    int knL = addJoint(m, "Knee_L", ttL, Vector3(0.0f, 0.0f, 0.0f), eul(0.05f, 0, 0));
+    int shinL = addJoint(m, "Shin_L", knL, Vector3(0.0f, -shA, 0.005f));
+    int stL = addJoint(m, "ShinTwist_L", shinL, Vector3(0.0f, -shB, 0.003f));
+    int anL = addJoint(m, "Ankle_L", stL, Vector3(0.0f, 0.0f, 0.0f), eul(-0.04f, 0, 0));
+    int toeL = addJoint(m, "Toe_L", anL, Vector3(0.0f, -0.012f, 0.095f));
 
     if (catcher) {
-        // Athletic catcher crouch bind: low hips, knees wide, spine slightly up.
-        m.joints[hips].restTranslation = Vector3(0, 0.48f, 0.04f);
+        m.joints[hips].restTranslation = Vector3(0, 0.50f, 0.05f);
         m.joints[hips].bakeLocalRest();
-        m.joints[hipL].restRotation = eul(0.55f, 0.08f, 0.18f);
-        m.joints[hipR].restRotation = eul(0.55f, -0.08f, -0.18f);
+        m.joints[hipL].restRotation = eul(0.52f, 0.08f, 0.16f);
+        m.joints[hipR].restRotation = eul(0.52f, -0.08f, -0.16f);
         m.joints[hipL].bakeLocalRest();
         m.joints[hipR].bakeLocalRest();
-        m.joints[knL].restTranslation = Vector3(0.04f, -0.20f, 0.10f);
-        m.joints[knR].restTranslation = Vector3(-0.04f, -0.20f, 0.10f);
-        m.joints[knL].restRotation = eul(1.15f, 0, 0);
-        m.joints[knR].restRotation = eul(1.15f, 0, 0);
+        m.joints[thL].restTranslation = Vector3(0.02f, -0.10f, 0.05f);
+        m.joints[thR].restTranslation = Vector3(-0.02f, -0.10f, 0.05f);
+        m.joints[ttL].restTranslation = Vector3(0.02f, -0.10f, 0.05f);
+        m.joints[ttR].restTranslation = Vector3(-0.02f, -0.10f, 0.05f);
+        m.joints[thL].bakeLocalRest();
+        m.joints[thR].bakeLocalRest();
+        m.joints[ttL].bakeLocalRest();
+        m.joints[ttR].bakeLocalRest();
+        m.joints[knL].restRotation = eul(1.12f, 0, 0);
+        m.joints[knR].restRotation = eul(1.12f, 0, 0);
         m.joints[knL].bakeLocalRest();
         m.joints[knR].bakeLocalRest();
-        m.joints[anL].restTranslation = Vector3(0, -0.20f, 0.12f);
-        m.joints[anR].restTranslation = Vector3(0, -0.20f, 0.12f);
-        m.joints[anL].restRotation = eul(-0.20f, 0, 0);
-        m.joints[anR].restRotation = eul(-0.20f, 0, 0);
+        m.joints[shinL].restTranslation = Vector3(0, -0.10f, 0.06f);
+        m.joints[shinR].restTranslation = Vector3(0, -0.10f, 0.06f);
+        m.joints[stL].restTranslation = Vector3(0, -0.10f, 0.06f);
+        m.joints[stR].restTranslation = Vector3(0, -0.10f, 0.06f);
+        m.joints[shinL].bakeLocalRest();
+        m.joints[shinR].bakeLocalRest();
+        m.joints[stL].bakeLocalRest();
+        m.joints[stR].bakeLocalRest();
+        m.joints[anL].restRotation = eul(-0.18f, 0, 0);
+        m.joints[anR].restRotation = eul(-0.18f, 0, 0);
         m.joints[anL].bakeLocalRest();
         m.joints[anR].bakeLocalRest();
-        m.joints[spine].restRotation = eul(0.18f, 0, 0);
-        m.joints[chest].restRotation = eul(0.06f, 0, 0);
+        m.joints[spine].restRotation = eul(0.10f, 0, 0);
+        m.joints[spine2].restRotation = eul(0.08f, 0, 0);
+        m.joints[chest].restRotation = eul(0.05f, 0, 0);
         m.joints[spine].bakeLocalRest();
+        m.joints[spine2].bakeLocalRest();
         m.joints[chest].bakeLocalRest();
-        // Ready arms baked into rest so catcher_idle is a soft settle.
-        m.joints[shL].restRotation = eul(-0.75f, -0.12f, -0.50f);
-        m.joints[elL].restRotation = eul(1.10f, 0, 0);
-        m.joints[shR].restRotation = eul(-0.30f, 0.08f, 0.22f);
-        m.joints[elR].restRotation = eul(0.80f, 0, 0);
+        m.joints[shL].restRotation = eul(-0.72f, -0.12f, -0.48f);
+        m.joints[elL].restRotation = eul(1.05f, 0, 0);
+        m.joints[shR].restRotation = eul(-0.28f, 0.08f, 0.20f);
+        m.joints[elR].restRotation = eul(0.75f, 0, 0);
         m.joints[shL].bakeLocalRest();
         m.joints[elL].bakeLocalRest();
         m.joints[shR].bakeLocalRest();
@@ -1121,230 +1199,263 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     auto W = [&](int j) { return worldOf(G, j); };
 
     sf::Color torso = catcher ? kGear : (athlete ? kUndershirt : kJersey);
-    sf::Color torsoD = catcher ? kGearDeep : kJerseyDeep;
+    sf::Color torsoD = catcher ? kGearDeep : (athlete ? kUndershirtDeep : kJerseyDeep);
     sf::Color sleeve = catcher ? kGearDeep : (athlete ? kSkin : kJerseyDeep);
 
-    // ── LEGS: continuous hip→knee→ankle tubes ───────────────────────────
-    auto makeLeg = [&](int jHip, int jKn, int jAn, int jToe) {
-        Vector3 pH = W(jHip), pK = W(jKn), pA = W(jAn), pT = W(jToe);
-        Vector3 midT = lerpV(pH, pK, 0.45f) + Vector3(0, 0, 0.012f);
-        Vector3 midS = lerpV(pK, pA, 0.50f) + Vector3(0, 0, 0.008f);
+    // ── LEGS: bold athletic volumes (read at distance) ──────────────────
+    auto makeLeg = [&](int jHip, int jTh, int jTt, int jKn, int jShin, int jSt, int jAn, int jToe) {
+        Vector3 pH = W(jHip), pTh = W(jTh), pK = W(jKn), pSh = W(jShin), pA = W(jAn), pT = W(jToe);
         boneChain(
             m,
-            {pH, midT, pK, midS, pA},
-            {jHip, jHip, jKn, jKn, jAn},
-            {0.070f, 0.065f, 0.052f, 0.046f, 0.032f},
-            kPants, kPantsDeep, 0.48f,
-            rings + 10, segs
+            {pH, pTh, pK + Vector3(0, 0.014f, 0.004f)},
+            {jHip, jTh, jTt},
+            {0.092f, 0.088f, 0.064f},
+            kPants, kPantsDeep, 0.40f,
+            rings + 14, segs,
+            0.042f
         );
-        // Soft joint caps (same weights as adjacent bones — no floaters)
-        ball(m, pH, 0.055f, 0.052f, 0.055f, kPants, hr - 1, hs - 2, jHip, 0.70f, hips, 0.30f);
-        ball(m, pK, 0.045f, 0.042f, 0.044f, kPantsLight, hr - 1, hs - 2, jKn, 0.70f, jHip, 0.15f, jAn, 0.15f);
-        ball(m, pA + Vector3(0, 0.028f, 0), 0.032f, 0.024f, 0.032f, kSock, 6, 10, jAn, 1.0f);
-        ball(m, pT, 0.040f, 0.022f, 0.075f, kCleat, hr - 1, hs - 2, jToe, 0.80f, jAn, 0.20f);
-        ball(m, pT + Vector3(0, -0.012f, 0), 0.042f, 0.009f, 0.080f, kSole, 5, 8, jToe, 0.85f, jAn, 0.15f);
+        boneChain(
+            m,
+            {pK, pSh, pA + Vector3(0, 0.012f, 0)},
+            {jKn, jShin, jSt},
+            {0.060f, 0.056f, 0.040f},
+            kPants, kPantsDeep, 0.52f,
+            rings + 12, segs,
+            0.042f
+        );
+        // Outer pant stripe (team flash).
+        Vector3 midTh = lerpV(pH, pK, 0.45f) + Vector3(pH.x > 0 ? 0.055f : -0.055f, 0, 0);
+        ball(m, midTh, 0.012f, 0.12f, 0.012f, kPantsStripe, 5, 8, jTh, 0.7f, jTt, 0.3f);
+        ball(m, pH, 0.070f, 0.064f, 0.068f, kPants, hr + 1, hs, jHip, 0.72f, hips, 0.28f);
+        ball(m, pK, 0.056f, 0.050f, 0.054f, kPantsLight, hr, hs - 2, jKn, 0.74f, jTt, 0.13f, jShin, 0.13f);
+        // Tall white socks.
+        ball(m, pA + Vector3(0, 0.055f, 0), 0.040f, 0.055f, 0.040f, kSock, 8, 12, jAn, 0.75f, jSt, 0.25f);
+        ball(m, pA + Vector3(0, 0.028f, 0), 0.038f, 0.028f, 0.038f, kSock, 7, 12, jAn, 0.92f, jSt, 0.08f);
+        // Bold cleats.
+        ball(m, pT, 0.048f, 0.028f, 0.092f, kCleat, hr, hs - 2, jToe, 0.82f, jAn, 0.18f);
+        ball(m, pT + Vector3(0, -0.015f, 0.012f), 0.050f, 0.012f, 0.096f, kSole, 5, 10, jToe, 0.88f, jAn, 0.12f);
+        ball(m, pT + Vector3(0, 0.008f, 0.04f), 0.022f, 0.014f, 0.030f, kAccent, 4, 6, jToe, 0.9f, jAn, 0.1f);
     };
-    makeLeg(hipR, knR, anR, toeR);
-    makeLeg(hipL, knL, anL, toeL);
+    makeLeg(hipR, thR, ttR, knR, shinR, stR, anR, toeR);
+    makeLeg(hipL, thL, ttL, knL, shinL, stL, anL, toeL);
 
-    // Catcher shin guards (two plates per leg).
     if (catcher) {
         auto shinGuard = [&](int jKn, int jAn) {
             Vector3 pK = W(jKn), pA = W(jAn);
-            Vector3 mid = lerpV(pK, pA, 0.45f) + Vector3(0, 0, 0.028f);
-            ball(m, pK + Vector3(0, -0.02f, 0.03f), 0.055f, 0.048f, 0.040f, kGear, hr - 1, hs - 2, jKn, 0.85f, jAn, 0.15f);
-            ball(m, mid, 0.048f, 0.090f, 0.036f, kGearDeep, hr - 1, hs - 2, jKn, 0.45f, jAn, 0.55f);
-            ball(m, pA + Vector3(0, 0.04f, 0.025f), 0.042f, 0.040f, 0.032f, kGear, 6, 10, jAn, 0.9f, jKn, 0.1f);
+            Vector3 mid = lerpV(pK, pA, 0.45f) + Vector3(0, 0, 0.038f);
+            ball(m, pK + Vector3(0, -0.02f, 0.038f), 0.068f, 0.056f, 0.050f, kGear, hr, hs - 2, jKn, 0.88f, jAn, 0.12f);
+            ball(m, mid, 0.058f, 0.105f, 0.045f, kGearLite, hr, hs - 2, jKn, 0.40f, jAn, 0.60f);
+            ball(m, pA + Vector3(0, 0.04f, 0.032f), 0.050f, 0.048f, 0.040f, kGear, 7, 12, jAn, 0.9f, jKn, 0.1f);
+            // Guard rivet accents.
+            ball(m, mid + Vector3(0, 0.02f, 0.02f), 0.012f, 0.012f, 0.012f, kAccent, 4, 6, jKn, 0.5f, jAn, 0.5f);
         };
         shinGuard(knL, anL);
         shinGuard(knR, anR);
     }
 
-    // ── PELVIS + TORSO (continuous volumes) ─────────────────────────────
-    ball(m, W(hips), 0.125f, 0.095f, 0.108f, kPants, hr, hs, hips, 1.0f);
-    ball(m, W(hips) + Vector3(0, 0.048f, 0), 0.115f, 0.020f, 0.095f, kBelt, 5, 10, hips, 0.9f, spine, 0.1f);
+    // ── PELVIS + TORSO (hero V-torso) ────────────────────────────────────
+    ball(m, W(hips), 0.145f, 0.110f, 0.122f, kPants, hr + 1, hs + 2, hips, 1.0f);
+    ball(m, W(hips) + Vector3(0, 0.055f, 0), 0.130f, 0.026f, 0.108f, kBelt, 6, 14, hips, 0.92f, spine, 0.08f);
+    // Belt buckle flash.
+    ball(m, W(hips) + Vector3(0, 0.055f, 0.09f), 0.028f, 0.022f, 0.014f, kAccent, 4, 6, hips, 1.0f);
 
     boneChain(
         m,
         {
-            W(hips) + Vector3(0, 0.03f, 0),
+            W(hips) + Vector3(0, 0.04f, 0.005f),
             W(spine),
+            W(spine2),
             W(chest),
-            W(chest) + Vector3(0, 0.05f, 0.01f)
+            W(chest) + Vector3(0, 0.060f, 0.014f)
         },
-        {hips, spine, chest, chest},
-        {0.122f, 0.118f, 0.140f, 0.130f},
-        torso, torsoD, 0.50f,
-        rings + 12, segs + 2
+        {hips, spine, spine2, chest, chest},
+        {kWaistR + 0.016f, kWaistR + 0.012f, kChestR * 0.94f, kChestR, kChestR * 0.96f},
+        torso, torsoD, 0.46f,
+        rings + 16, segs + 4,
+        0.050f
     );
-    // Fill layers so lighting never hollows the core
-    ball(m, W(spine), 0.115f, 0.085f, 0.098f, torso, hr, hs, spine, 0.70f, hips, 0.15f, chest, 0.15f);
-    ball(m, W(chest), 0.138f, 0.095f, 0.108f, torso, hr, hs, chest, 0.85f, spine, 0.15f);
-    ball(m, W(chest) + Vector3(0, -0.02f, 0.04f), 0.118f, 0.078f, 0.072f, torsoD, hr - 1, hs - 2, chest, 1.0f);
-    // Slim collarbone bridge — do NOT overbuild delts into the chest plate.
-    ball(m, (W(shL) + W(shR)) * 0.5f + Vector3(0, 0.012f, 0.008f),
-         0.095f, 0.028f, 0.048f, torso, hr - 1, hs - 2, chest, 0.85f, spine, 0.15f);
-    ball(m, W(clavL), 0.032f, 0.022f, 0.030f, torso, hr - 2, hs - 3, clavL, 0.75f, chest, 0.25f);
-    ball(m, W(clavR), 0.032f, 0.022f, 0.030f, torso, hr - 2, hs - 3, clavR, 0.75f, chest, 0.25f);
+    ball(m, W(spine), 0.118f, 0.085f, 0.100f, torso, hr + 1, hs, spine, 0.62f, hips, 0.20f, spine2, 0.18f);
+    ball(m, W(spine2), 0.142f, 0.098f, 0.118f, torso, hr + 1, hs, spine2, 0.70f, spine, 0.15f, chest, 0.15f);
+    ball(m, W(chest), 0.172f, 0.112f, 0.130f, torso, hr + 2, hs + 2, chest, 0.88f, spine2, 0.12f);
+    // Deep pec / jersey front mass.
+    ball(m, W(chest) + Vector3(0, -0.012f, 0.055f), 0.140f, 0.092f, 0.080f, torsoD, hr + 1, hs, chest, 1.0f);
+    // Traps / collarbone shelf (wide silhouette).
+    ball(m, (W(shL) + W(shR)) * 0.5f + Vector3(0, 0.018f, 0.012f),
+         0.125f, 0.038f, 0.060f, torso, hr, hs - 2, chest, 0.88f, spine2, 0.12f);
+    ball(m, W(clavL), 0.042f, 0.032f, 0.040f, torso, hr - 1, hs - 2, clavL, 0.78f, chest, 0.22f);
+    ball(m, W(clavR), 0.042f, 0.032f, 0.040f, torso, hr - 1, hs - 2, clavR, 0.78f, chest, 0.22f);
 
     if (pitcher) {
-        ball(m, G[chest].transformPoint(Vector3(0, -0.02f, 0.100f)), 0.012f, 0.042f, 0.008f, kAccent, 4, 6, chest, 1.0f);
+        // Large jersey number "17" plate (reads at camera).
+        ball(m, G[chest].transformPoint(Vector3(0, 0.02f, 0.112f)), 0.055f, 0.070f, 0.014f, kAccent, 6, 10, chest, 1.0f);
+        ball(m, G[chest].transformPoint(Vector3(-0.018f, 0.02f, 0.120f)), 0.014f, 0.055f, 0.008f, kJersey, 4, 6, chest, 1.0f);
+        ball(m, G[chest].transformPoint(Vector3(0.018f, 0.02f, 0.120f)), 0.014f, 0.055f, 0.008f, kJersey, 4, 6, chest, 1.0f);
+        // Red sleeve cuffs + shoulder piping.
+        ball(m, W(uaR) + Vector3(0.01f, 0, 0), 0.056f, 0.022f, 0.056f, kAccent, 5, 10, uaR, 0.9f, htR, 0.1f);
+        ball(m, W(uaL) + Vector3(-0.01f, 0, 0), 0.056f, 0.022f, 0.056f, kAccent, 5, 10, uaL, 0.9f, htL, 0.1f);
+        ball(m, W(shR) + Vector3(0.02f, 0.02f, 0), 0.040f, 0.018f, 0.040f, kAccentLite, 4, 8, shR, 0.8f, clavR, 0.2f);
+        ball(m, W(shL) + Vector3(-0.02f, 0.02f, 0), 0.040f, 0.018f, 0.040f, kAccentLite, 4, 8, shL, 0.8f, clavL, 0.2f);
+    }
+    if (athlete) {
+        // Compression sleeves already blue; add chest band + number.
+        ball(m, G[chest].transformPoint(Vector3(0, 0.0f, 0.100f)), 0.048f, 0.060f, 0.012f, kAccent, 6, 10, chest, 1.0f);
+        ball(m, W(chest) + Vector3(0, -0.08f, 0.04f), 0.130f, 0.022f, 0.100f, kUndershirtDeep, 5, 12, chest, 0.7f, spine2, 0.3f);
     }
     if (catcher) {
-        // Chest protector: main plate + upper + lower pads.
-        ball(m, W(chest) + Vector3(0, 0.02f, 0.07f), 0.140f, 0.100f, 0.055f, kGear, hr, hs, chest, 1.0f);
-        ball(m, W(chest) + Vector3(0, 0.08f, 0.06f), 0.110f, 0.055f, 0.042f, kGearDeep, hr - 1, hs - 2, chest, 0.9f, spine, 0.1f);
-        ball(m, W(chest) + Vector3(0, -0.06f, 0.06f), 0.120f, 0.055f, 0.040f, kGearDeep, hr - 1, hs - 2, chest, 0.85f, spine, 0.15f);
-        // Shoulder caps of the protector.
-        ball(m, W(shL) + Vector3(0.02f, 0.02f, 0.02f), 0.050f, 0.038f, 0.048f, kGear, hr - 2, hs - 2, shL, 0.7f, clavL, 0.3f);
-        ball(m, W(shR) + Vector3(-0.02f, 0.02f, 0.02f), 0.050f, 0.038f, 0.048f, kGear, hr - 2, hs - 2, shR, 0.7f, clavR, 0.3f);
+        // Thick chest protector with layered plates + red trim.
+        ball(m, W(chest) + Vector3(0, 0.02f, 0.085f), 0.165f, 0.120f, 0.070f, kGear, hr + 1, hs, chest, 1.0f);
+        ball(m, W(chest) + Vector3(0, 0.095f, 0.075f), 0.130f, 0.065f, 0.052f, kGearLite, hr, hs - 2, chest, 0.9f, spine2, 0.1f);
+        ball(m, W(chest) + Vector3(0, -0.065f, 0.075f), 0.140f, 0.065f, 0.050f, kGearDeep, hr, hs - 2, chest, 0.85f, spine, 0.15f);
+        ball(m, W(chest) + Vector3(0, 0.02f, 0.125f), 0.050f, 0.070f, 0.012f, kAccent, 5, 8, chest, 1.0f);
+        ball(m, W(shL) + Vector3(0.02f, 0.03f, 0.02f), 0.062f, 0.048f, 0.058f, kGear, hr - 1, hs - 2, shL, 0.7f, clavL, 0.3f);
+        ball(m, W(shR) + Vector3(-0.02f, 0.03f, 0.02f), 0.062f, 0.048f, 0.058f, kGear, hr - 1, hs - 2, shR, 0.7f, clavR, 0.3f);
     }
 
-    // ── ARMS (multi-bone game-rig skinning) ─────────────────────────────
-    // Chain: Shoulder → UpperArm → HumTwist → Elbow → Forearm → ProTwist → Wrist.
-    // Hard mid-shaft weights so ER / elbow flex / pronation stay readable.
+    // ── ARMS: chunky delts / biceps / forearms (hero silhouette) ────────
     auto makeArm = [&](
         int jClav, int jSh, int jUa, int jHt, int jEl, int jFa, int jPt, int jWr, int jPalm,
-        bool mitt, bool fingers
+        bool mitt, bool fingers, bool leftHand
     ) {
         Vector3 pS = W(jSh), pUa = W(jUa), pE = W(jEl), pFa = W(jFa), pW = W(jWr), pP = W(jPalm);
         Vector3 axisU = safeNorm(pE - pS);
         Vector3 axisF = safeNorm(pW - pE);
 
-        // Solid athletic radii — thin tubes read as noodles when they bend.
-        const float rDeltoid = 0.048f;
-        const float rUpper = 0.044f;
-        const float rElbow = 0.036f;
-        const float rFore = 0.038f;
-        const float rWrist = 0.028f;
+        const float rDeltoid = 0.066f;
+        const float rUpper = 0.058f;
+        const float rElbow = 0.046f;
+        const float rFore = 0.048f;
+        const float rWrist = 0.034f;
 
-        // Upper arm: hard mid-shaft (narrow joint blend = rigid segments).
-        Vector3 u0 = pS + axisU * 0.018f;
+        Vector3 u0 = pS + axisU * 0.016f;
         Vector3 u1 = pUa;
-        Vector3 u2 = pE - axisU * 0.018f;
+        Vector3 u2 = pE - axisU * 0.016f;
         boneChain(
-            m,
-            {u0, u1, u2},
-            {jSh, jUa, jHt},
+            m, {u0, u1, u2}, {jSh, jUa, jHt},
             {rDeltoid, rUpper, rElbow},
-            sleeve, sleeve, 0.5f,
-            rings + 8, segs,
-            0.04f
+            sleeve, sleeve, 0.5f, rings + 12, segs, 0.036f
         );
 
-        // Forearm: same hard skinning so flex is a hinge, not a bendy hose.
-        Vector3 f0 = pE + axisF * 0.014f;
+        Vector3 f0 = pE + axisF * 0.012f;
         Vector3 f1 = pFa;
         Vector3 f2 = pW - axisF * 0.010f;
         boneChain(
-            m,
-            {f0, f1, f2},
-            {jEl, jFa, jPt},
+            m, {f0, f1, f2}, {jEl, jFa, jPt},
             {rElbow, rFore, rWrist},
-            kSkin, kSkin, 0.5f,
-            rings + 8, segs,
-            0.04f
+            kSkin, kSkinDeep, 0.55f, rings + 12, segs, 0.036f
         );
 
-        // Solid deltoid cap.
-        ball(m, pS + axisU * 0.01f, 0.046f, 0.042f, 0.046f, sleeve, hr - 2, hs - 2,
-             jSh, 0.88f, jClav, 0.12f);
-
-        // Elbow hinge crease — mostly elbow bone (stiff hinge).
-        ball(m, pE, 0.032f, 0.028f, 0.032f, kSkin, hr - 3, hs - 3,
-             jEl, 0.82f, jHt, 0.10f, jFa, 0.08f);
-
-        // Sleeve cuff on upper-arm bone.
-        ball(m, pUa + axisU * 0.02f, 0.044f, 0.042f, 0.044f, torsoD, hr - 3, hs - 3,
+        // Oversized deltoid cap — key read at distance.
+        ball(m, pS + axisU * 0.012f, 0.064f, 0.058f, 0.064f, sleeve, hr, hs - 2,
+             jSh, 0.90f, jClav, 0.10f);
+        ball(m, pE, 0.042f, 0.038f, 0.042f, kSkin, hr - 1, hs - 2,
+             jEl, 0.84f, jHt, 0.08f, jFa, 0.08f);
+        ball(m, pUa + axisU * 0.02f, 0.058f, 0.052f, 0.058f, torsoD, hr - 1, hs - 2,
              jUa, 0.92f, jHt, 0.08f);
-
-        // Wrist mass.
-        ball(m, pW, 0.026f, 0.022f, 0.026f, kSkinDeep, 6, 10, jWr, 0.88f, jPt, 0.12f);
+        ball(m, pW, 0.032f, 0.028f, 0.032f, kSkinDeep, 7, 12, jWr, 0.90f, jPt, 0.10f);
 
         if (mitt) {
-            ball(m, pP, 0.058f, 0.070f, 0.040f, kMitt, hr - 1, hs - 2, jPalm, 0.92f, jWr, 0.08f);
-            ball(m, pP + Vector3(0, 0.024f, 0.014f), 0.042f, 0.032f, 0.028f, kMittPad, hr - 2, hs - 3, jPalm, 1.0f);
-            ball(m, pP + Vector3(-0.030f, 0.008f, 0), 0.022f, 0.034f, 0.020f, kMittDeep, 5, 8, jPalm, 1.0f);
-            ball(m, pP + Vector3(0.028f, 0.006f, 0), 0.020f, 0.030f, 0.018f, kMittDeep, 5, 8, jPalm, 1.0f);
-            ball(m, pW, 0.024f, 0.020f, 0.024f, kMittDeep, 5, 8, jWr, 0.85f, jPalm, 0.15f);
+            // Oversized mitt — iconic baseball prop.
+            ball(m, pP, 0.078f, 0.095f, 0.055f, kMitt, hr + 1, hs, jPalm, 0.92f, jWr, 0.08f);
+            ball(m, pP + Vector3(0, 0.032f, 0.020f), 0.058f, 0.042f, 0.038f, kMittPad, hr - 1, hs - 2, jPalm, 1.0f);
+            ball(m, pP + Vector3(-0.040f, 0.010f, 0), 0.030f, 0.045f, 0.028f, kMittDeep, 6, 10, jPalm, 1.0f);
+            ball(m, pP + Vector3(0.038f, 0.008f, 0), 0.028f, 0.040f, 0.026f, kMittDeep, 6, 10, jPalm, 1.0f);
+            ball(m, pP + Vector3(0, -0.02f, 0.03f), 0.035f, 0.025f, 0.025f, kMittPad, 5, 8, jPalm, 1.0f);
+            ball(m, pW, 0.030f, 0.026f, 0.030f, kMittDeep, 5, 8, jWr, 0.85f, jPalm, 0.15f);
+            // Glove webbing highlight.
+            ball(m, pP + Vector3(0, 0.04f, 0.03f), 0.018f, 0.014f, 0.018f, kAccentLite, 4, 6, jPalm, 1.0f);
         } else if (fingers) {
-            ball(m, pP, 0.028f, 0.014f, 0.036f, kSkinDeep, hr - 2, hs - 3, jPalm, 0.92f, jWr, 0.08f);
+            ball(m, pP, 0.034f, 0.018f, 0.042f, kSkinDeep, hr - 1, hs - 2, jPalm, 0.92f, jWr, 0.08f);
             Vector3 dir = safeNorm(pP - pW, Vector3(0, -1, 0));
             Vector3 side = safeNorm(dir.cross(Vector3(0, 0, 1)), Vector3(1, 0, 0));
-            // Prefer named finger joints when present (throw hand).
-            const char* fingerNames[] = {"Index_R", "Middle_R", "Ring_R", "Pinky_R"};
+            const char* fingerNamesR[] = {"Index_R", "Middle_R", "Ring_R", "Pinky_R"};
+            const char* fingerNamesL[] = {"Index_L", "Middle_L", "Ring_L", "Pinky_L"};
+            const char* const* fingerNames = leftHand ? fingerNamesL : fingerNamesR;
+            float sideSign = leftHand ? -1.0f : 1.0f;
             for (int f = 0; f < 4; f++) {
-                float lat = (static_cast<float>(f) - 1.5f) * 0.010f;
+                float lat = (static_cast<float>(f) - 1.5f) * 0.012f * sideSign;
                 Vector3 b0 = pP + side * lat + dir * 0.012f;
-                Vector3 b1 = b0 + dir * 0.048f;
+                Vector3 b1 = b0 + dir * 0.055f;
                 int jF = m.findJoint(fingerNames[f]);
                 if (jF < 0) jF = jPalm;
-                boneChain(m, {b0, b1}, {jPalm, jF}, {0.007f, 0.0055f}, kSkin, kSkinDeep, 0.5f, 5, 7, 0.05f);
+                boneChain(m, {b0, b1}, {jPalm, jF}, {0.010f, 0.007f}, kSkin, kSkinDeep, 0.5f, 6, 8, 0.05f);
             }
-            int jTh = m.findJoint("Thumb_R");
+            int jTh = m.findJoint(leftHand ? "Thumb_L" : "Thumb_R");
             if (jTh < 0) jTh = jPalm;
-            Vector3 tb = pP - side * 0.024f + dir * 0.004f;
-            Vector3 tt = tb - side * 0.011f + dir * 0.024f;
-            boneChain(m, {tb, tt}, {jPalm, jTh}, {0.008f, 0.006f}, kSkin, kSkinDeep, 0.5f, 5, 7, 0.05f);
+            Vector3 tb = pP - side * (0.028f * sideSign) + dir * 0.004f;
+            Vector3 tt = tb - side * (0.014f * sideSign) + dir * 0.028f;
+            boneChain(m, {tb, tt}, {jPalm, jTh}, {0.011f, 0.008f}, kSkin, kSkinDeep, 0.5f, 6, 8, 0.05f);
         }
     };
-    makeArm(clavL, shL, uaL, htL, elL, faL, ptL, wrL, palmL, !athlete, false);
-    makeArm(clavR, shR, uaR, htR, elR, faR, ptR, wrR, palmR, false, true);
-
-    // Ball joint is attach-only (no mesh) so the sim / viewer can draw one
-    // physics or prop baseball without a double-ball silhouette.
+    makeArm(clavL, shL, uaL, htL, elL, faL, ptL, wrL, palmL, !athlete, athlete, true);
+    makeArm(clavR, shR, uaR, htR, elR, faR, ptR, wrR, palmR, false, true, false);
     (void)ballJ;
 
-    // ── NECK + HEAD (continuous, no floating head) ──────────────────────
+    // ── NECK + HEAD (large, readable face) ──────────────────────────────
     boneChain(
         m,
         {
-            W(chest) + Vector3(0, 0.04f, 0.01f),
+            W(chest) + Vector3(0, 0.050f, 0.014f),
             W(neck),
-            W(head) + Vector3(0, -kHeadR * 0.75f, 0),
-            W(head) + Vector3(0, -kHeadR * 0.45f, 0)
+            W(head) + Vector3(0, -kHeadR * 0.78f, 0),
+            W(head) + Vector3(0, -kHeadR * 0.48f, 0)
         },
         {chest, neck, head, head},
-        {0.050f, 0.044f, 0.048f, 0.055f},
+        {0.062f, 0.052f, 0.056f, 0.064f},
         kSkin, kSkin, 0.5f,
-        12, segs
+        16, segs
     );
-    ball(m, W(neck), 0.046f, 0.048f, 0.046f, kSkin, 8, 12, neck, 0.55f, chest, 0.25f, head, 0.20f);
-    ball(m, W(head), kHeadR * 0.95f, kHeadR * 1.05f, kHeadR * 0.92f, kSkin, hr, hs, head, 1.0f);
-    ball(m, G[head].transformPoint(Vector3(0, -0.055f, 0.025f)), 0.046f, 0.038f, 0.044f, kSkin, 7, 11, head, 1.0f);
-    ball(m, G[head].transformPoint(Vector3(-0.092f, 0, 0)), 0.013f, 0.020f, 0.011f, kSkinDeep, 4, 6, head, 1.0f);
-    ball(m, G[head].transformPoint(Vector3(0.092f, 0, 0)), 0.013f, 0.020f, 0.011f, kSkinDeep, 4, 6, head, 1.0f);
-    ball(m, G[head].transformPoint(Vector3(0, 0.018f, 0.078f)), 0.038f, 0.011f, 0.015f, kSkinDeep, 5, 8, head, 1.0f);
-    ball(m, G[head].transformPoint(Vector3(0, -0.01f, 0.092f)), 0.011f, 0.016f, 0.016f, kSkinLight, 4, 6, head, 1.0f);
-    ball(m, G[head].transformPoint(Vector3(-0.026f, 0.012f, 0.082f)), 0.010f, 0.007f, 0.007f, kEye, 4, 6, head, 1.0f);
-    ball(m, G[head].transformPoint(Vector3(0.026f, 0.012f, 0.082f)), 0.010f, 0.007f, 0.007f, kEye, 4, 6, head, 1.0f);
-    ball(m, G[head].transformPoint(Vector3(0, -0.042f, 0.078f)), 0.016f, 0.005f, 0.007f, kSkinShadow, 4, 6, head, 1.0f);
-    ball(m, G[head].transformPoint(Vector3(0, 0.055f, -0.015f)), 0.082f, 0.038f, 0.078f, kHair, 7, 11, head, 1.0f);
+    ball(m, W(neck), 0.056f, 0.058f, 0.056f, kSkin, 10, 14, neck, 0.55f, chest, 0.25f, head, 0.20f);
+    // Large skull + jaw for silhouette.
+    ball(m, W(head), kHeadR * 0.98f, kHeadR * 1.10f, kHeadR * 0.96f, kSkin, hr + 2, hs + 2, head, 1.0f);
+    ball(m, G[head].transformPoint(Vector3(0, -0.062f, 0.032f)), 0.056f, 0.044f, 0.050f, kSkin, 9, 14, head, 1.0f);
+    // Ears.
+    ball(m, G[head].transformPoint(Vector3(-0.105f, 0, 0)), 0.016f, 0.026f, 0.014f, kSkinDeep, 5, 8, head, 1.0f);
+    ball(m, G[head].transformPoint(Vector3(0.105f, 0, 0)), 0.016f, 0.026f, 0.014f, kSkinDeep, 5, 8, head, 1.0f);
+    // Brow ridge.
+    ball(m, G[head].transformPoint(Vector3(0, 0.028f, 0.088f)), 0.048f, 0.014f, 0.018f, kSkinDeep, 5, 8, head, 1.0f);
+    // Nose.
+    ball(m, G[head].transformPoint(Vector3(0, -0.005f, 0.108f)), 0.014f, 0.020f, 0.022f, kSkinLight, 5, 8, head, 1.0f);
+    // Eyes — white + dark pupil (reads on screen).
+    ball(m, G[head].transformPoint(Vector3(-0.032f, 0.016f, 0.092f)), 0.016f, 0.012f, 0.010f, kEyeWhite, 5, 8, head, 1.0f);
+    ball(m, G[head].transformPoint(Vector3(0.032f, 0.016f, 0.092f)), 0.016f, 0.012f, 0.010f, kEyeWhite, 5, 8, head, 1.0f);
+    ball(m, G[head].transformPoint(Vector3(-0.032f, 0.016f, 0.100f)), 0.008f, 0.008f, 0.006f, kEye, 4, 6, head, 1.0f);
+    ball(m, G[head].transformPoint(Vector3(0.032f, 0.016f, 0.100f)), 0.008f, 0.008f, 0.006f, kEye, 4, 6, head, 1.0f);
+    // Mouth.
+    ball(m, G[head].transformPoint(Vector3(0, -0.048f, 0.090f)), 0.022f, 0.008f, 0.010f, kSkinShadow, 4, 6, head, 1.0f);
+    // Full hair volume.
+    ball(m, G[head].transformPoint(Vector3(0, 0.065f, -0.010f)), 0.098f, 0.048f, 0.092f, kHair, 10, 14, head, 1.0f);
+    ball(m, G[head].transformPoint(Vector3(0, 0.040f, -0.050f)), 0.090f, 0.040f, 0.055f, kHairLite, 8, 12, head, 1.0f);
 
     if (catcher) {
-        // Helmet shell + face mask cage (bars as thin capsules).
-        ball(m, G[head].transformPoint(Vector3(0, 0.04f, -0.02f)), 0.112f, 0.078f, 0.110f, kGear, hr, hs, head, 1.0f);
-        ball(m, G[head].transformPoint(Vector3(0, 0.02f, 0.100f)), 0.070f, 0.065f, 0.018f, kGearDeep, 6, 10, head, 1.0f);
-        // Horizontal mask bars.
-        for (float y : {-0.01f, 0.02f, 0.05f}) {
-            ball(m, G[head].transformPoint(Vector3(0, y, 0.118f)), 0.055f, 0.008f, 0.010f, kGearDeep, 4, 8, head, 1.0f);
+        // Bulky helmet + thick cage.
+        ball(m, G[head].transformPoint(Vector3(0, 0.05f, -0.02f)), 0.132f, 0.095f, 0.128f, kGear, hr + 1, hs + 2, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0, 0.025f, 0.110f)), 0.080f, 0.075f, 0.024f, kGearLite, 7, 12, head, 1.0f);
+        for (float y : {-0.015f, 0.015f, 0.045f, 0.070f}) {
+            ball(m, G[head].transformPoint(Vector3(0, y, 0.132f)), 0.065f, 0.011f, 0.013f, kGearDeep, 4, 8, head, 1.0f);
         }
-        // Vertical mask bars.
-        for (float x : {-0.028f, 0.0f, 0.028f}) {
-            ball(m, G[head].transformPoint(Vector3(x, 0.02f, 0.120f)), 0.008f, 0.048f, 0.010f, kGearDeep, 4, 6, head, 1.0f);
+        for (float x : {-0.035f, -0.012f, 0.012f, 0.035f}) {
+            ball(m, G[head].transformPoint(Vector3(x, 0.025f, 0.134f)), 0.010f, 0.058f, 0.012f, kGearDeep, 4, 6, head, 1.0f);
         }
-        // Throat guard.
-        ball(m, G[head].transformPoint(Vector3(0, -0.08f, 0.06f)), 0.040f, 0.035f, 0.030f, kGearDeep, 5, 8, head, 0.7f, neck, 0.3f);
+        ball(m, G[head].transformPoint(Vector3(0, -0.09f, 0.065f)), 0.048f, 0.042f, 0.036f, kGearDeep, 6, 10, head, 0.7f, neck, 0.3f);
+        // Helmet ear flaps.
+        ball(m, G[head].transformPoint(Vector3(-0.09f, 0.0f, 0.02f)), 0.028f, 0.040f, 0.035f, kGear, 5, 8, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0.09f, 0.0f, 0.02f)), 0.028f, 0.040f, 0.035f, kGear, 5, 8, head, 1.0f);
     } else if (pitcher) {
-        ball(m, G[head].transformPoint(Vector3(0, 0.075f, -0.014f)), 0.090f, 0.028f, 0.090f, kCap, hr, hs, head, 1.0f);
-        ball(m, G[head].transformPoint(Vector3(0, 0.052f, -0.006f)), 0.093f, 0.012f, 0.093f, kCapDeep, 5, 10, head, 1.0f);
-        ball(m, G[head].transformPoint(Vector3(0, 0.042f, 0.092f)), 0.050f, 0.009f, 0.038f, kCapDeep, 5, 10, head, 1.0f);
-        ball(m, G[head].transformPoint(Vector3(0, 0.040f, 0.122f)), 0.036f, 0.007f, 0.015f, kCap, 4, 8, head, 1.0f);
-        ball(m, G[head].transformPoint(Vector3(0, 0.062f, 0.048f)), 0.012f, 0.009f, 0.007f, kAccent, 4, 6, head, 1.0f);
+        // Tall navy cap + long bill + red button.
+        ball(m, G[head].transformPoint(Vector3(0, 0.088f, -0.014f)), 0.108f, 0.038f, 0.108f, kCap, hr + 1, hs + 2, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0, 0.060f, -0.006f)), 0.110f, 0.016f, 0.110f, kCapDeep, 6, 12, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0, 0.048f, 0.105f)), 0.062f, 0.012f, 0.050f, kCapDeep, 6, 12, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0, 0.045f, 0.145f)), 0.048f, 0.010f, 0.022f, kCap, 5, 10, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0, 0.095f, 0.02f)), 0.018f, 0.014f, 0.014f, kAccent, 5, 8, head, 1.0f);
+        // Cap logo patch.
+        ball(m, G[head].transformPoint(Vector3(0, 0.075f, 0.055f)), 0.020f, 0.016f, 0.010f, kAccentLite, 4, 6, head, 1.0f);
+    } else {
+        // Athlete: headband for identity.
+        ball(m, G[head].transformPoint(Vector3(0, 0.055f, 0.02f)), 0.100f, 0.018f, 0.095f, kAccent, 5, 12, head, 1.0f);
     }
 
-    // Soft waist blend pants→jersey
-    ball(m, W(hips) + Vector3(0, 0.065f, 0.01f), 0.115f, 0.042f, 0.092f, torso, hr - 1, hs - 2, hips, 0.40f, spine, 0.60f);
+    // Soft waist blend pants → jersey.
+    ball(m, W(hips) + Vector3(0, 0.072f, 0.014f), 0.132f, 0.050f, 0.105f, torso, hr + 1, hs, hips, 0.38f, spine, 0.62f);
 
     attachClips(m, role);
     (void)toeL; (void)toeR;
