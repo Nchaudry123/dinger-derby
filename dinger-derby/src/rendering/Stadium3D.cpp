@@ -1479,8 +1479,35 @@ float Layout::bowlBaseHeight(float ang) const {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Collision
+// Collision — solid barriers on every path (no free-flight forever)
 // ═══════════════════════════════════════════════════════════════════════
+
+namespace {
+
+Vector3 radialOut(float ang) {
+    return Vector3(std::sin(ang), 0.0f, -std::cos(ang));
+}
+
+void bounceRadial(Vector3& vel, float ang, float rest = 0.55f, float fric = 0.82f) {
+    Vector3 n = radialOut(ang);
+    float vn = vel.x * n.x + vel.z * n.z;
+    if (vn > 0.0f) {
+        vel.x -= n.x * vn * (1.0f + rest);
+        vel.z -= n.z * vn * (1.0f + rest);
+    }
+    vel.x *= fric;
+    vel.z *= fric;
+    vel.y *= 0.88f;
+}
+
+void trySettle(Vector3& vel, bool stick, float thresh, BallCollisionHit& hit) {
+    if ((stick && vel.magnitude() < thresh + 0.8f) || vel.magnitude() < thresh) {
+        vel = Vector3();
+        hit.stuck = true;
+    }
+}
+
+} // namespace
 
 BallCollisionHit collideBall(
     const Layout& layout, Vector3& position, Vector3& velocity, float radius, bool stickOnContact
@@ -1489,13 +1516,18 @@ BallCollisionHit collideBall(
     const float groundY = radius + 0.01f;
     const float fa = layout.foulAngleRad();
 
+    auto refreshPolar = [&](float& rOut, float& angOut) {
+        layout.polarFromHome(position, rOut, angOut);
+    };
+
     float r = 0.0f, ang = 0.0f;
-    layout.polarFromHome(position, r, ang);
+    refreshPolar(r, ang);
     hit.sprayDeg = ang * (180.0f / pi);
-    bool fair = std::abs(ang) <= fa + 0.02f;
+    bool fair = std::abs(ang) <= fa + 0.03f;
     hit.fenceFeet = layout.wallFeetAtAngle(ang);
     hit.wallTopY = layout.wallHeightAtAngle(ang);
 
+    // ── 1. Ground (always first) ──────────────────────────────────────
     bool onGround = false;
     if (position.y < groundY) {
         position.y = groundY;
@@ -1503,16 +1535,13 @@ BallCollisionHit collideBall(
         hit.surface = HitSurface::Ground;
         hit.impactY = groundY;
         if (velocity.y < 0.0f) {
-            velocity.y = -velocity.y * 0.38f;
-            velocity.x *= 0.86f;
-            velocity.z *= 0.86f;
+            velocity.y = -velocity.y * 0.36f;
+            velocity.x *= 0.84f;
+            velocity.z *= 0.84f;
         }
-        if ((stickOnContact && velocity.magnitude() < 3.8f) || velocity.magnitude() < 2.6f) {
-            velocity = Vector3();
-            hit.stuck = true;
-        }
-    } else if (position.y < groundY + 0.12f && velocity.y <= 0.15f) {
-        if (velocity.magnitude() < 3.2f || (stickOnContact && velocity.magnitude() < 4.5f)) {
+        trySettle(velocity, stickOnContact, 2.8f, hit);
+    } else if (position.y < groundY + 0.14f && velocity.y <= 0.2f) {
+        if (velocity.magnitude() < 3.4f || (stickOnContact && velocity.magnitude() < 4.6f)) {
             position.y = groundY;
             velocity = Vector3();
             hit.surface = HitSurface::Ground;
@@ -1521,73 +1550,226 @@ BallCollisionHit collideBall(
             onGround = true;
         }
     }
+    if (hit.stuck) {
+        return hit;
+    }
 
+    refreshPolar(r, ang);
+    fair = std::abs(ang) <= fa + 0.03f;
+    Vector3 nOut = radialOut(ang);
+
+    // ── 2. Outer world barrier (suburb edge — never fly off forever) ─
+    {
+        const float rWorld = layout.maxWallR() + 95.0f;
+        if (r + radius > rWorld) {
+            Vector3 target = layout.fromHome(rWorld - radius - 0.08f, ang, position.y);
+            target.y = std::max(target.y, groundY);
+            position = target;
+            bounceRadial(velocity, ang, 0.35f, 0.75f);
+            if (velocity.y > 2.0f) {
+                velocity.y *= 0.5f;
+            }
+            hit.surface = HitSurface::DomeShell;
+            hit.impactY = position.y;
+            trySettle(velocity, stickOnContact, 3.0f, hit);
+            if (hit.stuck) {
+                return hit;
+            }
+            refreshPolar(r, ang);
+            fair = std::abs(ang) <= fa + 0.03f;
+            nOut = radialOut(ang);
+        }
+    }
+
+    // ── 3. Ceiling soft clamp (open park — still stop sky rockets) ───
+    {
+        const float yCeil = 85.0f;
+        if (position.y + radius > yCeil) {
+            position.y = yCeil - radius;
+            if (velocity.y > 0.0f) {
+                velocity.y = -velocity.y * 0.25f;
+            }
+            velocity.x *= 0.9f;
+            velocity.z *= 0.9f;
+            hit.surface = HitSurface::Roof;
+            hit.impactY = position.y;
+        }
+    }
+
+    // ── 4. Fair OF fence face (only below wall top — no tunneling) ───
+    bool clearedFence = false;
     if (fair && r > 1.0f) {
         float wallR = layout.wallRAtAngle(ang);
         float wallH = layout.wallHeightAtAngle(ang);
+        hit.wallTopY = wallH;
+        hit.fenceFeet = layout.wallFeetAtAngle(ang);
         if (r + radius > wallR) {
-            float clearY = wallH + std::max(radius, 0.3f);
-            float past = r - wallR;
-            Vector3 nOut(std::sin(ang), 0.0f, -std::cos(ang));
-            if (!(onGround || hit.stuck)) {
-                if (position.y > clearY || past > 0.7f) {
-                    hit.surface = HitSurface::FenceTopClear;
-                    hit.impactY = position.y;
-                } else {
-                    Vector3 onWall = layout.fromHome(wallR - radius - 0.05f, ang, position.y);
-                    onWall.y = std::clamp(position.y, groundY, wallH - 0.02f);
-                    position = position * 0.4f + onWall * 0.6f;
-                    float vn = velocity.x * nOut.x + velocity.z * nOut.z;
-                    if (vn > 0.0f) {
-                        velocity.x -= nOut.x * vn * 1.6f;
-                        velocity.z -= nOut.z * vn * 1.6f;
+            const float clearY = wallH + std::max(radius * 0.85f, 0.28f);
+            if (position.y > clearY) {
+                // True over-the-wall path — free until stands/deck/ground
+                clearedFence = true;
+                hit.surface = HitSurface::FenceTopClear;
+                hit.impactY = position.y;
+            } else if (!onGround) {
+                // Solid wall face — bounce back into play
+                Vector3 onWall = layout.fromHome(wallR - radius - 0.06f, ang, position.y);
+                onWall.y = std::clamp(position.y, groundY, wallH - 0.02f);
+                position = onWall;
+                bounceRadial(velocity, ang, 0.58f, 0.78f);
+                velocity.y = std::min(std::abs(velocity.y) * 0.4f + 1.0f, 4.5f);
+                hit.surface = HitSurface::Fence;
+                hit.impactY = position.y;
+                trySettle(velocity, stickOnContact, 3.2f, hit);
+                if (hit.stuck) {
+                    return hit;
+                }
+                refreshPolar(r, ang);
+                nOut = radialOut(ang);
+            }
+        }
+    }
+
+    // ── 5. Foul poles ─────────────────────────────────────────────────
+    {
+        auto poleHit = [&](float poleAng) {
+            Vector3 base = layout.wallPoint(poleAng, 0.0f);
+            float poleH = layout.wallHeightAtAngle(poleAng) * 3.6f;
+            float pr = 0.55f + radius;
+            Vector3 d(position.x - base.x, 0.0f, position.z - base.z);
+            float dist = std::sqrt(d.x * d.x + d.z * d.z);
+            if (position.y < 0.0f || position.y > poleH + 1.5f || dist >= pr || dist < 1e-5f) {
+                return;
+            }
+            Vector3 n = d * (1.0f / dist);
+            position.x = base.x + n.x * pr;
+            position.z = base.z + n.z * pr;
+            float vn = velocity.x * n.x + velocity.z * n.z;
+            if (vn > 0.0f) {
+                velocity = velocity - n * vn * 1.55f;
+            }
+            velocity = velocity * 0.55f;
+            hit.surface = HitSurface::FoulPole;
+            hit.impactY = position.y;
+            trySettle(velocity, stickOnContact, 3.0f, hit);
+        };
+        poleHit(fa);
+        poleHit(-fa);
+        if (hit.stuck) {
+            return hit;
+        }
+        refreshPolar(r, ang);
+    }
+
+    // ── 6. Backstop (behind plate) ────────────────────────────────────
+    {
+        const float backR = 15.5f;
+        const float backH = 12.0f;
+        if (std::abs(ang) > fa + 0.15f && r + radius > backR && position.y < backH + radius) {
+            if (-std::cos(ang) > 0.30f) {
+                Vector3 target = layout.fromHome(backR - radius - 0.06f, ang, position.y);
+                target.y = std::clamp(position.y, groundY, backH);
+                position = target;
+                bounceRadial(velocity, ang, 0.4f, 0.7f);
+                hit.surface = HitSurface::Backstop;
+                hit.impactY = position.y;
+                trySettle(velocity, stickOnContact, 3.0f, hit);
+                if (hit.stuck) {
+                    return hit;
+                }
+                refreshPolar(r, ang);
+            }
+        }
+    }
+
+    // ── 7. Stands / OF bleachers — face + deck (every path lands) ─────
+    // After clearing the fence OR in foul horseshoe, seats are solid.
+    {
+        const bool inSeats = layout.isSeatingArc(ang);
+        if (inSeats || clearedFence || (fair && r > layout.wallRAtAngle(ang) + 0.2f)) {
+            float rBowl = layout.bowlInnerRadius(ang) - 0.2f;
+            float yBase = layout.bowlBaseHeight(ang);
+            // Seat deck rises with radius past first row
+            float pastBowl = std::max(0.0f, r - rBowl);
+            float deckY = yBase + std::min(pastBowl * 0.58f, 16.0f) + radius;
+            float facadeTop = yBase + 15.5f;
+
+            // Vertical facade (first row face) — bounce if still in front
+            if (r + radius > rBowl && position.y < facadeTop && position.y > groundY - 0.05f &&
+                pastBowl < 1.2f) {
+                Vector3 target = layout.fromHome(rBowl - radius - 0.05f, ang, position.y);
+                target.y = std::max(target.y, groundY);
+                position = target;
+                bounceRadial(velocity, ang, 0.42f, 0.7f);
+                hit.surface = HitSurface::Stands;
+                hit.impactY = position.y;
+                trySettle(velocity, stickOnContact, 3.2f, hit);
+                if (hit.stuck) {
+                    return hit;
+                }
+                refreshPolar(r, ang);
+                pastBowl = std::max(0.0f, r - rBowl);
+                deckY = yBase + std::min(pastBowl * 0.58f, 16.0f) + radius;
+            }
+
+            // Horizontal seat deck — land when dropping into the bowl
+            if (r > rBowl - 0.5f && position.y < deckY && position.y > yBase - 1.0f) {
+                // Only if we're actually over the seating radius
+                if (r + radius > rBowl) {
+                    position.y = deckY;
+                    if (velocity.y < 0.0f) {
+                        velocity.y = -velocity.y * 0.28f;
+                        velocity.x *= 0.72f;
+                        velocity.z *= 0.72f;
                     }
-                    velocity = velocity * 0.62f;
-                    velocity.y = std::min(velocity.y * 0.85f + 1.1f, 4.2f);
-                    hit.surface = HitSurface::Fence;
+                    // Soft stick on seats
+                    if (velocity.magnitude() < 4.5f || stickOnContact) {
+                        if (velocity.magnitude() < 5.5f) {
+                            velocity = Vector3();
+                            hit.stuck = true;
+                        }
+                    }
+                    hit.surface = HitSurface::Stands;
                     hit.impactY = position.y;
+                    if (hit.stuck) {
+                        return hit;
+                    }
                 }
             }
         }
     }
 
-    // Backstop
-    if (std::abs(ang) > fa + 0.2f && r + radius > 15.5f && position.y < 5.5f) {
-        if (-std::cos(ang) > 0.35f) {
-            Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
-            Vector3 target = layout.fromHome(15.5f - radius - 0.05f, ang, position.y);
-            target.y = std::max(target.y, groundY);
-            position = position * 0.3f + target * 0.7f;
-            float vn = velocity.x * n.x + velocity.z * n.z;
-            if (vn > 0.0f) {
-                velocity = velocity - n * vn;
-            }
-            velocity = velocity * 0.5f;
-            hit.surface = HitSurface::Backstop;
+    // ── 8. CF scoreboard chassis (solid) ──────────────────────────────
+    if (layout.isCfScoreboardZone(ang) || std::abs(ang) < 0.18f) {
+        float cfR = layout.wallRAtAngle(0.0f);
+        float boardR0 = cfR + 3.5f;
+        float boardR1 = cfR + 8.0f;
+        float boardY0 = 4.0f;
+        float boardY1 = 16.0f;
+        if (r + radius > boardR0 && r < boardR1 + radius && position.y > boardY0 - radius &&
+            position.y < boardY1 + radius) {
+            // Push to front face of board
+            Vector3 target = layout.fromHome(boardR0 - radius - 0.05f, ang, position.y);
+            target.y = std::clamp(position.y, boardY0, boardY1);
+            position = target;
+            bounceRadial(velocity, ang, 0.45f, 0.7f);
+            hit.surface = HitSurface::Scoreboard;
             hit.impactY = position.y;
+            trySettle(velocity, stickOnContact, 3.0f, hit);
+            if (hit.stuck) {
+                return hit;
+            }
         }
     }
 
-    // Stands / OF bleachers
-    if (layout.isSeatingArc(ang)) {
-        float rBowl = layout.bowlInnerRadius(ang) - 0.25f;
-        float yTop = layout.bowlBaseHeight(ang) + 14.0f;
-        if (r + radius > rBowl && position.y < yTop && position.y > -0.1f) {
-            Vector3 n(std::sin(ang), 0.0f, -std::cos(ang));
-            Vector3 target = layout.fromHome(rBowl - radius - 0.05f, ang, position.y);
-            target.y = std::max(target.y, groundY);
-            position = position * 0.45f + target * 0.55f;
-            float vn = velocity.x * n.x + velocity.z * n.z;
-            if (vn > 0.0f) {
-                velocity.x -= n.x * vn * 1.3f;
-                velocity.z -= n.z * vn * 1.3f;
-            }
-            velocity = velocity * 0.55f;
-            if (hit.surface == HitSurface::None || hit.surface == HitSurface::FenceTopClear) {
-                hit.surface = HitSurface::Stands;
-            }
-            hit.impactY = position.y;
+    // ── 9. Final ground re-clamp after barrier snaps ──────────────────
+    if (position.y < groundY) {
+        position.y = groundY;
+        if (velocity.y < 0.0f) {
+            velocity.y = -velocity.y * 0.3f;
         }
+        hit.surface = HitSurface::Ground;
+        hit.impactY = groundY;
+        trySettle(velocity, stickOnContact, 2.6f, hit);
     }
 
     return hit;
@@ -1598,8 +1780,19 @@ BallCollisionHit collideBallSubsteps(
     int substeps
 ) {
     BallCollisionHit last;
-    substeps = std::max(1, substeps);
+    substeps = std::max(1, std::min(substeps, 12));
+    // Integrate + collide each slice so fast balls can't tunnel a whole barrier.
+    const float dt = 1.0f / (60.0f * static_cast<float>(substeps));
+    const float dragK = 0.012f;
+    const float g = -9.8f;
     for (int i = 0; i < substeps; i++) {
+        float sp = velocity.magnitude();
+        if (sp > 1e-4f) {
+            velocity = velocity + (Vector3(0.0f, g, 0.0f) + velocity * (-dragK * sp)) * dt;
+        } else {
+            velocity.y += g * dt;
+        }
+        position = position + velocity * dt;
         last = collideBall(layout, position, velocity, radius, stickOnContact);
         if (last.stuck) {
             break;

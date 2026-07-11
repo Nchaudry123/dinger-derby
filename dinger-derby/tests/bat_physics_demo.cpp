@@ -2510,9 +2510,9 @@ int main() {
                         );
                     }
                 } else {
-                    // Sub-step physics + park collision so rockets can't tunnel
-                    // through the fence, roof, hotel, or shell in one frame.
-                    const int kPhysSubs = hasHit ? 6 : 3;
+                    // Sub-step physics + solid barriers (fence / stands / outer bound).
+                    // Ball must bounce or settle on every path — never free-fly forever.
+                    const int kPhysSubs = hasHit ? 8 : 3;
                     const float subDt = fixedStep / static_cast<float>(kPhysSubs);
                     const float floorY = baseball.radius + 0.01f;
                     Stadium3D::BallCollisionHit col;
@@ -2524,34 +2524,34 @@ int main() {
                                 baseball.velocity.y = 0.0f;
                             }
                         }
-                        // Always solid park (pitch + batted) so fouls never leave the dome.
                         bool nearGroundStick =
-                            baseball.position.y < floorY + 0.55f &&
-                            baseball.velocity.magnitude() < 4.2f &&
-                            baseball.velocity.y <= 0.8f;
+                            baseball.position.y < floorY + 0.65f &&
+                            baseball.velocity.magnitude() < 5.0f &&
+                            baseball.velocity.y <= 1.0f;
+                        // Stick sooner on stands/barrier landings after contact.
+                        bool stick = nearGroundStick || (hasHit && baseball.velocity.magnitude() < 3.5f);
                         col = Stadium3D::collideBall(
                             stadiumLayout,
                             baseball.position,
                             baseball.velocity,
                             baseball.radius,
-                            nearGroundStick
+                            stick
                         );
-                        if (stadiumLayout.closedDome) {
-                            stadiumLayout.containInsideDome(
-                                baseball.position, baseball.velocity, baseball.radius
-                            );
+                        if (col.stuck) {
+                            break;
                         }
-                        if (hasHit && !col.stuck && baseball.velocity.magnitude() > 18.0f) {
+                        // Extra pass on rockets so fence/stand faces never tunnel.
+                        if (hasHit && baseball.velocity.magnitude() > 14.0f) {
                             col = Stadium3D::collideBall(
                                 stadiumLayout,
                                 baseball.position,
                                 baseball.velocity,
                                 baseball.radius,
-                                nearGroundStick
+                                stick
                             );
-                        }
-                        if (col.stuck) {
-                            break;
+                            if (col.stuck) {
+                                break;
+                            }
                         }
                     }
                     if (baseball.position.y < floorY) {
