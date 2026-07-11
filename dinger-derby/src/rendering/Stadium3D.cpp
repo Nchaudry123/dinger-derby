@@ -1546,70 +1546,101 @@ Mesh3D buildStructure(const Layout& L) {
     return m;
 }
 
-// Build low-poly fans in kFanSectors angular wedges for cheer animation.
+// Build low-poly fans in angular wedges. Skips CF scoreboard / hotel zone.
 std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     std::vector<Mesh3D> sectors(kFanSectorCount);
-    const int angSamples = 150;
-    const int lowerRows = 16;
-    const int midRows = 10;
-    const int upperRows = 12;
-    const float rowDepth = 1.72f;
-    const float rowRise = 0.78f;
-    const float upperGap = 2.6f;
-    (void)midRows;
+    // Match steep 3-tier bowl geometry from buildStands.
+    const int angSamples = 180;
+    const int rows0 = 18;
+    const int rows1 = 12;
+    const int rows2 = 14;
+    const float dRow = 1.15f;
+    const float rise0 = 1.45f;
+    const float rise1 = 1.55f;
+    const float rise2 = 1.65f;
+    const float facadeH01 = 5.5f;
+    const float facadeH12 = 6.2f;
+    // CF board / hotel cutout — no fans behind the scoreboard.
+    constexpr float kCfCutRad = 0.32f; // ~±18° around CF
 
     int fanId = 0;
+    auto maybePlace = [&](Mesh3D& sec, float r, float ang, float y, float fillChance) {
+        float h = hash01(fanId * 17 + 3);
+        if (h > fillChance) {
+            fanId++;
+            return;
+        }
+        // Random aisle skips and empty clumps.
+        if (hash01(fanId * 9 + 1) < 0.08f) {
+            fanId++;
+            return;
+        }
+        Vector3 seat = L.fromHome(r, ang, y);
+        seat.x += (hash01(fanId) - 0.5f) * 0.45f;
+        seat.z += (hash01(fanId + 3) - 0.5f) * 0.45f;
+        seat.y += (hash01(fanId + 5) - 0.5f) * 0.08f;
+        float scale = 0.82f + 0.28f * hash01(fanId + 11);
+        addLowPolyFan(sec, seat, scale, fanShirtColor(fanId), fanSkinColor(fanId + 3));
+        fanId++;
+    };
+
     for (int i = 0; i < angSamples; i++) {
         float t = (static_cast<float>(i) + 0.5f) / angSamples;
         float ang = -pi + t * 2.0f * pi;
+        // Keep ang in (-pi, pi] for CF cut test.
+        float angN = ang;
+        while (angN > pi) {
+            angN -= 2.0f * pi;
+        }
+        while (angN < -pi) {
+            angN += 2.0f * pi;
+        }
+        if (std::abs(angN) < kCfCutRad) {
+            continue; // empty behind CF scoreboard / hotel
+        }
+
         int sector = static_cast<int>((t * kFanSectorCount)) % kFanSectorCount;
         float rIn = bowlInnerRadius(L, ang);
         float yBase = bowlBaseHeight(L, ang);
+        const float rCap = L.closedDome ? (L.maxRadiusFromHome(ang) - 4.0f) : 1.0e6f;
 
-        // Lower bowl — denser crowd (~70% seats filled, skip aisles)
-        for (int row = 1; row < lowerRows; row += 1) {
-            if ((i + row * 2) % 5 == 0) {
-                continue; // sparse empty seats
+        // Field level
+        float r = rIn;
+        float y = yBase;
+        for (int row = 0; row < rows0; row++) {
+            if (r > rCap - dRow) {
+                break;
             }
-            if (i % 8 == 0) {
-                continue; // aisle
-            }
-            float r = rIn + (row + 0.45f) * rowDepth;
-            float y = yBase + (row + 1.0f) * rowRise;
-            Vector3 seat = L.fromHome(r, ang, y);
-            // Slight seat jitter so the bowl doesn't look grid-perfect.
-            seat.x += (hash01(fanId) - 0.5f) * 0.25f;
-            seat.z += (hash01(fanId + 3) - 0.5f) * 0.25f;
-            addLowPolyFan(
-                sectors[sector],
-                seat,
-                0.92f + 0.18f * hash01(fanId),
-                fanShirtColor(fanId),
-                fanSkinColor(fanId + 3)
-            );
-            fanId++;
+            float fill = 0.55f + 0.30f * hash01(i * 3 + row); // 55–85% random fill
+            maybePlace(sectors[sector], r + dRow * 0.4f, ang, y + rise0 * 0.7f, fill);
+            r += dRow;
+            y += rise0;
         }
 
-        // Upper deck (still busy)
-        float rLowTop = rIn + lowerRows * rowDepth;
-        float yConc = yBase + lowerRows * rowRise + 0.3f;
-        float rUp0 = rLowTop + upperGap;
-        float yUp0 = yConc + 1.2f;
-        for (int row = 0; row < upperRows; row += 1) {
-            if ((i + row * 2) % 2 != 0) {
-                continue;
+        // Mid level
+        float yMid = y + facadeH01 + 0.9f;
+        float rMid = r + 2.0f;
+        for (int row = 0; row < rows1; row++) {
+            if (rMid > rCap - dRow) {
+                break;
             }
-            float r = rUp0 + (row + 0.4f) * (rowDepth * 1.15f);
-            float y = yUp0 + (row + 1.0f) * (rowRise * 1.15f);
-            Vector3 seat = L.fromHome(r, ang, y);
-            addLowPolyFan(
-                sectors[sector],
-                seat,
-                0.88f + 0.12f * hash01(fanId + 9),
-                fanShirtColor(fanId + 11),
-                fanSkinColor(fanId + 7)
-            );
-            fanId++;
+            float fill = 0.45f + 0.35f * hash01(i * 5 + row + 40);
+            maybePlace(sectors[sector], rMid + dRow * 0.35f, ang, yMid + rise1 * 0.7f, fill);
+            rMid += dRow;
+            yMid += rise1;
+        }
+
+        // Upper level
+        float yUp = yMid + facadeH12 + 1.0f;
+        float rUp = rMid + 2.2f;
+        for (int row = 0; row < rows2; row++) {
+            if (rUp > rCap - dRow) {
+                break;
+            }
+            float fill = 0.40f + 0.35f * hash01(i * 7 + row + 90);
+            maybePlace(sectors[sector], rUp + dRow * 0.35f, ang, yUp + rise2 * 0.7f, fill);
+            rUp += dRow;
+            yUp += rise2;
         }
     }
 
@@ -2918,19 +2949,50 @@ float recommendedFarPlane(const Layout& layout) {
 }
 
 float fanCheerOffsetY(int sectorIndex, float timeSec, float boost) {
-    // Traveling wave of fans standing / bouncing — more energetic by default.
-    float phase = static_cast<float>(sectorIndex) * 0.55f;
-    float wave = std::sin(timeSec * 6.2f + phase);
-    float wave2 = std::sin(timeSec * 3.8f + phase * 1.7f);
-    float wave3 = std::sin(timeSec * 9.1f + phase * 0.4f);
-    float b = std::max(0.4f, boost);
-    return (0.10f + 0.28f * std::max(0.0f, wave) + 0.10f * wave2 + 0.05f * std::max(0.0f, wave3)) * b;
+    // Desynchronized crowd: each sector hops on its own clock (not a unison wave).
+    float s = static_cast<float>(sectorIndex);
+    float seed = hash01(sectorIndex * 47 + 13);
+    float seed2 = hash01(sectorIndex * 91 + 7);
+    float b = std::max(0.35f, boost);
+
+    // Independent hop periods (0.55s–1.9s) and phase offsets.
+    float period = 0.55f + seed * 1.35f;
+    float phase = seed2 * period * 3.7f + s * 0.37f;
+    float tHop = std::fmod(timeSec + phase, period);
+    if (tHop < 0.0f) {
+        tHop += period;
+    }
+    // Short jump pulse (not everyone airborne at once).
+    float hopDur = 0.12f + seed * 0.14f;
+    float hop = 0.0f;
+    if (tHop < hopDur) {
+        hop = std::sin((tHop / hopDur) * 3.14159265f);
+    }
+    // Second rarer hop layer (some groups double-bounce).
+    float period2 = 1.1f + seed2 * 2.0f;
+    float t2 = std::fmod(timeSec * 0.85f + seed * 5.0f, period2);
+    float hop2 = 0.0f;
+    if (t2 < 0.10f + seed * 0.08f) {
+        hop2 = std::sin((t2 / (0.10f + seed * 0.08f)) * 3.14159265f) * 0.55f;
+    }
+    // Tiny idle fidget unique per sector.
+    float idle =
+        0.035f * std::sin(timeSec * (2.1f + seed * 3.4f) + s * 1.7f) +
+        0.02f * std::sin(timeSec * (5.5f + seed2 * 2.0f) + seed * 8.0f);
+
+    float amp = 0.14f + seed * 0.16f; // some sections jump higher
+    return (idle + hop * amp + hop2 * amp * 0.7f) * b;
 }
 
 float fanCheerOffsetX(int sectorIndex, float timeSec, float boost) {
-    float phase = static_cast<float>(sectorIndex) * 0.71f;
-    float b = std::max(0.4f, boost);
-    return 0.08f * std::sin(timeSec * 4.4f + phase) * b;
+    float s = static_cast<float>(sectorIndex);
+    float seed = hash01(sectorIndex * 53 + 19);
+    float b = std::max(0.35f, boost);
+    // Independent lateral sway — different freqs so the bowl shimmers, not waves.
+    return (
+        0.05f * std::sin(timeSec * (1.7f + seed * 2.8f) + s * 2.1f) +
+        0.03f * std::sin(timeSec * (4.0f + seed * 1.5f) + seed * 6.0f)
+    ) * b;
 }
 
 float flagSwayYaw(int flagIndex, float timeSec) {

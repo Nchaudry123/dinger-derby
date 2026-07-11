@@ -199,7 +199,8 @@ BallCollisionHit collideBallSubsteps(
 );
 
 // Fan sections for cheer-wave animation (draw each with a small Y bob).
-constexpr int kFanSectorCount = 16;
+// Higher count = more independent crowd motion (less unison).
+constexpr int kFanSectorCount = 32;
 // Flags around the park (draw with flagSwayYaw for wind).
 constexpr int kFlagCount = 12;
 
