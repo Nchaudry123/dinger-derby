@@ -47,13 +47,14 @@ struct Layout {
     float foulAngleDegrees = 45.0f;
     float infieldRadiusFeet = 95.0f;
     float basePathFeet = 90.0f;
-    // Closed retractable roof (Rogers Centre). Balls bounce off the shell.
+    // Closed retractable roof (Rogers Centre / SkyDome).
+    // Building is a circular plan ~700 ft diameter; roof peak ~282 ft AGL.
     bool closedDome = true;
-    // Peak roof height above field (ft). High enough for normal HRs into seats;
-    // still catches moonshots / lasers that would leave the universe.
-    float roofPeakFeet = 195.0f;
-    // Dome base radius = max wall + this padding (ft) past the OF fence.
-    float roofShellPaddingFeet = 110.0f;
+    float roofPeakFeet = 282.0f;           // official roof high point
+    float buildingRadiusFeet = 350.0f;     // 700 ft diameter / 2
+    // Dome center is offset from home toward CF so the circular shell covers
+    // field + stands + CF hotel (home sits near the south of the circle).
+    float domeCenterOffsetFeet = 175.0f;
 
     float plateZ() const { return pitchingDistanceFeet / feetPerUnit; }
     float wallR() const { return wallDistanceFeet / feetPerUnit; }
@@ -63,13 +64,23 @@ struct Layout {
     float basePath() const { return basePathFeet / feetPerUnit; }
     float moundZ() const { return 0.0f; }
     float roofPeakY() const { return roofPeakFeet / feetPerUnit; }
-    float roofShellR() const {
-        return maxWallR() + roofShellPaddingFeet / feetPerUnit;
-    }
-    // Roof underside Y at a horizontal radius from home (world units).
+    // Horizontal radius of the circular building shell (world units).
+    float domeHorizR() const { return buildingRadiusFeet / feetPerUnit; }
+    // Legacy alias used by demos (same as circular shell radius).
+    float roofShellR() const { return domeHorizR(); }
+    // Geometric center of the circular dome on the field plane (y=0).
+    Vector3 domeCenter() const;
+    // Roof underside Y for a world XZ (same math as the drawn shell).
+    float domeRoofYAtWorld(float worldX, float worldZ) const;
+    // Roof underside Y at a horizontal radius measured from HOME (approx).
     float domeRoofYAtRadius(float radiusFromHome) const;
+    // Max playable radius from home at this spray before hitting the shell.
+    float maxRadiusFromHome(float angleRad) const;
     // Stepped seating-deck floor height past the fence (world Y), for landings.
     float seatDeckYAtRadius(float radiusFromHome, float angleRad) const;
+    // Project a sphere fully inside the closed dome (hard containment).
+    // Returns true if a correction was applied.
+    bool containInsideDome(Vector3& position, Vector3& velocity, float radius) const;
 
     // OF fence distance (feet) vs spray angle from CF.
     // angleRad = 0 is CF (−Z); +angle toward +X (RF / 1B).

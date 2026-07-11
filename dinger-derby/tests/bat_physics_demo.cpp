@@ -2091,13 +2091,14 @@ int main() {
         }
         world = PhysicsWorld3D();
         world.gravity = Vector3(0, -9.8f, 0);
-        // Indoor Rogers shell — loose axis-aligned bounds; solid park is collideBall.
+        // Indoor Rogers shell AABB — solid ellipsoid is containInsideDome.
         {
-            float shell = stadiumLayout.roofShellR() + 8.0f;
-            float peak = stadiumLayout.roofPeakY() + 4.0f;
+            Vector3 c = stadiumLayout.domeCenter();
+            float Rh = stadiumLayout.domeHorizR() + 4.0f;
+            float peak = stadiumLayout.roofPeakY() + 2.0f;
             world.setBounds(
-                Vector3(-shell, 0.0f, stadiumLayout.plateZ() - shell),
-                Vector3(shell, peak, stadiumLayout.plateZ() + shell * 0.55f)
+                Vector3(c.x - Rh, 0.0f, c.z - Rh),
+                Vector3(c.x + Rh, peak, c.z + Rh)
             );
         }
         world.airResistanceEnabled = false;
@@ -2552,27 +2553,11 @@ int main() {
                             col.surface = Stadium3D::HitSurface::Ground;
                         }
                     }
-                    // Absolute dome containment every frame.
+                    // Absolute Rogers shell containment (same ellipsoid as the roof mesh).
                     if (stadiumLayout.closedDome) {
-                        float rr = 0.0f, aa = 0.0f;
-                        stadiumLayout.polarFromHome(baseball.position, rr, aa);
-                        float shell = stadiumLayout.roofShellR() - baseball.radius - 0.02f;
-                        if (rr > shell) {
-                            Vector3 on =
-                                stadiumLayout.fromHome(shell, aa, baseball.position.y);
-                            baseball.position.x = on.x;
-                            baseball.position.z = on.z;
-                        }
-                        float roofY = stadiumLayout.domeRoofYAtRadius(
-                            std::min(rr, shell)
+                        stadiumLayout.containInsideDome(
+                            baseball.position, baseball.velocity, baseball.radius
                         );
-                        float maxY = roofY - baseball.radius - 0.02f;
-                        if (baseball.position.y > maxY) {
-                            baseball.position.y = maxY;
-                            if (baseball.velocity.y > 0.0f) {
-                                baseball.velocity.y = 0.0f;
-                            }
-                        }
                     }
                     if (hasHit && !ballSettled) {
                         const bool alreadyCleared = lastHit.clearsWall;
@@ -3197,13 +3182,19 @@ int main() {
 
         Matrix4 stadiumXform = Matrix4::identity();
         if (useGL) {
-            // Indoor Rogers Centre: dark void outside the shell, no city/sky/flags.
+            // Fully enclosed Rogers Centre — nothing outside the circular shell.
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            const float gr = stadiumLayout.roofShellR() + 2.0f;
-            gl.drawMesh(glStadiumSky, stadiumXform); // closed roof shell
+            Vector3 domeC = stadiumLayout.domeCenter();
+            const float gr = stadiumLayout.domeHorizR() + 1.0f;
+            gl.drawMesh(glStadiumSky, stadiumXform); // closed roof + ring wall
             gl.drawMesh(glStadiumStructure, stadiumXform);
-            // Field floor only inside the dome footprint.
-            gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::grassColor());
+            // Field floor only under the circular building (centered on dome).
+            gl.drawGround(
+                gr,
+                domeC.z - gr,
+                domeC.z + gr,
+                Stadium3D::grassColor()
+            );
             gl.drawMesh(glStadiumField, stadiumXform);
             {
                 float ballShadowR = 0.38f + baseball.position.y * 0.055f;
@@ -3643,7 +3634,7 @@ int main() {
                 drawText(window, font, career.str(), 11, {tx, ty}, sf::Color(140, 160, 170));
                 ty += 16.0f;
                 drawText(
-                    window, font, "Rogers Centre  ·  dome closed", 11, {tx, ty},
+                    window, font, "Rogers Centre  ·  700′ shell  ·  roof closed", 11, {tx, ty},
                     sf::Color(110, 145, 160)
                 );
             } else if (!chasing) {
