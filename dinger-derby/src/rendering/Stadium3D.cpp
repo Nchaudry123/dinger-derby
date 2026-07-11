@@ -728,12 +728,36 @@ Mesh3D buildStructure(const Layout& L) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// EXTERIOR — continuous berm / apron / buildings
+// EXTERIOR — berm, parking, suburbs, trees, hills (HR ball backdrop)
 // ═══════════════════════════════════════════════════════════════════════
+
+void addTree(Mesh3D& m, const Vector3& base, float scale, int seed) {
+    float trunkH = 2.2f * scale;
+    float canopyR = 2.4f * scale + hash01(seed) * 1.2f * scale;
+    sf::Color trunk(95, 70, 45);
+    sf::Color leaf = shade(sf::Color(40, 110, 50), 0.85f + 0.2f * hash01(seed + 3));
+    addBox(m, base + Vector3(0, trunkH * 0.5f, 0), 0.45f * scale, trunkH, 0.45f * scale, trunk);
+    // Layered canopy (low-poly tree)
+    addBox(
+        m, base + Vector3(0, trunkH + canopyR * 0.35f, 0), canopyR * 1.6f, canopyR * 0.9f,
+        canopyR * 1.6f, leaf
+    );
+    addBox(
+        m, base + Vector3(0, trunkH + canopyR * 0.95f, 0), canopyR * 1.15f, canopyR * 0.7f,
+        canopyR * 1.15f, shade(leaf, 1.08f)
+    );
+    addBox(
+        m, base + Vector3(0, trunkH + canopyR * 1.45f, 0), canopyR * 0.7f, canopyR * 0.5f,
+        canopyR * 0.7f, shade(leaf, 0.92f)
+    );
+}
 
 Mesh3D buildCity(const Layout& L) {
     Mesh3D m;
-    const int segs = 80;
+    const float parkR = L.maxWallR() + 35.0f; // just outside stadium footprint
+    const int segs = 96;
+
+    // ── Near apron / berm (touches the park) ──────────────────────────
     for (int i = 0; i < segs; i++) {
         float t0 = static_cast<float>(i) / segs;
         float t1 = static_cast<float>(i + 1) / segs;
@@ -745,7 +769,6 @@ Mesh3D buildCity(const Layout& L) {
         float rIn = rSeat + (isOfBleacher(L, angM) ? 10.0f : 18.0f);
         float rMid = rIn + depth * 0.45f;
         float rOut = rIn + depth;
-        // Tan concrete apron (continuous)
         addQuad(
             m, L.fromHome(rIn, ang0, -0.2f), L.fromHome(rIn, ang1, -0.2f),
             L.fromHome(rMid, ang1, -0.8f), L.fromHome(rMid, ang0, -0.8f), facadeTanColor()
@@ -755,13 +778,11 @@ Mesh3D buildCity(const Layout& L) {
             L.fromHome(rOut, ang1, -1.4f), L.fromHome(rOut, ang0, -1.4f),
             shade(facadeTanColor(), 0.92f)
         );
-        // Outer grass ring
         addQuad(
             m, L.fromHome(rOut, ang0, -1.35f), L.fromHome(rOut, ang1, -1.35f),
-            L.fromHome(rOut + 12.0f, ang1, -1.8f), L.fromHome(rOut + 12.0f, ang0, -1.8f),
+            L.fromHome(rOut + 14.0f, ang1, -1.7f), L.fromHome(rOut + 14.0f, ang0, -1.7f),
             shade(grassColor(), 0.82f + 0.06f * hash01(i))
         );
-        // Vertical face of berm (connects levels)
         addQuad(
             m, L.fromHome(rOut, ang0, -1.4f), L.fromHome(rOut, ang1, -1.4f),
             L.fromHome(rOut, ang1, 0.5f), L.fromHome(rOut, ang0, 0.5f),
@@ -769,7 +790,7 @@ Mesh3D buildCity(const Layout& L) {
         );
     }
 
-    // Side service buildings (tied into apron)
+    // Side service buildings
     float pz = L.plateZ();
     addBox(m, Vector3(52.0f, 5.5f, pz + 6.0f), 24.0f, 11.0f, 32.0f, facadeGrayColor());
     addBox(m, Vector3(-52.0f, 5.5f, pz + 6.0f), 24.0f, 11.0f, 32.0f, facadeGrayColor());
@@ -777,17 +798,258 @@ Mesh3D buildCity(const Layout& L) {
     addBox(m, Vector3(-58.0f, 4.0f, pz - 25.0f), 16.0f, 8.0f, 20.0f, facadeTanColor());
     addBox(m, Vector3(45.0f, 3.0f, pz - 50.0f), 12.0f, 6.0f, 14.0f, facadeGrayColor());
     addBox(m, Vector3(-45.0f, 3.0f, pz - 50.0f), 12.0f, 6.0f, 14.0f, facadeGrayColor());
-    // Stairs / ramps
     for (float side : {1.0f, -1.0f}) {
         for (int s = 0; s < 6; s++) {
             addBox(
-                m,
-                Vector3(side * (40.0f + s * 1.5f), 0.4f + s * 0.55f, pz + 18.0f),
+                m, Vector3(side * (40.0f + s * 1.5f), 0.4f + s * 0.55f, pz + 18.0f),
                 3.0f, 0.35f, 4.0f, facadeGrayColor()
             );
         }
     }
 
+    // ── Huge outer ground (so fly balls never hit empty void) ─────────
+    // Parking asphalt ring, then grass, then fields going far out.
+    const float rPark0 = parkR;
+    const float rPark1 = parkR + 45.0f;
+    const float rGrass1 = parkR + 120.0f;
+    const float rFar = parkR + 420.0f;
+    const float yG = -1.9f;
+    sf::Color asphalt(70, 72, 78);
+    sf::Color asphaltLine(200, 200, 190);
+    sf::Color grassFar = shade(grassColor(), 0.78f);
+    sf::Color grassFar2 = shade(sf::Color(55, 100, 48), 0.9f);
+    sf::Color dirtRoad(120, 100, 70);
+
+    for (int i = 0; i < segs; i++) {
+        float t0 = static_cast<float>(i) / segs;
+        float t1 = static_cast<float>(i + 1) / segs;
+        float ang0 = -pi + t0 * 2.0f * pi;
+        float ang1 = -pi + t1 * 2.0f * pi;
+        // Parking lot
+        addQuad(
+            m, L.fromHome(rPark0, ang0, yG), L.fromHome(rPark0, ang1, yG),
+            L.fromHome(rPark1, ang1, yG), L.fromHome(rPark1, ang0, yG),
+            shade(asphalt, 0.92f + 0.08f * hash01(i))
+        );
+        // Suburb grass
+        addQuad(
+            m, L.fromHome(rPark1, ang0, yG - 0.05f), L.fromHome(rPark1, ang1, yG - 0.05f),
+            L.fromHome(rGrass1, ang1, yG - 0.2f), L.fromHome(rGrass1, ang0, yG - 0.2f),
+            (i % 2 == 0) ? grassFar : grassFar2
+        );
+        // Distant countryside (very large)
+        addQuad(
+            m, L.fromHome(rGrass1, ang0, yG - 0.2f), L.fromHome(rGrass1, ang1, yG - 0.2f),
+            L.fromHome(rFar, ang1, yG - 0.8f), L.fromHome(rFar, ang0, yG - 0.8f),
+            shade(grassFar, 0.88f + 0.06f * hash01(i + 40))
+        );
+    }
+
+    // Parking stall stripes (every few sectors)
+    for (int i = 0; i < 48; i++) {
+        float ang = -pi + (static_cast<float>(i) + 0.5f) / 48.0f * 2.0f * pi;
+        float r0 = rPark0 + 4.0f + hash01(i) * 8.0f;
+        Vector3 a = L.fromHome(r0, ang, yG + 0.02f);
+        Vector3 b = L.fromHome(r0 + 5.5f, ang, yG + 0.02f);
+        addPath(m, a, b, 0.12f, yG + 0.03f, asphaltLine);
+    }
+
+    // Radial access roads from parking outward
+    for (int i = 0; i < 12; i++) {
+        float ang = -pi + (static_cast<float>(i) + 0.5f) / 12.0f * 2.0f * pi;
+        addPath(
+            m, L.fromHome(rPark0 + 2.0f, ang, yG), L.fromHome(rGrass1 + 40.0f, ang, yG - 0.3f),
+            3.2f, yG + 0.01f, shade(asphalt, 1.05f)
+        );
+        addPath(
+            m, L.fromHome(rPark0 + 2.0f, ang, yG), L.fromHome(rGrass1 + 40.0f, ang, yG - 0.3f),
+            0.15f, yG + 0.04f, asphaltLine
+        );
+    }
+
+    // Ring road around parking
+    for (int i = 0; i < segs; i++) {
+        float t0 = static_cast<float>(i) / segs;
+        float t1 = static_cast<float>(i + 1) / segs;
+        float ang0 = -pi + t0 * 2.0f * pi;
+        float ang1 = -pi + t1 * 2.0f * pi;
+        float r = rPark1 - 6.0f;
+        addQuad(
+            m, L.fromHome(r - 4.0f, ang0, yG + 0.02f), L.fromHome(r - 4.0f, ang1, yG + 0.02f),
+            L.fromHome(r + 4.0f, ang1, yG + 0.02f), L.fromHome(r + 4.0f, ang0, yG + 0.02f),
+            shade(asphalt, 1.08f)
+        );
+    }
+
+    // ── Suburban building ring (homes / shops beyond parking) ─────────
+    const sf::Color houseCols[] = {
+        sf::Color(190, 175, 155), sf::Color(160, 150, 145), sf::Color(200, 185, 160),
+        sf::Color(145, 155, 165), sf::Color(175, 140, 120), sf::Color(150, 160, 140),
+        sf::Color(180, 170, 185), facadeGrayColor(), facadeTanColor(),
+    };
+    for (int i = 0; i < 72; i++) {
+        float ang = -pi + (static_cast<float>(i) + 0.35f * hash01(i * 3)) / 72.0f * 2.0f * pi;
+        float r = rPark1 + 18.0f + hash01(i * 5) * 55.0f;
+        float w = 6.0f + hash01(i * 7) * 10.0f;
+        float d = 6.0f + hash01(i * 11) * 12.0f;
+        float h = 4.0f + hash01(i * 13) * 14.0f; // 1–4 story
+        sf::Color col = houseCols[static_cast<unsigned>(i) % 9];
+        col = shade(col, 0.9f + 0.12f * hash01(i + 20));
+        Vector3 c = L.fromHome(r, ang, h * 0.5f + yG);
+        addBox(m, c, w, h, d, col);
+        // Flat or pitched roof slab
+        addBox(
+            m, c + Vector3(0, h * 0.5f + 0.35f, 0), w + 0.8f, 0.5f, d + 0.8f,
+            shade(col, 0.75f)
+        );
+        // Occasional taller office
+        if (hash01(i * 17) > 0.82f) {
+            float h2 = 18.0f + hash01(i) * 28.0f;
+            Vector3 c2 = L.fromHome(r + 12.0f, ang + 0.04f, h2 * 0.5f + yG);
+            addBox(m, c2, 8.0f + hash01(i + 1) * 6.0f, h2, 8.0f, facadeGrayColor());
+            // Window bands
+            for (int fl = 1; fl < static_cast<int>(h2 / 3.5f); fl++) {
+                addBox(
+                    m, c2 + Vector3(0, -h2 * 0.5f + fl * 3.5f, d * 0.05f),
+                    7.0f, 1.2f, 0.2f, sf::Color(100, 160, 200, 160)
+                );
+            }
+        }
+    }
+
+    // Second outer commercial strip (further out — HR chase backdrop)
+    for (int i = 0; i < 40; i++) {
+        float ang = -pi + (static_cast<float>(i) + 0.5f) / 40.0f * 2.0f * pi;
+        float r = rGrass1 + 30.0f + hash01(i * 9) * 80.0f;
+        float h = 6.0f + hash01(i * 3) * 22.0f;
+        float w = 10.0f + hash01(i * 5) * 18.0f;
+        Vector3 c = L.fromHome(r, ang, h * 0.5f + yG);
+        sf::Color col = shade(facadeGrayColor(), 0.85f + 0.15f * hash01(i));
+        addBox(m, c, w, h, w * 0.7f, col);
+        addBox(m, c + Vector3(0, h * 0.5f + 0.4f, 0), w + 1.0f, 0.5f, w * 0.7f + 1.0f, shade(col, 0.7f));
+    }
+
+    // ── Tree belts (parking edges + neighborhoods + OF deep) ──────────
+    for (int i = 0; i < 160; i++) {
+        float ang = -pi + (static_cast<float>(i) + hash01(i * 2)) / 160.0f * 2.0f * pi;
+        float band = hash01(i * 11);
+        float r;
+        if (band < 0.35f) {
+            r = rPark0 + 2.0f + hash01(i) * 8.0f; // near stadium
+        } else if (band < 0.7f) {
+            r = rPark1 + 5.0f + hash01(i + 1) * 40.0f; // suburb
+        } else {
+            r = rGrass1 + hash01(i + 2) * 150.0f; // countryside
+        }
+        Vector3 base = L.fromHome(r, ang, yG);
+        // Skip trees that would sit inside the fair diamond volume
+        if (r < L.maxWallR() + 8.0f && std::abs(ang) < L.foulAngleRad() + 0.15f) {
+            continue;
+        }
+        float sc = 0.9f + hash01(i * 19) * 1.4f;
+        addTree(m, base, sc, i * 13);
+    }
+
+    // Tree rows behind CF (classic HR backdrop)
+    for (int i = 0; i < 36; i++) {
+        float ang = -0.55f + (static_cast<float>(i) / 36.0f) * 1.1f;
+        float r = L.wallRAtAngle(0.0f) + 55.0f + (i % 5) * 8.0f + hash01(i) * 12.0f;
+        addTree(m, L.fromHome(r, ang, yG), 1.2f + hash01(i + 7) * 1.1f, i * 29);
+    }
+
+    // ── Distant rolling hills (silhouette when ball is sky-high) ───────
+    for (int h = 0; h < 24; h++) {
+        float ang = -pi + (static_cast<float>(h) + 0.5f) / 24.0f * 2.0f * pi;
+        float r = rFar - 40.0f - hash01(h * 3) * 60.0f;
+        float hillH = 12.0f + hash01(h * 7) * 35.0f;
+        float hillW = 50.0f + hash01(h * 11) * 80.0f;
+        Vector3 c = L.fromHome(r, ang, hillH * 0.35f + yG);
+        sf::Color hillCol = shade(sf::Color(70, 105, 65), 0.75f + 0.2f * hash01(h));
+        addBox(m, c, hillW, hillH, hillW * 0.6f, hillCol);
+        // Soft top ridge
+        addBox(
+            m, c + Vector3(0, hillH * 0.35f, 0), hillW * 0.7f, hillH * 0.35f, hillW * 0.45f,
+            shade(hillCol, 1.1f)
+        );
+    }
+
+    // Horizon haze slabs (very far, low poly skyline hints)
+    for (int i = 0; i < 16; i++) {
+        float ang = -pi + (static_cast<float>(i) + 0.5f) / 16.0f * 2.0f * pi;
+        float r = rFar + 80.0f;
+        float h = 20.0f + hash01(i * 5) * 50.0f;
+        addBox(
+            m, L.fromHome(r, ang, h * 0.5f + yG), 40.0f + hash01(i) * 30.0f, h,
+            20.0f, shade(sf::Color(130, 145, 160), 0.7f + 0.15f * hash01(i + 2))
+        );
+    }
+
+    // Water tower / landmark (beyond RF)
+    {
+        Vector3 base = L.fromHome(rGrass1 + 50.0f, 0.9f, yG);
+        addBox(m, base + Vector3(0, 8.0f, 0), 1.2f, 16.0f, 1.2f, facadeGrayColor());
+        addBox(m, base + Vector3(0, 17.0f, 0), 6.0f, 4.0f, 6.0f, sf::Color(180, 50, 50));
+    }
+
+    m.rebuildNormals();
+    return m;
+}
+
+// Soft sky dome + clouds so deep fly balls still have atmosphere.
+Mesh3D buildSkyBackdrop(const Layout& L) {
+    Mesh3D m;
+    const float R = L.maxWallR() + 520.0f;
+    const Vector3 c = L.parkCenter();
+    const int rings = 10;
+    const int segs = 40;
+    for (int j = 0; j < rings; j++) {
+        float v0 = static_cast<float>(j) / rings;
+        float v1 = static_cast<float>(j + 1) / rings;
+        // Hemisphere from horizon (v=0) to zenith (v=1)
+        float elev0 = v0 * (pi * 0.48f);
+        float elev1 = v1 * (pi * 0.48f);
+        float y0 = std::sin(elev0) * R * 0.55f;
+        float y1 = std::sin(elev1) * R * 0.55f;
+        float rh0 = std::cos(elev0) * R;
+        float rh1 = std::cos(elev1) * R;
+        sf::Color col0 = shade(skyColor(), 0.85f + 0.2f * v0);
+        sf::Color col1 = shade(skyZenithColor(), 0.7f + 0.35f * v1);
+        // Blend toward zenith
+        sf::Color a(
+            static_cast<std::uint8_t>(col0.r * (1.0f - v0) + col1.r * v0),
+            static_cast<std::uint8_t>(col0.g * (1.0f - v0) + col1.g * v0),
+            static_cast<std::uint8_t>(col0.b * (1.0f - v0) + col1.b * v0)
+        );
+        for (int i = 0; i < segs; i++) {
+            float t0 = static_cast<float>(i) / segs * 2.0f * pi;
+            float t1 = static_cast<float>(i + 1) / segs * 2.0f * pi;
+            Vector3 p0(c.x + std::cos(t0) * rh0, y0 + 5.0f, c.z + std::sin(t0) * rh0);
+            Vector3 p1(c.x + std::cos(t1) * rh0, y0 + 5.0f, c.z + std::sin(t1) * rh0);
+            Vector3 p2(c.x + std::cos(t1) * rh1, y1 + 5.0f, c.z + std::sin(t1) * rh1);
+            Vector3 p3(c.x + std::cos(t0) * rh1, y1 + 5.0f, c.z + std::sin(t0) * rh1);
+            // Inward-facing (camera inside)
+            addQuad(m, p0, p3, p2, p1, a);
+        }
+    }
+    // Soft cloud puffs mid-sky
+    for (int i = 0; i < 28; i++) {
+        float ang = hash01(i * 3) * 2.0f * pi;
+        float elev = 0.15f + hash01(i * 5) * 0.35f;
+        float rr = R * 0.55f;
+        Vector3 p(
+            c.x + std::cos(ang) * std::cos(elev) * rr,
+            25.0f + std::sin(elev) * rr * 0.5f,
+            c.z + std::sin(ang) * std::cos(elev) * rr
+        );
+        float sx = 28.0f + hash01(i * 7) * 40.0f;
+        float sy = 6.0f + hash01(i * 9) * 10.0f;
+        float sz = 16.0f + hash01(i * 11) * 28.0f;
+        addBox(m, p, sx, sy, sz, sf::Color(245, 248, 255, 180));
+        addBox(
+            m, p + Vector3(sx * 0.25f, -sy * 0.15f, sz * 0.1f), sx * 0.6f, sy * 0.7f, sz * 0.55f,
+            sf::Color(235, 240, 250, 160)
+        );
+    }
     m.rebuildNormals();
     return m;
 }
@@ -1310,6 +1572,7 @@ Meshes build(const Layout& layout) {
     out.stands = buildStands(layout);
     out.lines = buildLines(layout);
     out.city = buildCity(layout);
+    out.skyDome = buildSkyBackdrop(layout);
     out.scoreboardScreen = buildScoreboardScreen(layout);
     out.hotel = buildHotel(layout);
     out.structure = buildStructure(layout);
@@ -1319,7 +1582,8 @@ Meshes build(const Layout& layout) {
 }
 
 float recommendedFarPlane(const Layout& layout) {
-    return std::max(1600.0f, layout.maxWallR() * 9.0f + 350.0f);
+    // Large enough that HR chase + suburb backdrop never clips.
+    return std::max(2800.0f, layout.maxWallR() * 18.0f + 800.0f);
 }
 
 float fanCheerOffsetY(int sectorIndex, float timeSec, float boost) {

@@ -186,6 +186,7 @@ int main() {
     GlMesh glHotel;
     GlMesh glStructure;
     GlMesh glCity;
+    GlMesh glSky;
     std::vector<GlMesh> glFans(Stadium3D::kFanSectorCount);
     std::vector<GlMesh> glFlags(Stadium3D::kFlagCount);
     if (useGL) {
@@ -197,6 +198,7 @@ int main() {
         glHotel.upload(meshes.hotel);
         glStructure.upload(meshes.structure);
         glCity.upload(meshes.city);
+        glSky.upload(meshes.skyDome);
         for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
             if (i < static_cast<int>(meshes.fanSectors.size())) {
                 glFans[i].upload(meshes.fanSectors[i]);
@@ -311,10 +313,11 @@ int main() {
 
         Matrix4 id = Matrix4::identity();
         if (useGL) {
-            // Open-air minor-league park (reference silhouette).
+            // Open-air park + full suburb backdrop for out-of-park fly balls.
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            const float gr = layout.maxWallR() + 90.0f;
+            const float gr = layout.maxWallR() + 480.0f;
             const float plateZ = layout.plateZ();
+            gl.drawMesh(glSky, id);
             gl.drawGround(gr, plateZ - gr, plateZ + gr, Stadium3D::concreteFloorColor());
             gl.drawMesh(glCity, id);
             gl.drawMesh(glField, id);

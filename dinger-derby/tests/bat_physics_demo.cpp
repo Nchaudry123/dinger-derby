@@ -1565,6 +1565,7 @@ int main() {
     GlMesh glStadiumHotel;
     GlMesh glStadiumStructure;
     GlMesh glStadiumCity;
+    GlMesh glStadiumSky;
     std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
@@ -1581,6 +1582,7 @@ int main() {
         glStadiumHotel.upload(stadiumMeshes.hotel);
         glStadiumStructure.upload(stadiumMeshes.structure);
         glStadiumCity.upload(stadiumMeshes.city);
+        glStadiumSky.upload(stadiumMeshes.skyDome);
         for (int i = 0; i < Stadium3D::kFanSectorCount; i++) {
             if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
                 glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
@@ -3198,8 +3200,9 @@ int main() {
         Matrix4 stadiumXform = Matrix4::identity();
         if (useGL) {
             gl.beginFrame(window, camera, Stadium3D::skyColor());
-            const float gr = stadiumLayout.maxWallR() + 90.0f;
+            const float gr = stadiumLayout.maxWallR() + 480.0f;
             const float plateZGround = stadiumLayout.plateZ();
+            gl.drawMesh(glStadiumSky, stadiumXform);
             gl.drawGround(
                 gr, plateZGround - gr, plateZGround + gr, Stadium3D::concreteFloorColor()
             );

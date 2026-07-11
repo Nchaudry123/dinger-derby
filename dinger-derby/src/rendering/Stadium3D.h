@@ -183,10 +183,10 @@ struct Meshes {
     Mesh3D walls;
     Mesh3D stands;
     Mesh3D lines;
-    Mesh3D city;              // exterior berm / grass apron
+    Mesh3D city;              // berm, parking, suburbs, trees, hills (HR backdrop)
     Mesh3D scoreboardScreen;  // CF / OF boards
-    Mesh3D skyDome;           // unused (open air)
-    Mesh3D clouds;            // unused
+    Mesh3D skyDome;           // open-air sky shell + soft clouds
+    Mesh3D clouds;            // unused (clouds folded into skyDome)
     Mesh3D hotel;             // suite / club facade behind home
     Mesh3D structure;         // light towers, poles, rails
     std::vector<Mesh3D> fanSectors;
