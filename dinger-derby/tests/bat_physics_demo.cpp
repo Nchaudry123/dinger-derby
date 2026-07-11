@@ -450,16 +450,24 @@ Vector3 slerpDir(const Vector3& a, const Vector3& b, float t) {
     return safeNorm(na * s0 + nb * s1);
 }
 
-// Snap animated bat pose to the aim reticle (used as contact key when swing starts).
-// Uses the auto height tilt (gameplay angle, not smoothed display).
+// Snap animated bat pose so the sweet spot sits ON the PCI (aim point).
+// Uses gameplay plateAngle (not smoothed) so contact keys match the reticle.
 void orientBatFromReticle(BatPose& bat, const AimReticle& reticle, const BatConfig& cfg) {
     bat.pci = reticle.pci;
-    // Slight forward lean of the barrel toward the pitcher for depth read.
     float ang = reticle.plateAngle;
-    Vector3 dir(std::cos(ang), std::sin(ang), -0.10f - 0.04f * std::abs(ang));
-    bat.axis = safeNorm(dir);
+    // Barrel axis in the plate plane: tip direction from knob through sweet spot.
+    // Small −Z lean so the face squares the incoming pitch (+Z travel).
+    Vector3 dir(
+        std::cos(ang),
+        std::sin(ang),
+        -0.14f - 0.05f * std::abs(ang)
+    );
+    bat.axis = safeNorm(dir, Vector3(1, 0, -0.15f));
+    // Sweet spot (hands + axis * sweetFromKnob) == PCI exactly.
     bat.hands = reticle.pci - bat.axis * cfg.sweetFromKnob;
-    bat.hands.z = plateZ - 0.18f;
+    bat.hands.z = plateZ - 0.12f; // slight depth in front of plate face
+    // Keep PCI locked on plate plane for collision fairness.
+    bat.pci.z = plateZ;
     Vector3 up(0, 1, 0);
     Vector3 side = safeNorm(up.cross(bat.axis), Vector3(1, 0, 0));
     bat.swingAxis = safeNorm(bat.axis.cross(side), up);
@@ -804,16 +812,24 @@ HitInfo tryHit(
     float dist = delta.magnitude();
     float minD = ball.radius + rBat;
 
-    // Timing window aligns with barrel dwell (~0.36–0.50 sampleSwingPose).
+    // Timing window aligns with barrel dwell (sampleSwingPose contact ~0.34–0.52).
+    // Also magnet toward the locked PCI (where the yellow reticle was aimed).
     Vector3 sweetPt = batPoint(bat, cfg.sweetFromKnob);
+    Vector3 aimPt = bat.pci;
+    aimPt.z = plateZ;
     float dSweet = (ball.position - sweetPt).magnitude();
+    float dAim = (ball.position - aimPt).magnitude();
     float nearPlate = std::abs(ball.position.z - plateZ);
-    bool contactWindow = bat.swingT >= 0.20f && bat.swingT <= 0.68f;
-    float magnetR = (practiceMode ? 0.34f : 0.24f) * contactEase;
-    float plateBand = (practiceMode ? 0.62f : 0.50f) * contactEase;
-    if (contactWindow && nearPlate < plateBand && dSweet < magnetR) {
+    bool contactWindow = bat.swingT >= 0.28f && bat.swingT <= 0.58f;
+    float magnetR = (practiceMode ? 0.36f : 0.28f) * contactEase;
+    float plateBand = (practiceMode ? 0.70f : 0.58f) * contactEase;
+    // Prefer magnet when ball is near aim OR near barrel sweet — prediction feel.
+    bool nearAim = dAim < magnetR * 1.15f || dSweet < magnetR;
+    if (contactWindow && nearPlate < plateBand && nearAim) {
+        // Pull toward the PCI first (what the player aimed at), then sweet on bat.
+        Vector3 target = aimPt * 0.55f + sweetPt * 0.45f;
         if (practiceMode) {
-            closest = sweetPt;
+            closest = target;
             s = cfg.sweetFromKnob;
             delta = ball.position - closest;
             dist = std::max(delta.magnitude(), 1e-4f);
@@ -823,9 +839,11 @@ HitInfo tryHit(
             delta = ball.position - closest;
             dist = delta.magnitude();
         } else {
-            // Pull contact toward the sweet spot without fully snapping.
-            float pull = clampf(0.55f + 0.20f * contactEase, 0.45f, 0.80f);
-            closest = closest * (1.0f - pull) + sweetPt * pull;
+            float pull = clampf(0.60f + 0.22f * contactEase, 0.50f, 0.88f);
+            // Stronger pull when ball is closer to the reticle aim.
+            float aimBonus = clampf(1.0f - dAim / (magnetR * 1.4f), 0.0f, 1.0f);
+            pull = clampf(pull + 0.12f * aimBonus, 0.50f, 0.92f);
+            closest = closest * (1.0f - pull) + target * pull;
             s = lerp(s, cfg.sweetFromKnob, pull);
             delta = ball.position - closest;
             dist = std::max(delta.magnitude(), 1e-4f);
@@ -1135,37 +1153,82 @@ Vector3 softTossVelocity(const Vector3& start, const Vector3& aim, float flightT
     return Vector3(vx, vy, vz);
 }
 
+// Inverse of Camera3D::projectPoint (same FOV scale model).
+// Mouse maps to the plate plane so the yellow PCI sits under the cursor.
 Vector3 mouseToPci(const Camera3D& cam, float mx, float my, float sw, float sh) {
-    float nx = (mx / sw) * 2.0f - 1.0f;
-    float ny = 1.0f - (my / sh) * 2.0f;
-    float cy = std::cos(cam.rotation.y);
-    float sy = std::sin(cam.rotation.y);
-    float cx = std::cos(cam.rotation.x);
-    float sx = std::sin(cam.rotation.x);
-    Vector3 forward = safeNorm(Vector3(sy * cx, -sx, cy * cx));
-    Vector3 right = safeNorm(Vector3(0, 1, 0).cross(forward), Vector3(1, 0, 0));
-    Vector3 up = safeNorm(forward.cross(right));
-    float aspect = sw / std::max(sh, 1.0f);
-    // Match catcher FOV (~700 “units” in this engine ≈ ~50–55° vertical)
-    float tanHalf = std::tan(0.48f);
-    Vector3 dir = safeNorm(forward + right * (nx * tanHalf * aspect) + up * (ny * tanHalf));
-    float planeZ = plateZ;
+    // Camera-space ray through pixel (matches project: sx = sw/2 + cx * fov/z).
+    float fov = std::max(cam.fieldOfView, 1.0f);
+    float cx = (mx - sw * 0.5f) / fov;
+    float cy = -(my - sh * 0.5f) / fov;
+    Vector3 dirCam = safeNorm(Vector3(cx, cy, 1.0f), Vector3(0, 0, 1));
+
+    // Camera → world: undo worldToCamera rotations (Z then X then Y positive).
+    auto rotX = [](const Vector3& v, float a) {
+        float c = std::cos(a), s = std::sin(a);
+        return Vector3(v.x, c * v.y - s * v.z, s * v.y + c * v.z);
+    };
+    auto rotY = [](const Vector3& v, float a) {
+        float c = std::cos(a), s = std::sin(a);
+        return Vector3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
+    };
+    auto rotZ = [](const Vector3& v, float a) {
+        float c = std::cos(a), s = std::sin(a);
+        return Vector3(c * v.x - s * v.y, s * v.x + c * v.y, v.z);
+    };
+    Vector3 dir = dirCam;
+    dir = rotZ(dir, cam.rotation.z);
+    dir = rotX(dir, cam.rotation.x);
+    dir = rotY(dir, cam.rotation.y);
+    dir = safeNorm(dir, Vector3(0, 0, -1));
+
+    const float planeZ = plateZ;
     if (std::abs(dir.z) < 1e-5f) {
         return strikeZoneCenter;
     }
     float t = (planeZ - cam.position.z) / dir.z;
     if (t < 0.05f) {
-        t = 2.0f;
+        // Ray not hitting plate plane in front — keep last center.
+        return strikeZoneCenter;
     }
     Vector3 hit = cam.position + dir * t;
-    hit.x = clampf(hit.x, -strikeZoneHalfWidth, strikeZoneHalfWidth);
+    // Soft pad outside zone so edge pitches are aimable, still clamped.
+    const float padX = 1.08f;
+    const float padY = 1.08f;
+    hit.x = clampf(hit.x, -strikeZoneHalfWidth * padX, strikeZoneHalfWidth * padX);
     hit.y = clampf(
         hit.y,
-        strikeZoneCenter.y - strikeZoneHalfHeight,
-        strikeZoneCenter.y + strikeZoneHalfHeight
+        strikeZoneCenter.y - strikeZoneHalfHeight * padY,
+        strikeZoneCenter.y + strikeZoneHalfHeight * padY
     );
     hit.z = planeZ;
     return hit;
+}
+
+// Predict where a free-flying ball will cross the plate plane (z = plateZ).
+// Returns false if it won't reach the plate soon.
+bool predictPlateCrossing(
+    const Vector3& pos,
+    const Vector3& vel,
+    Vector3& outCross,
+    float gravityY = -9.8f
+) {
+    if (vel.z < 0.15f && pos.z > plateZ - 0.5f) {
+        return false;
+    }
+    // Analytic time to plate under constant vz (drag neglected for short soft-toss).
+    float dz = plateZ - pos.z;
+    if (std::abs(vel.z) < 1e-4f) {
+        return false;
+    }
+    float t = dz / vel.z;
+    if (t < -0.05f || t > 2.5f) {
+        return false;
+    }
+    t = std::max(t, 0.0f);
+    outCross.x = pos.x + vel.x * t;
+    outCross.y = pos.y + vel.y * t + 0.5f * gravityY * t * t;
+    outCross.z = plateZ;
+    return true;
 }
 
 // Yellow aim reticle — always a flat plate-plane outline + small sweet circle.
@@ -1287,6 +1350,49 @@ void drawBatReticle(
         thickPoly(R, 2.6f, yellow);
         drawEndCap(L.back(), R.back(), axisScreen, 2.6f, yellow);
         drawEndCap(L.front(), R.front(), -axisScreen, 2.6f, yellow);
+    }
+
+    // Zone frame (helps read aim vs zone heart).
+    {
+        float hw = strikeZoneHalfWidth;
+        float hh = strikeZoneHalfHeight;
+        Vector3 zc = strikeZoneCenter;
+        Vector3 corners[4] = {
+            Vector3(zc.x - hw, zc.y - hh, plateZ),
+            Vector3(zc.x + hw, zc.y - hh, plateZ),
+            Vector3(zc.x + hw, zc.y + hh, plateZ),
+            Vector3(zc.x - hw, zc.y + hh, plateZ)
+        };
+        sf::Vector2f sc[4];
+        bool ok = true;
+        for (int i = 0; i < 4; i++) {
+            ProjectedPoint3D p = cam.projectPoint(corners[i], sw, sh);
+            if (!p.visible) {
+                ok = false;
+                break;
+            }
+            sc[i] = {p.position.x, p.position.y};
+        }
+        if (ok) {
+            sf::Color zone(255, 255, 255, 55);
+            for (int i = 0; i < 4; i++) {
+                thickSeg(sc[i], sc[(i + 1) % 4], 1.6f, zone);
+            }
+            // Heart crosshair
+            ProjectedPoint3D c = cam.projectPoint(zc, sw, sh);
+            if (c.visible) {
+                thickSeg(
+                    {c.position.x - 7.0f, c.position.y},
+                    {c.position.x + 7.0f, c.position.y},
+                    1.4f, zone
+                );
+                thickSeg(
+                    {c.position.x, c.position.y - 7.0f},
+                    {c.position.x, c.position.y + 7.0f},
+                    1.4f, zone
+                );
+            }
+        }
     }
 
     // Small solid yellow circle = best contact (sweet spot / PCI).
@@ -2951,6 +3057,36 @@ int main() {
             drawStrikeZone(window, camera, sf::Color(200, 215, 220, 110));
             // Yellow silhouette reticle — tilt follows PCI height.
             drawBatReticle(window, camera, reticle, batCfg);
+            // Predicted plate arrival of the pitch — match yellow PCI to this.
+            if (ballReleased && !hasHit && !bat.swinging()) {
+                Vector3 cross;
+                if (predictPlateCrossing(baseball.position, baseball.velocity, cross)) {
+                    ProjectedPoint3D cp = camera.projectPoint(
+                        cross,
+                        static_cast<float>(window.getSize().x),
+                        static_cast<float>(window.getSize().y)
+                    );
+                    if (cp.visible) {
+                        float dAim = (cross - reticle.pci).magnitude();
+                        bool covered = dAim < 0.28f;
+                        sf::Color ring = covered
+                            ? sf::Color(120, 255, 160, 220)
+                            : sf::Color(255, 180, 80, 200);
+                        sf::CircleShape pred(11.0f);
+                        pred.setOrigin({11.0f, 11.0f});
+                        pred.setPosition({cp.position.x, cp.position.y});
+                        pred.setFillColor(sf::Color(0, 0, 0, 0));
+                        pred.setOutlineThickness(covered ? 3.0f : 2.2f);
+                        pred.setOutlineColor(ring);
+                        window.draw(pred);
+                        sf::CircleShape dot(3.5f);
+                        dot.setOrigin({3.5f, 3.5f});
+                        dot.setPosition({cp.position.x, cp.position.y});
+                        dot.setFillColor(ring);
+                        window.draw(dot);
+                    }
+                }
+            }
         }
         for (size_t i = 1; i < trail.size(); i++) {
             float a = static_cast<float>(i) / static_cast<float>(trail.size());
