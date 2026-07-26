@@ -55,6 +55,16 @@ public:
     std::vector<Joint3D> joints;
     std::vector<AnimationClip> clips;
 
+    // Per-joint retarget correction (loadedRest * inverse(proceduralRest)),
+    // sized to joints when non-empty. Procedural BaseballAnims clips bake
+    // absolute local rotations calibrated to CharacterModel3D's own rest
+    // pose; an externally loaded rig's bones generally rest at a different
+    // orientation (e.g. a Blender armature's head->tail bone axis), so
+    // applying those same absolute values would pose it wrong. This
+    // re-expresses the procedural clip's *relative* motion in this model's
+    // own rest frame. Empty for procedural models (no correction needed).
+    std::vector<Quaternion> retargetCorrection;
+
     int findJoint(const std::string& name) const;
     const AnimationClip* findClip(const std::string& name) const;
 

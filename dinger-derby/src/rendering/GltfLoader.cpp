@@ -730,6 +730,17 @@ SkinnedModel3D loadCharacterOrProcedural(
     bool catcher,
     int detail
 ) {
+    // Prefer the workshop CharacterModel3D athlete (multi-bone arms + throw_preview).
+    // Older makeProcedural* humanoids remain available for tests / fallback tooling.
+    CharacterModel3D::Detail d = CharacterModel3D::Detail::High;
+    if (detail <= 0) {
+        d = CharacterModel3D::Detail::Low;
+    } else if (detail == 1) {
+        d = CharacterModel3D::Detail::Medium;
+    }
+    CharacterModel3D::Role role =
+        catcher ? CharacterModel3D::Role::Catcher : CharacterModel3D::Role::Pitcher;
+
     std::vector<std::string> candidates = {
         "assets/characters/" + name + ".gltf",
         "../assets/characters/" + name + ".gltf",
@@ -742,20 +753,26 @@ SkinnedModel3D loadCharacterOrProcedural(
         }
         GltfLoadResult loaded = loadGltfFile(path);
         if (loaded.ok) {
+            // BaseballAnims procedural clips are authored against
+            // CharacterModel3D's own rest pose. Build that reference model
+            // and, for every joint name shared with the loaded rig, compute
+            // a correction so the same clip reproduces the same *relative*
+            // motion on this rig's own (likely differently-oriented) rest.
+            SkinnedModel3D reference = CharacterModel3D::build(role, d);
+            loaded.model.retargetCorrection.assign(
+                loaded.model.joints.size(), Quaternion::identity()
+            );
+            for (size_t i = 0; i < loaded.model.joints.size(); i++) {
+                int refIdx = reference.findJoint(loaded.model.joints[i].name);
+                if (refIdx >= 0) {
+                    loaded.model.retargetCorrection[i] =
+                        loaded.model.joints[i].restRotation *
+                        reference.joints[refIdx].restRotation.conjugate();
+                }
+            }
             return std::move(loaded.model);
         }
         std::cerr << "GltfLoader: failed to load " << path << ": " << loaded.error << std::endl;
     }
-    // Prefer the workshop CharacterModel3D athlete (multi-bone arms + throw_preview).
-    // Older makeProcedural* humanoids remain available for tests / fallback tooling.
-    CharacterModel3D::Detail d = CharacterModel3D::Detail::High;
-    if (detail <= 0) {
-        d = CharacterModel3D::Detail::Low;
-    } else if (detail == 1) {
-        d = CharacterModel3D::Detail::Medium;
-    }
-    return CharacterModel3D::build(
-        catcher ? CharacterModel3D::Role::Catcher : CharacterModel3D::Role::Pitcher,
-        d
-    );
+    return CharacterModel3D::build(role, d);
 }

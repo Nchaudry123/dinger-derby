@@ -167,11 +167,15 @@ void SkeletonAnimator::applyClip(const AnimationClip& clip, float timeSeconds, b
     std::vector<Quaternion> r = restR_;
     std::vector<Vector3> s = restS_;
 
+    const bool retarget = static_cast<int>(model_->retargetCorrection.size()) == n;
     for (const AnimChannel& ch : clip.channels) {
         if (ch.jointIndex < 0 || ch.jointIndex >= n) {
             continue;
         }
         sampleChannel(ch, time, t[ch.jointIndex], r[ch.jointIndex], s[ch.jointIndex]);
+        if (retarget && ch.path == AnimChannel::Rotation) {
+            r[ch.jointIndex] = model_->retargetCorrection[ch.jointIndex] * r[ch.jointIndex];
+        }
     }
 
     for (int i = 0; i < n; i++) {
