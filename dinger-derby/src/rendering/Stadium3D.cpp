@@ -399,8 +399,8 @@ Mesh3D buildWalls(const Layout& L) {
     const float aL = -L.foulAngleRad();
     const float aR = L.foulAngleRad();
     const int segs = 72;
-    sf::Color face = ofWallColor();
-    sf::Color top = ofWallTopColor();
+    sf::Color face = wallBrickColor();
+    sf::Color top = wallBrickCapColor();
 
     for (int i = 0; i < segs; i++) {
         float t0 = static_cast<float>(i) / segs;
@@ -411,12 +411,36 @@ Mesh3D buildWalls(const Layout& L) {
         float r1 = L.wallRAtAngle(ang1);
         float h0 = L.wallHeightAtAngle(ang0);
         float h1 = L.wallHeightAtAngle(ang1);
-        sf::Color fc = shade(face, 0.92f + 0.12f * ((i % 4) / 3.0f));
-        // Field face
-        addQuad(
-            m, L.fromHome(r0, ang0, 0.0f), L.fromHome(r1, ang1, 0.0f),
-            L.fromHome(r1, ang1, h1), L.fromHome(r0, ang0, h0), fc
-        );
+        // Brick coursing: alternate two brick tones per segment with a
+        // little per-segment tint variance instead of a smooth gradient.
+        sf::Color brickBase = (i % 5 < 3) ? wallBrickColor() : wallBrickAltColor();
+        sf::Color fc = shade(brickBase, 0.90f + 0.20f * hash01(i * 17 + 3));
+        // Field face — ivy climbs a handful of segment clumps, baked as a
+        // split of the same face quad so it's guaranteed to land exactly on
+        // the wall with no separate overlay/offset to get wrong.
+        bool ivySeg = (i % 9 >= 3 && i % 9 <= 5) && i > 4 && i < segs - 5;
+        if (ivySeg) {
+            // Ivy climbs from the ground up to ivyFrac of the wall height.
+            float ivyFrac = 0.4f + 0.45f * hash01(i * 13 + 5);
+            float ys0 = h0 * ivyFrac;
+            float ys1 = h1 * ivyFrac;
+            sf::Color ic = shade(
+                ((i / 3) % 2 == 0) ? ivyColor() : ivyDarkColor(), 0.9f + 0.2f * hash01(i * 7)
+            );
+            addQuad(
+                m, L.fromHome(r0, ang0, 0.0f), L.fromHome(r1, ang1, 0.0f),
+                L.fromHome(r1, ang1, ys1), L.fromHome(r0, ang0, ys0), ic
+            );
+            addQuad(
+                m, L.fromHome(r0, ang0, ys0), L.fromHome(r1, ang1, ys1),
+                L.fromHome(r1, ang1, h1), L.fromHome(r0, ang0, h0), fc
+            );
+        } else {
+            addQuad(
+                m, L.fromHome(r0, ang0, 0.0f), L.fromHome(r1, ang1, 0.0f),
+                L.fromHome(r1, ang1, h1), L.fromHome(r0, ang0, h0), fc
+            );
+        }
         // Thickness + outside face (connects to bleachers)
         addQuad(
             m, L.fromHome(r0 + 1.4f, ang0, 0.0f), L.fromHome(r0, ang0, 0.0f),
@@ -435,19 +459,13 @@ Mesh3D buildWalls(const Layout& L) {
         }
     }
 
-    // NOTE: an outfield_wall ivy-overlay tiling pass was prototyped here
-    // (Meshy prop tiled along the wall arc) but pulled — up close it read as
-    // disconnected brown blobs rather than vine coverage, a net visual
-    // downgrade from the plain padded wall above. Revisit with a cleaner
-    // bake/orientation pass before re-adding.
-
     // Foul poles (tall, with screen wings)
     auto pole = [&](float ang) {
         float r = L.wallRAtAngle(ang);
         float h = L.wallHeightAtAngle(ang) * 4.0f;
         Vector3 base = L.fromHome(r, ang, 0.0f);
-        addBox(m, base + Vector3(0, h * 0.5f, 0), 0.5f, h, 0.5f, sf::Color(220, 50, 48));
-        addBox(m, base + Vector3(0, h + 0.5f, 0), 1.4f, 0.55f, 0.18f, sf::Color(245, 245, 248));
+        addBox(m, base + Vector3(0, h * 0.5f, 0), 0.5f, h, 0.5f, foulPoleColor());
+        addBox(m, base + Vector3(0, h + 0.5f, 0), 1.4f, 0.55f, 0.18f, foulPoleColor());
         // Screen wing into foul
         float foulSign = ang >= 0.0f ? 1.0f : -1.0f;
         for (int k = 1; k <= 6; k++) {
@@ -748,40 +766,46 @@ Mesh3D buildScoreboardScreen(const Layout& L) {
 Mesh3D buildStructure(const Layout& L) {
     Mesh3D m;
     sf::Color pole(235, 235, 230);
+    sf::Color brace = shade(pole, 0.8f);
     sf::Color lamp(255, 252, 235);
 
-    // Modeled light-tower prop (pole + lamp bank), decimated + vertex-color
-    // baked from the Meshy asset. Falls back to the procedural boxes below
-    // if the asset isn't present alongside the build.
-    std::optional<Mesh3D> lightPoleProp = loadStaticProp("light_pole");
-    LocalBBox lightPoleBBox;
-    if (lightPoleProp) {
-        lightPoleBBox = computeBBox(*lightPoleProp);
-    }
-
+    // Thin lattice-truss tower (4 corner legs + horizontal collar bands)
+    // topped with a flat rectangular light bank, matching the reference
+    // park's towers. Replaces the earlier Meshy light_pole prop swap — that
+    // asset's geometry was an inherently diagonal/leaning boom shape (an
+    // artifact of the source reconstruction), nothing like the clean
+    // vertical lattice mast this park calls for.
     auto tower = [&](float ang, float r, float h) {
         Vector3 base = L.fromHome(r, ang, 0.0f);
-        if (lightPoleProp && lightPoleBBox.size().y > 1e-4f) {
-            // Prop's local -Y..+Y already spans base-to-lamp-top; scale
-            // uniformly off height so the lamp bank keeps its proportions,
-            // then lift so the local bottom sits on the ground.
-            float s = h / lightPoleBBox.size().y;
-            Vector3 translate = base + Vector3(0, -lightPoleBBox.mn.y * s, 0);
-            appendPropInstance(m, *lightPoleProp, Vector3(s, s, s), ang, translate);
-            return;
+        const float hw = 0.55f;
+        Vector3 legOff[4] = {
+            Vector3(-hw, 0, -hw), Vector3(hw, 0, -hw), Vector3(hw, 0, hw), Vector3(-hw, 0, hw)
+        };
+        for (const auto& o : legOff) {
+            addBox(m, base + o + Vector3(0, h * 0.5f, 0), 0.16f, h, 0.16f, pole);
         }
-        addBox(m, base + Vector3(0, h * 0.5f, 0), 0.5f, h, 0.5f, pole);
-        // Ladder suggestion
-        addBox(m, base + Vector3(0.35f, h * 0.5f, 0), 0.12f, h * 0.9f, 0.12f, shade(pole, 0.85f));
-        addBox(m, base + Vector3(0, h, 0), 6.5f, 0.4f, 0.4f, pole);
-        addBox(m, base + Vector3(0, h - 1.4f, 0), 5.5f, 0.35f, 0.35f, pole);
-        for (int k = -2; k <= 2; k++) {
-            for (int row = 0; row < 2; row++) {
-                addBox(
-                    m,
-                    base + Vector3(static_cast<float>(k) * 1.2f, h + 0.55f + row * 0.9f, 0),
-                    0.85f, 0.55f, 0.55f, lamp
-                );
+        // Horizontal collar bands tying the legs together.
+        const int rings = 4;
+        for (int ri = 1; ri <= rings; ri++) {
+            float ry = h * (static_cast<float>(ri) / (rings + 1));
+            for (int e = 0; e < 4; e++) {
+                Vector3 p0 = base + legOff[e] + Vector3(0, ry, 0);
+                Vector3 p1 = base + legOff[(e + 1) % 4] + Vector3(0, ry, 0);
+                Vector3 mid = (p0 + p1) * 0.5f;
+                bool alongX = std::abs(p1.x - p0.x) > std::abs(p1.z - p0.z);
+                addBox(m, mid, alongX ? hw * 2.0f : 0.1f, 0.1f, alongX ? 0.1f : hw * 2.0f, brace);
+            }
+        }
+        // Flat light-bank panel on top, angled toward the field.
+        Vector3 panelC = base + Vector3(0, h + 1.1f, 0);
+        addBox(m, panelC, 6.5f, 2.6f, 0.3f, facadeGrayColor());
+        const int cols = 6;
+        const int rowsN = 3;
+        for (int cy = 0; cy < rowsN; cy++) {
+            for (int cx = 0; cx < cols; cx++) {
+                float lx = (static_cast<float>(cx) - (cols - 1) * 0.5f) * 0.95f;
+                float ly = (static_cast<float>(cy) - (rowsN - 1) * 0.5f) * 0.75f;
+                addBox(m, panelC + Vector3(lx, ly, -0.2f), 0.6f, 0.45f, 0.1f, lamp);
             }
         }
     };
