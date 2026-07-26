@@ -1,8 +1,11 @@
 #include "GltfLoader.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <filesystem>
 #include <string>
@@ -283,6 +286,18 @@ bool readBin(const std::string& path, std::vector<unsigned char>& out) {
     return static_cast<bool>(f);
 }
 
+// glTF accessor "count" is the number of VECTORS (e.g. a VEC3 POSITION
+// accessor with count=6260 holds 6260*3 floats), not the number of scalar
+// components — this multiplier converts between the two.
+int accessorComponentCount(const Json& acc) {
+    const std::string& t = acc.str("type", "SCALAR");
+    if (t == "VEC2") return 2;
+    if (t == "VEC3") return 3;
+    if (t == "VEC4") return 4;
+    if (t == "MAT4") return 16;
+    return 1; // SCALAR
+}
+
 template <typename T>
 bool readAccessor(
     const Json& root,
@@ -297,7 +312,7 @@ bool readAccessor(
         return false;
     }
     const Json& acc = accessors->a[accessorIndex];
-    int count = acc.integer("count");
+    int count = acc.integer("count") * accessorComponentCount(acc);
     int bvIndex = acc.integer("bufferView", -1);
     int accOffset = acc.integer("byteOffset", 0);
     if (!bufferViews || bvIndex < 0 || bvIndex >= static_cast<int>(bufferViews->a.size())) {
@@ -312,6 +327,66 @@ bool readAccessor(
     }
     out.resize(count);
     std::memcpy(out.data(), bin.data() + offset, bytes);
+    return true;
+}
+
+// Integer accessors (indices, JOINTS_0) can be stored as UNSIGNED_BYTE,
+// UNSIGNED_SHORT, or UNSIGNED_INT depending on the exporter's choice (e.g.
+// Blender picks the smallest type that fits the vertex/joint count, so
+// small meshes — under 256 verts or joints — commonly use UNSIGNED_BYTE).
+// readAccessor<unsigned short> blindly memcpy's assuming the buffer already
+// matches; on a BYTE-typed accessor that reads garbage 16-bit values from
+// half as many source bytes, producing out-of-range indices. This widens
+// whatever integer type is actually stored into unsigned short correctly.
+bool readIndexAccessor(
+    const Json& root,
+    const std::vector<unsigned char>& bin,
+    int accessorIndex,
+    std::vector<unsigned short>& out
+) {
+    const Json* accessors = root.get("accessors");
+    const Json* bufferViews = root.get("bufferViews");
+    if (!accessors || accessors->type != Json::Array ||
+        accessorIndex < 0 || accessorIndex >= static_cast<int>(accessors->a.size())) {
+        return false;
+    }
+    const Json& acc = accessors->a[accessorIndex];
+    int count = acc.integer("count") * accessorComponentCount(acc);
+    int componentType = acc.integer("componentType", 5123);
+    int bvIndex = acc.integer("bufferView", -1);
+    int accOffset = acc.integer("byteOffset", 0);
+    if (!bufferViews || bvIndex < 0 || bvIndex >= static_cast<int>(bufferViews->a.size())) {
+        return false;
+    }
+    const Json& bv = bufferViews->a[bvIndex];
+    int bvOffset = bv.integer("byteOffset", 0);
+    size_t offset = static_cast<size_t>(bvOffset + accOffset);
+
+    size_t compSize = 2;
+    if (componentType == 5121 || componentType == 5120) {
+        compSize = 1;
+    } else if (componentType == 5125) {
+        compSize = 4;
+    }
+    size_t bytes = static_cast<size_t>(count) * compSize;
+    if (offset + bytes > bin.size()) {
+        return false;
+    }
+    out.resize(count);
+    const unsigned char* src = bin.data() + offset;
+    for (int i = 0; i < count; i++) {
+        unsigned int v = 0;
+        if (compSize == 1) {
+            v = src[i];
+        } else if (compSize == 2) {
+            std::memcpy(&v, src + i * 2, 2);
+        } else {
+            unsigned int v32 = 0;
+            std::memcpy(&v32, src + i * 4, 4);
+            v = v32;
+        }
+        out[i] = static_cast<unsigned short>(v);
+    }
     return true;
 }
 
@@ -472,20 +547,50 @@ GltfLoadResult loadGltfFile(const std::string& path) {
         model.rebuildInverseBindsFromRest();
     }
 
-    // Mesh: first primitive with POSITION
+    // Materials: read each one's flat base color (no textures supported).
+    std::vector<sf::Color> materialColors;
+    const Json* materials = root.get("materials");
+    if (materials && materials->type == Json::Array) {
+        for (const Json& mat : materials->a) {
+            sf::Color col(230, 230, 235);
+            const Json* pbr = mat.get("pbrMetallicRoughness");
+            const Json* bcf = pbr ? pbr->get("baseColorFactor") : nullptr;
+            if (bcf && bcf->type == Json::Array && bcf->a.size() >= 3) {
+                auto to255 = [](const Json& j) {
+                    return static_cast<std::uint8_t>(
+                        std::clamp(static_cast<int>(j.n * 255.0 + 0.5), 0, 255)
+                    );
+                };
+                col = sf::Color(to255(bcf->a[0]), to255(bcf->a[1]), to255(bcf->a[2]));
+            }
+            materialColors.push_back(col);
+        }
+    }
+
+    // Mesh: merge every primitive (one per material) into one vertex/index
+    // buffer — a multi-material character export has one primitive per
+    // material, and dropping all but the first would silently lose most of
+    // the mesh (e.g. jersey/pants/shoes primitives after the skin one).
     const Json* meshes = root.get("meshes");
     if (meshes && meshes->type == Json::Array && !meshes->a.empty()) {
         const Json& mesh = meshes->a[0];
         const Json* prims = mesh.get("primitives");
-        if (prims && prims->type == Json::Array && !prims->a.empty()) {
-            const Json& prim = prims->a[0];
-            const Json* attrs = prim.get("attributes");
-            if (attrs) {
+        if (prims && prims->type == Json::Array) {
+            for (const Json& prim : prims->a) {
+                const Json* attrs = prim.get("attributes");
+                if (!attrs) {
+                    continue;
+                }
                 int posAcc = attrs->integer("POSITION", -1);
                 int nrmAcc = attrs->integer("NORMAL", -1);
                 int jntAcc = attrs->integer("JOINTS_0", -1);
                 int wgtAcc = attrs->integer("WEIGHTS_0", -1);
                 int idxAcc = prim.integer("indices", -1);
+                int matIdx = prim.integer("material", -1);
+
+                sf::Color primColor = (matIdx >= 0 && matIdx < static_cast<int>(materialColors.size()))
+                    ? materialColors[matIdx]
+                    : sf::Color(230, 230, 235);
 
                 std::vector<float> positions;
                 std::vector<float> normals;
@@ -500,27 +605,32 @@ GltfLoadResult loadGltfFile(const std::string& path) {
                     readAccessor(root, bin, nrmAcc, normals);
                 }
                 if (jntAcc >= 0) {
-                    // JOINTS_0 often UNSIGNED_SHORT VEC4
-                    readAccessor(root, bin, jntAcc, joints0);
+                    // JOINTS_0 is UNSIGNED_BYTE for small (<256-joint) rigs,
+                    // UNSIGNED_SHORT otherwise — component-type aware read.
+                    readIndexAccessor(root, bin, jntAcc, joints0);
                 }
                 if (wgtAcc >= 0) {
                     readAccessor(root, bin, wgtAcc, weights0);
                 }
                 if (idxAcc >= 0) {
-                    readAccessor(root, bin, idxAcc, indices);
+                    // Same story for indices: small primitives (e.g. a simple
+                    // helmet/prop mesh under 256 verts) commonly use
+                    // UNSIGNED_BYTE, not UNSIGNED_SHORT.
+                    readIndexAccessor(root, bin, idxAcc, indices);
                 }
 
                 int vertCount = static_cast<int>(positions.size() / 3);
-                model.bindVertices.resize(vertCount);
+                int baseVertex = static_cast<int>(model.bindVertices.size());
+                model.bindVertices.resize(baseVertex + vertCount);
                 for (int i = 0; i < vertCount; i++) {
-                    SkinVertex& v = model.bindVertices[i];
+                    SkinVertex& v = model.bindVertices[baseVertex + i];
                     v.position = Vector3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
                     if (static_cast<int>(normals.size()) >= (i + 1) * 3) {
                         v.normal = Vector3(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]);
                     } else {
                         v.normal = Vector3(0.0f, 1.0f, 0.0f);
                     }
-                    v.color = sf::Color(230, 230, 235);
+                    v.color = primColor;
                     if (static_cast<int>(joints0.size()) >= (i + 1) * 4 && !skinJoints.empty()) {
                         for (int k = 0; k < 4; k++) {
                             int skinJ = joints0[i * 4 + k];
@@ -541,9 +651,9 @@ GltfLoadResult loadGltfFile(const std::string& path) {
                 if (!indices.empty()) {
                     for (size_t i = 0; i + 2 < indices.size(); i += 3) {
                         model.triangles.push_back({
-                            static_cast<int>(indices[i]),
-                            static_cast<int>(indices[i + 1]),
-                            static_cast<int>(indices[i + 2])
+                            baseVertex + static_cast<int>(indices[i]),
+                            baseVertex + static_cast<int>(indices[i + 1]),
+                            baseVertex + static_cast<int>(indices[i + 2])
                         });
                     }
                 }
@@ -634,6 +744,7 @@ SkinnedModel3D loadCharacterOrProcedural(
         if (loaded.ok) {
             return std::move(loaded.model);
         }
+        std::cerr << "GltfLoader: failed to load " << path << ": " << loaded.error << std::endl;
     }
     // Prefer the workshop CharacterModel3D athlete (multi-bone arms + throw_preview).
     // Older makeProcedural* humanoids remain available for tests / fallback tooling.
