@@ -39,17 +39,14 @@ inline sf::Color seatRedColor() { return sf::Color(185, 45, 45); }
 inline sf::Color seatRedAltColor() { return sf::Color(160, 35, 38); }
 inline sf::Color seatMidColor() { return sf::Color(28, 70, 150); }
 inline sf::Color seatUpperColor() { return sf::Color(185, 45, 45); }
+// Reserve-level gold/yellow band topping the bowl, Dodger Stadium-style.
+inline sf::Color seatGoldColor() { return sf::Color(232, 190, 70); }
+inline sf::Color seatGoldAltColor() { return sf::Color(205, 165, 52); }
 inline sf::Color concourseColor() { return sf::Color(150, 145, 135); }
 inline sf::Color facadeTanColor() { return sf::Color(175, 160, 140); }
 inline sf::Color facadeGrayColor() { return sf::Color(155, 155, 158); }
 inline sf::Color ofWallColor() { return sf::Color(18, 55, 120); }
 inline sf::Color ofWallTopColor() { return sf::Color(25, 70, 145); }
-// Brick OF wall + ivy, matching the low-poly reference park.
-inline sf::Color wallBrickColor() { return sf::Color(140, 68, 48); }
-inline sf::Color wallBrickAltColor() { return sf::Color(122, 58, 42); }
-inline sf::Color wallBrickCapColor() { return sf::Color(38, 74, 42); }
-inline sf::Color ivyColor() { return sf::Color(82, 172, 62); }
-inline sf::Color ivyDarkColor() { return sf::Color(52, 128, 50); }
 inline sf::Color foulPoleColor() { return sf::Color(232, 205, 40); }
 inline sf::Color boardChassisColor() { return sf::Color(240, 240, 245); }
 inline sf::Color railColor() { return sf::Color(210, 215, 220); }
