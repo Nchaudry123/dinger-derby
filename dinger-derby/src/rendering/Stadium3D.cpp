@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <vector>
+
+#include "GltfLoader.h"
 
 // Masterpiece open-air minor-league ballpark (Fredericksburg-class).
 // One continuous structure: diamond field, blue horseshoe bowl, red club
@@ -61,6 +64,57 @@ void addBox(Mesh3D& m, const Vector3& center, float w, float h, float d, sf::Col
     addQuad(m, p[1], p[5], p[6], p[2], col);
     addQuad(m, p[2], p[6], p[7], p[3], col);
     addQuad(m, p[3], p[7], p[4], p[0], col);
+}
+
+// Local-space bounds of a loaded prop mesh, used to derive fit-to-target
+// scale factors since props come in from Blender/Meshy at arbitrary export
+// scale (meters), not this game's world units.
+struct LocalBBox {
+    Vector3 mn{1e9f, 1e9f, 1e9f};
+    Vector3 mx{-1e9f, -1e9f, -1e9f};
+    Vector3 size() const { return Vector3(mx.x - mn.x, mx.y - mn.y, mx.z - mn.z); }
+};
+
+LocalBBox computeBBox(const Mesh3D& m) {
+    LocalBBox b;
+    for (const auto& v : m.vertices) {
+        b.mn.x = std::min(b.mn.x, v.x);
+        b.mn.y = std::min(b.mn.y, v.y);
+        b.mn.z = std::min(b.mn.z, v.z);
+        b.mx.x = std::max(b.mx.x, v.x);
+        b.mx.y = std::max(b.mx.y, v.y);
+        b.mx.z = std::max(b.mx.z, v.z);
+    }
+    return b;
+}
+
+// Appends a scaled/yawed/translated copy of a loaded prop's triangles into
+// dst. Per-axis scale lets flat/boxy props (e.g. a scoreboard panel) fit a
+// target footprint whose aspect ratio doesn't match the source export.
+void appendPropInstance(
+    Mesh3D& dst, const Mesh3D& prop, const Vector3& scale, float yawRad, const Vector3& translate
+) {
+    if (prop.vertices.empty() || prop.triangles.empty()) {
+        return;
+    }
+    int base = static_cast<int>(dst.vertices.size());
+    float c = std::cos(yawRad);
+    float s = std::sin(yawRad);
+    dst.vertices.reserve(dst.vertices.size() + prop.vertices.size());
+    for (const auto& v : prop.vertices) {
+        Vector3 p(v.x * scale.x, v.y * scale.y, v.z * scale.z);
+        Vector3 r(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
+        dst.vertices.push_back(r + translate);
+    }
+    dst.triangles.reserve(dst.triangles.size() + prop.triangles.size());
+    dst.triangleColors.reserve(dst.triangleColors.size() + prop.triangleColors.size());
+    for (std::size_t i = 0; i < prop.triangles.size(); i++) {
+        const Triangle3D& t = prop.triangles[i];
+        dst.triangles.push_back({t.a + base, t.b + base, t.c + base});
+        dst.triangleColors.push_back(
+            i < prop.triangleColors.size() ? prop.triangleColors[i] : sf::Color::White
+        );
+    }
 }
 
 void addDisk(Mesh3D& m, const Vector3& c, float r, float y, int segs, sf::Color col) {
@@ -381,6 +435,12 @@ Mesh3D buildWalls(const Layout& L) {
         }
     }
 
+    // NOTE: an outfield_wall ivy-overlay tiling pass was prototyped here
+    // (Meshy prop tiled along the wall arc) but pulled — up close it read as
+    // disconnected brown blobs rather than vine coverage, a net visual
+    // downgrade from the plain padded wall above. Revisit with a cleaner
+    // bake/orientation pass before re-adding.
+
     // Foul poles (tall, with screen wings)
     auto pole = [&](float ang) {
         float r = L.wallRAtAngle(ang);
@@ -639,16 +699,30 @@ Mesh3D buildScoreboardScreen(const Layout& L) {
     // Main CF scoreboard stack
     {
         Vector3 c = L.scoreboardCenter();
-        addBox(m, c, 22.0f, 11.0f, 2.0f, facadeGrayColor());
-        addBox(m, c + Vector3(0, 0.2f, -1.1f), 19.0f, 9.0f, 0.4f, sf::Color(20, 45, 90));
-        // LED strips
-        for (int row = -3; row <= 3; row++) {
-            addBox(
-                m, c + Vector3(0, row * 1.1f, -1.25f), 17.5f, 0.7f, 0.12f,
-                sf::Color(30, 80, 160)
+        std::optional<Mesh3D> boardProp = loadStaticProp("scoreboard");
+        if (boardProp) {
+            LocalBBox bb = computeBBox(*boardProp);
+            Vector3 sz = bb.size();
+            // Non-uniform fit: the modeled prop's aspect ratio doesn't match
+            // the target 22x11x2 footprint, but it's a flat sign-like object
+            // so per-axis scaling doesn't read as distorted.
+            Vector3 scale(
+                sz.x > 1e-4f ? 22.0f / sz.x : 1.0f, sz.y > 1e-4f ? 11.0f / sz.y : 1.0f,
+                sz.z > 1e-4f ? 2.0f / sz.z : 1.0f
             );
+            appendPropInstance(m, *boardProp, scale, 0.0f, c);
+        } else {
+            addBox(m, c, 22.0f, 11.0f, 2.0f, facadeGrayColor());
+            addBox(m, c + Vector3(0, 0.2f, -1.1f), 19.0f, 9.0f, 0.4f, sf::Color(20, 45, 90));
+            // LED strips
+            for (int row = -3; row <= 3; row++) {
+                addBox(
+                    m, c + Vector3(0, row * 1.1f, -1.25f), 17.5f, 0.7f, 0.12f,
+                    sf::Color(30, 80, 160)
+                );
+            }
+            addBox(m, c + Vector3(0, 6.2f, 0.3f), 23.0f, 0.5f, 3.0f, facadeTanColor());
         }
-        addBox(m, c + Vector3(0, 6.2f, 0.3f), 23.0f, 0.5f, 3.0f, facadeTanColor());
         // Support posts — reach the ground regardless of board height (embed
         // 2 units into the board bottom, same as the original fixed layout).
         float postH = std::max(c.y - 2.0f, 1.0f);
@@ -676,8 +750,26 @@ Mesh3D buildStructure(const Layout& L) {
     sf::Color pole(235, 235, 230);
     sf::Color lamp(255, 252, 235);
 
+    // Modeled light-tower prop (pole + lamp bank), decimated + vertex-color
+    // baked from the Meshy asset. Falls back to the procedural boxes below
+    // if the asset isn't present alongside the build.
+    std::optional<Mesh3D> lightPoleProp = loadStaticProp("light_pole");
+    LocalBBox lightPoleBBox;
+    if (lightPoleProp) {
+        lightPoleBBox = computeBBox(*lightPoleProp);
+    }
+
     auto tower = [&](float ang, float r, float h) {
         Vector3 base = L.fromHome(r, ang, 0.0f);
+        if (lightPoleProp && lightPoleBBox.size().y > 1e-4f) {
+            // Prop's local -Y..+Y already spans base-to-lamp-top; scale
+            // uniformly off height so the lamp bank keeps its proportions,
+            // then lift so the local bottom sits on the ground.
+            float s = h / lightPoleBBox.size().y;
+            Vector3 translate = base + Vector3(0, -lightPoleBBox.mn.y * s, 0);
+            appendPropInstance(m, *lightPoleProp, Vector3(s, s, s), ang, translate);
+            return;
+        }
         addBox(m, base + Vector3(0, h * 0.5f, 0), 0.5f, h, 0.5f, pole);
         // Ladder suggestion
         addBox(m, base + Vector3(0.35f, h * 0.5f, 0), 0.12f, h * 0.9f, 0.12f, shade(pole, 0.85f));

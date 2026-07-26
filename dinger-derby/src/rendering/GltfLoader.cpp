@@ -856,3 +856,25 @@ SkinnedModel3D loadCharacterOrProcedural(
     }
     return CharacterModel3D::build(role, d);
 }
+
+std::optional<Mesh3D> loadStaticProp(const std::string& name) {
+    std::vector<std::string> candidates = {
+        "assets/stadium/" + name + ".gltf",
+        "../assets/stadium/" + name + ".gltf",
+        "../../assets/stadium/" + name + ".gltf",
+        "dinger-derby/assets/stadium/" + name + ".gltf"
+    };
+    for (const std::string& path : candidates) {
+        if (!fs::exists(path)) {
+            continue;
+        }
+        GltfLoadResult loaded = loadGltfFile(path);
+        if (loaded.ok) {
+            // No skin/joints on a static prop — skinToMesh({}) with an
+            // empty matrix set just passes bind-pose positions through.
+            return loaded.model.skinToMesh({});
+        }
+        std::cerr << "GltfLoader: failed to load " << path << ": " << loaded.error << std::endl;
+    }
+    return std::nullopt;
+}

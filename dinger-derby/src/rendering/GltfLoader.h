@@ -1,8 +1,10 @@
 #pragma once
 
+#include <optional>
 #include <string>
 
 #include "CharacterModel3D.h"
+#include "Mesh3D.h"
 #include "SkinnedModel3D.h"
 
 struct GltfLoadResult {
@@ -25,3 +27,8 @@ SkinnedModel3D loadCharacterOrProcedural(
     CharacterModel3D::Role role,
     int detail = 2
 );
+
+// Load a static (non-skinned) prop mesh: assets/stadium/<name>.gltf from
+// CWD and parents. Returns nullopt if no matching file is found or it
+// fails to parse — callers fall back to their own procedural geometry.
+std::optional<Mesh3D> loadStaticProp(const std::string& name);
