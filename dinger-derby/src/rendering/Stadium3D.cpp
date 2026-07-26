@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <vector>
+
+#include "GltfLoader.h"
 
 // Masterpiece open-air minor-league ballpark (Fredericksburg-class).
 // One continuous structure: diamond field, blue horseshoe bowl, red club
@@ -61,6 +64,57 @@ void addBox(Mesh3D& m, const Vector3& center, float w, float h, float d, sf::Col
     addQuad(m, p[1], p[5], p[6], p[2], col);
     addQuad(m, p[2], p[6], p[7], p[3], col);
     addQuad(m, p[3], p[7], p[4], p[0], col);
+}
+
+// Local-space bounds of a loaded prop mesh, used to derive fit-to-target
+// scale factors since props come in from Blender/Meshy at arbitrary export
+// scale (meters), not this game's world units.
+struct LocalBBox {
+    Vector3 mn{1e9f, 1e9f, 1e9f};
+    Vector3 mx{-1e9f, -1e9f, -1e9f};
+    Vector3 size() const { return Vector3(mx.x - mn.x, mx.y - mn.y, mx.z - mn.z); }
+};
+
+LocalBBox computeBBox(const Mesh3D& m) {
+    LocalBBox b;
+    for (const auto& v : m.vertices) {
+        b.mn.x = std::min(b.mn.x, v.x);
+        b.mn.y = std::min(b.mn.y, v.y);
+        b.mn.z = std::min(b.mn.z, v.z);
+        b.mx.x = std::max(b.mx.x, v.x);
+        b.mx.y = std::max(b.mx.y, v.y);
+        b.mx.z = std::max(b.mx.z, v.z);
+    }
+    return b;
+}
+
+// Appends a scaled/yawed/translated copy of a loaded prop's triangles into
+// dst. Per-axis scale lets flat/boxy props (e.g. a scoreboard panel) fit a
+// target footprint whose aspect ratio doesn't match the source export.
+void appendPropInstance(
+    Mesh3D& dst, const Mesh3D& prop, const Vector3& scale, float yawRad, const Vector3& translate
+) {
+    if (prop.vertices.empty() || prop.triangles.empty()) {
+        return;
+    }
+    int base = static_cast<int>(dst.vertices.size());
+    float c = std::cos(yawRad);
+    float s = std::sin(yawRad);
+    dst.vertices.reserve(dst.vertices.size() + prop.vertices.size());
+    for (const auto& v : prop.vertices) {
+        Vector3 p(v.x * scale.x, v.y * scale.y, v.z * scale.z);
+        Vector3 r(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
+        dst.vertices.push_back(r + translate);
+    }
+    dst.triangles.reserve(dst.triangles.size() + prop.triangles.size());
+    dst.triangleColors.reserve(dst.triangleColors.size() + prop.triangleColors.size());
+    for (std::size_t i = 0; i < prop.triangles.size(); i++) {
+        const Triangle3D& t = prop.triangles[i];
+        dst.triangles.push_back({t.a + base, t.b + base, t.c + base});
+        dst.triangleColors.push_back(
+            i < prop.triangleColors.size() ? prop.triangleColors[i] : sf::Color::White
+        );
+    }
 }
 
 void addDisk(Mesh3D& m, const Vector3& c, float r, float y, int segs, sf::Color col) {
@@ -384,6 +438,28 @@ Mesh3D buildWalls(const Layout& L) {
         }
     }
 
+    // Outfield_wall prop tiled along the outside face (behind the pad, out
+    // of the primary infield sightline) — the converted Meshy asset.
+    {
+        std::optional<Mesh3D> wallProp = loadStaticProp("outfield_wall");
+        if (wallProp) {
+            LocalBBox bb = computeBBox(*wallProp);
+            Vector3 sz = bb.size();
+            if (sz.y > 1e-4f) {
+                const int tiles = 24;
+                for (int i = 0; i < tiles; i++) {
+                    float t = (static_cast<float>(i) + 0.5f) / tiles;
+                    float ang = aL + (aR - aL) * t;
+                    float r = L.wallRAtAngle(ang) + 1.6f;
+                    float h = L.wallHeightAtAngle(ang);
+                    float s = h / sz.y;
+                    Vector3 base = L.fromHome(r, ang, -bb.mn.y * s);
+                    appendPropInstance(m, *wallProp, Vector3(s, s, s), ang, base);
+                }
+            }
+        }
+    }
+
     // Foul poles (tall, with screen wings)
     auto pole = [&](float ang) {
         float r = L.wallRAtAngle(ang);
@@ -552,6 +628,31 @@ Mesh3D buildStands(const Layout& L) {
         );
     }
 
+    // Bleacher_stand prop tiled behind the OF bleacher rows — the converted
+    // Meshy asset, additive structure rather than a replacement for the
+    // procedural tiered seating built above.
+    {
+        std::optional<Mesh3D> bleacherProp = loadStaticProp("bleacher_stand");
+        if (bleacherProp) {
+            LocalBBox bb = computeBBox(*bleacherProp);
+            Vector3 sz = bb.size();
+            if (sz.y > 1e-4f) {
+                const float foulA = L.foulAngleRad();
+                const int tiles = 16;
+                for (int i = 0; i < tiles; i++) {
+                    float t = (static_cast<float>(i) + 0.5f) / tiles;
+                    float ang = -foulA + t * 2.0f * foulA;
+                    float r = seatInnerR(L, ang) + 8.5f;
+                    float yBase = seatBaseY(L, ang);
+                    float h = 7.0f;
+                    float s = h / sz.y;
+                    Vector3 base = L.fromHome(r, ang, yBase - bb.mn.y * s);
+                    appendPropInstance(m, *bleacherProp, Vector3(s, s, s), ang, base);
+                }
+            }
+        }
+    }
+
     // Continuous backstop wall + net posts
     {
         float backR = 15.5f;
@@ -649,17 +750,28 @@ Mesh3D buildScoreboardScreen(const Layout& L) {
     // content must be built with increasingly positive z as each layer gets
     // more foreground, or a nearer opaque layer just occludes the one
     // meant to show through behind it.
+    std::optional<Mesh3D> scoreboardProp = loadStaticProp("scoreboard");
+    LocalBBox scoreboardBBox;
+    if (scoreboardProp) {
+        scoreboardBBox = computeBBox(*scoreboardProp);
+    }
     auto videoboard = [&](float ang) {
         float r = L.wallRAtAngle(ang) + 4.0f;
         float baseY = L.wallHeightAtAngle(0.0f) + 9.5f;
         Vector3 c = L.fromHome(r, ang, baseY);
-        // Backing frame, set furthest back so only its edges peek out.
-        addBox(m, c + Vector3(0, 0, -0.4f), 17.0f, 10.0f, 0.3f, sf::Color(238, 238, 240));
-        // Screen face, in front of the frame.
-        addBox(m, c, 15.6f, 8.8f, 0.5f, sf::Color(10, 16, 26));
-        // "Active content" blocks, in front of the screen.
-        addBox(m, c + Vector3(-4.6f, 1.6f, 0.28f), 5.6f, 4.4f, 0.15f, sf::Color(40, 95, 160));
-        addBox(m, c + Vector3(3.1f, -1.0f, 0.28f), 6.6f, 5.4f, 0.15f, sf::Color(60, 140, 75));
+        if (scoreboardProp && scoreboardBBox.size().x > 1e-4f && scoreboardBBox.size().y > 1e-4f) {
+            Vector3 sz = scoreboardBBox.size();
+            Vector3 scale(17.0f / sz.x, 10.0f / sz.y, sz.z > 1e-4f ? 1.5f / sz.z : 1.0f);
+            appendPropInstance(m, *scoreboardProp, scale, ang, c);
+        } else {
+            // Backing frame, set furthest back so only its edges peek out.
+            addBox(m, c + Vector3(0, 0, -0.4f), 17.0f, 10.0f, 0.3f, sf::Color(238, 238, 240));
+            // Screen face, in front of the frame.
+            addBox(m, c, 15.6f, 8.8f, 0.5f, sf::Color(10, 16, 26));
+            // "Active content" blocks, in front of the screen.
+            addBox(m, c + Vector3(-4.6f, 1.6f, 0.28f), 5.6f, 4.4f, 0.15f, sf::Color(40, 95, 160));
+            addBox(m, c + Vector3(3.1f, -1.0f, 0.28f), 6.6f, 5.4f, 0.15f, sf::Color(60, 140, 75));
+        }
         float postH = std::max(baseY - 2.0f, 1.0f);
         float postOffsetY = -(baseY + 2.0f) * 0.5f;
         addBox(m, c + Vector3(-6.2f, postOffsetY, 0.6f), 0.7f, postH, 0.7f, facadeGrayColor());
@@ -696,11 +808,26 @@ Mesh3D buildStructure(const Layout& L) {
     sf::Color brace = shade(pole, 0.8f);
     sf::Color lamp(255, 252, 235);
 
+    // Modeled light-tower prop (pole + lamp bank), decimated + vertex-color
+    // baked from the Meshy asset. Falls back to a procedural pole cluster
+    // if the asset isn't present alongside the build.
+    std::optional<Mesh3D> lightPoleProp = loadStaticProp("light_pole");
+    LocalBBox lightPoleBBox;
+    if (lightPoleProp) {
+        lightPoleBBox = computeBBox(*lightPoleProp);
+    }
+
     // Tight cluster of thin poles towering well above the roofline, capped
     // by a big dense lamp grid — the iconic Dodger Stadium light standard
     // silhouette (a handful of very tall towers, not a ring of short ones).
     auto tower = [&](float ang, float r, float h) {
         Vector3 base = L.fromHome(r, ang, 0.0f);
+        if (lightPoleProp && lightPoleBBox.size().y > 1e-4f) {
+            float s = h / lightPoleBBox.size().y;
+            Vector3 translate = base + Vector3(0, -lightPoleBBox.mn.y * s, 0);
+            appendPropInstance(m, *lightPoleProp, Vector3(s, s, s), ang, translate);
+            return;
+        }
         const float spread = 0.65f;
         Vector3 poleOff[5] = {
             Vector3(0, 0, 0), Vector3(-spread, 0, -spread * 0.4f),
