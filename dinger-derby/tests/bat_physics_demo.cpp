@@ -86,7 +86,10 @@ bool loadUiFont(sf::Font& font) {
              "/System/Library/Fonts/Supplemental/Arial.ttf",
              "/System/Library/Fonts/Supplemental/Helvetica.ttf",
              "/System/Library/Fonts/Helvetica.ttc",
-             "/System/Library/Fonts/SFNS.ttf"}) {
+             "/System/Library/Fonts/SFNS.ttf",
+             "C:/Windows/Fonts/segoeui.ttf",
+             "C:/Windows/Fonts/arial.ttf",
+             "C:/Windows/Fonts/calibri.ttf"}) {
         if (font.openFromFile(path)) {
             return true;
         }
@@ -102,7 +105,7 @@ void drawText(
     sf::Vector2f p,
     sf::Color c
 ) {
-    sf::Text t(font, s, size);
+    sf::Text t(font, sf::String::fromUtf8(s.begin(), s.end()), size);
     t.setFillColor(c);
     t.setPosition(p);
     w.draw(t);
@@ -985,7 +988,7 @@ HitInfo tryHit(
 
     // Shape exit toward HR-derby chart: EV ~90–110 mph, LA 15–35° for barrels.
     // Hard cap prevents 160+ mph teleports / physics blowups.
-    // God mode: nuclear barrel — fair, ~118 mph @ ~29° — clears Rogers Centre easily.
+    // God mode: nuclear barrel — fair, ~118 mph @ ~29° — clears the CF fence easily.
     {
         Vector3 raw = ball.velocity;
         // Prefer spray toward PCI-relative aim (bat face), not pure raw scatter.
@@ -1513,16 +1516,19 @@ int main() {
     sf::ContextSettings glSettings;
     glSettings.depthBits = 24;
     glSettings.stencilBits = 8;
-    glSettings.antiAliasingLevel = 4;
+    glSettings.antiAliasingLevel = 8;
 
     sf::RenderWindow window(
-        sf::VideoMode(sf::Vector2u(1280, 720)),
+        sf::VideoMode(sf::Vector2u(1600, 900)),
         "HR Derby | soft toss + bat physics",
         sf::Style::Default,
         sf::State::Windowed,
         glSettings
     );
-    window.setFramerateLimit(60);
+    // VSync alone paces to whatever the display's actual current refresh rate
+    // is, dynamically, at the driver level — stacking a manual frame-time
+    // sleep on top (via setFramerateLimit) only risks throttling below that
+    // if the two disagree, so it's deliberately left unset here.
     window.setVerticalSyncEnabled(true);
 
     DemoFpsCounter fps("HR Derby | shared pitcher + ball + field");
@@ -2274,14 +2280,17 @@ int main() {
         }
         world = PhysicsWorld3D();
         world.gravity = Vector3(0, -9.8f, 0);
-        // Indoor Rogers shell AABB — solid ellipsoid is containInsideDome.
+        // Generous open-air bounds, well beyond Stadium3D's own outfield
+        // collision (outer safety net at maxWallR()+72, soft sky clamp at
+        // y=78) so THOSE systems — tuned with proper bounce/settle — always
+        // catch a ball first. This box only exists as a last-resort backstop
+        // so a swing can never send the ball flying forever.
         {
-            Vector3 c = stadiumLayout.domeCenter();
-            float Rh = stadiumLayout.domeHorizR() + 4.0f;
-            float peak = stadiumLayout.roofPeakY() + 2.0f;
+            float reach = stadiumLayout.maxWallR() + 140.0f;
+            float pz = stadiumLayout.plateZ();
             world.setBounds(
-                Vector3(c.x - Rh, 0.0f, c.z - Rh),
-                Vector3(c.x + Rh, peak, c.z + Rh)
+                Vector3(-reach, 0.0f, pz - reach),
+                Vector3(reach, 140.0f, pz + reach)
             );
         }
         world.airResistanceEnabled = false;
@@ -2759,7 +2768,8 @@ int main() {
                             }
                         }
                     }
-                    // Absolute Rogers shell containment (same ellipsoid as the roof mesh).
+                    // Dome containment is a no-op for this open-air park (closedDome
+                    // is always false); kept for parity with indoor layout variants.
                     if (stadiumLayout.closedDome) {
                         stadiumLayout.containInsideDome(
                             baseball.position, baseball.velocity, baseball.radius
@@ -3860,7 +3870,7 @@ int main() {
                 drawText(window, font, career.str(), 11, {tx, ty}, sf::Color(140, 160, 170));
                 ty += 16.0f;
                 drawText(
-                    window, font, "Rogers Centre  |  LF/RF 328  |  CF 400", 11, {tx, ty},
+                    window, font, "LF/RF 328  |  CF 400", 11, {tx, ty},
                     sf::Color(110, 145, 160)
                 );
             } else if (!chasing) {
@@ -3939,7 +3949,7 @@ int main() {
                     "- / =      bat crack volume\n"
                     "\n"
                     "Session goal: hit the HR target before swings run out.\n"
-                    "Park: Rogers Centre (Toronto)  |  LF/RF 328  |  CF 400  |  dome\n"
+                    "Park: LF/RF 328  |  CF 400  |  open-air\n"
                     "\n"
                     "Easy mode:  ↑ ↑ ↓ ↓ ← → ← →   (toggle nuclear swings)",
                     14, {px + 28, py + 52}, sf::Color(220, 235, 225)
@@ -4045,11 +4055,17 @@ int main() {
             }
 
             // Controls: one quiet line (hidden while chasing the ball).
+            // Anchored below the HUD card so it never overlaps the card's own
+            // text, whose height changes with mode/difficulty/god-mode.
             if (!chasing) {
                 std::ostringstream hud;
                 hud << "[" << prof.name << "]  Space swing   1/2/3 difficulty   D/P/L   N "
                     << (playMode == PlayMode::Derby ? "round" : "AB");
-                drawText(window, font, hud.str(), 12, {22, 62}, sf::Color(140, 165, 155));
+                drawText(
+                    window, font, hud.str(), 12,
+                    {cardX + 8.0f, cardY + cardH + 10.0f},
+                    sf::Color(140, 165, 155)
+                );
             }
         }
 

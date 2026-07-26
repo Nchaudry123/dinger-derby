@@ -18,6 +18,9 @@ struct Data {
 
 inline std::filesystem::path settingsPath() {
     const char* home = std::getenv("HOME");
+    if (!home || home[0] == '\0') {
+        home = std::getenv("USERPROFILE"); // Windows has no HOME
+    }
     if (home && home[0] != '\0') {
         return std::filesystem::path(home) / ".dinger-derby" / "settings.txt";
     }

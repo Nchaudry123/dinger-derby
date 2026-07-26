@@ -97,7 +97,10 @@ bool loadMenuFont(sf::Font& font) {
              "/System/Library/Fonts/Supplemental/Arial.ttf",
              "/System/Library/Fonts/Supplemental/Helvetica.ttf",
              "/System/Library/Fonts/Helvetica.ttc",
-             "/System/Library/Fonts/SFNS.ttf"}) {
+             "/System/Library/Fonts/SFNS.ttf",
+             "C:/Windows/Fonts/segoeui.ttf",
+             "C:/Windows/Fonts/arial.ttf",
+             "C:/Windows/Fonts/calibri.ttf"}) {
         if (font.openFromFile(path)) {
             return true;
         }
@@ -107,6 +110,20 @@ bool loadMenuFont(sf::Font& font) {
 
 std::string shellQuote(const std::filesystem::path& path) {
     std::string value = path.string();
+#if defined(_WIN32)
+    // std::system() on Windows runs the command through cmd.exe, which
+    // quotes with " (and has no notion of POSIX-style ' quoting).
+    std::string quoted = "\"";
+    for (char character : value) {
+        if (character == '"') {
+            quoted += "\\\"";
+        } else {
+            quoted += character;
+        }
+    }
+    quoted += "\"";
+    return quoted;
+#else
     std::string quoted = "'";
     for (char character : value) {
         if (character == '\'') {
@@ -117,6 +134,7 @@ std::string shellQuote(const std::filesystem::path& path) {
     }
     quoted += "'";
     return quoted;
+#endif
 }
 
 std::filesystem::path executableDirectory(const char* executablePath) {
@@ -170,7 +188,7 @@ void drawText(
     sf::Color color,
     bool boldish = false
 ) {
-    sf::Text text(font, value, size);
+    sf::Text text(font, sf::String::fromUtf8(value.begin(), value.end()), size);
     text.setPosition(position);
     text.setFillColor(color);
     if (boldish) {

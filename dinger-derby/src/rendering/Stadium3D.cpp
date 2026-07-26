@@ -638,8 +638,7 @@ Mesh3D buildScoreboardScreen(const Layout& L) {
     }
     // Main CF scoreboard stack
     {
-        float r = L.wallRAtAngle(0.0f) + 5.5f;
-        Vector3 c = L.fromHome(r, 0.0f, 10.0f);
+        Vector3 c = L.scoreboardCenter();
         addBox(m, c, 22.0f, 11.0f, 2.0f, facadeGrayColor());
         addBox(m, c + Vector3(0, 0.2f, -1.1f), 19.0f, 9.0f, 0.4f, sf::Color(20, 45, 90));
         // LED strips
@@ -650,9 +649,12 @@ Mesh3D buildScoreboardScreen(const Layout& L) {
             );
         }
         addBox(m, c + Vector3(0, 6.2f, 0.3f), 23.0f, 0.5f, 3.0f, facadeTanColor());
-        // Support posts
-        addBox(m, c + Vector3(-8, -6, 0.5f), 0.6f, 8.0f, 0.6f, facadeGrayColor());
-        addBox(m, c + Vector3(8, -6, 0.5f), 0.6f, 8.0f, 0.6f, facadeGrayColor());
+        // Support posts — reach the ground regardless of board height (embed
+        // 2 units into the board bottom, same as the original fixed layout).
+        float postH = std::max(c.y - 2.0f, 1.0f);
+        float postOffsetY = -(c.y + 2.0f) * 0.5f;
+        addBox(m, c + Vector3(-8, postOffsetY, 0.5f), 0.6f, postH, 0.6f, facadeGrayColor());
+        addBox(m, c + Vector3(8, postOffsetY, 0.5f), 0.6f, postH, 0.6f, facadeGrayColor());
     }
     // Corner sign plates (abstract)
     for (float side : {1.0f, -1.0f}) {
@@ -1434,7 +1436,11 @@ Vector3 Layout::parkCenter() const {
 }
 
 Vector3 Layout::scoreboardCenter() const {
-    return fromHome(wallRAtAngle(0.0f) + 5.5f, 0.0f, 10.0f);
+    // Well back and well up from the CF fence — a distant backdrop, not a
+    // second wall hiding right behind the first one. A routine fair fly that
+    // clears the (short) CF fence is still climbing or at height by the time
+    // it reaches this depth, so it passes underneath rather than colliding.
+    return fromHome(wallRAtAngle(0.0f) + 42.0f, 0.0f, 22.0f);
 }
 
 void Layout::polarFromHome(const Vector3& worldPos, float& radiusOut, float& angleRadOut) const {
@@ -1825,14 +1831,21 @@ BallCollisionHit collideBall(
     }
 
     // ── 8. CF scoreboard chassis (beyond fence, near center) ──────────
+    // Sits well back and well up (matches buildScoreboardScreen's placement
+    // via scoreboardCenter()) so it reads as a distant backdrop — a routine
+    // fair fly clearing the CF fence must NOT immediately clip a "second
+    // wall" hiding right behind it.
     {
         refreshPolar(r, ang);
-        if (layout.isCfScoreboardZone(ang) || std::abs(ang) < 0.16f) {
+        if (layout.isCfScoreboardZone(ang)) {
             float cfR = layout.wallRAtAngle(0.0f);
-            float boardR0 = cfR + 3.2f;
-            float boardR1 = cfR + 8.5f;
-            float boardY0 = 3.5f;
-            float boardY1 = 16.5f;
+            Vector3 boardC = layout.scoreboardCenter();
+            const float boardHalfDepth = 4.0f;
+            const float boardHalfHeight = 5.5f;
+            float boardR0 = layout.radiusFromHome(boardC) - boardHalfDepth;
+            float boardR1 = boardR0 + boardHalfDepth * 2.0f;
+            float boardY0 = boardC.y - boardHalfHeight;
+            float boardY1 = boardC.y + boardHalfHeight;
             // Only solid once the ball is past the CF fence plane.
             if (r + radius > boardR0 && r < boardR1 + radius && position.y > boardY0 - radius &&
                 position.y < boardY1 + radius && r > cfR + 0.5f) {

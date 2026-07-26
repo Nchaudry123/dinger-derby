@@ -25,6 +25,9 @@ struct Stats {
 
 inline std::filesystem::path bestsPath() {
     const char* home = std::getenv("HOME");
+    if (!home || home[0] == '\0') {
+        home = std::getenv("USERPROFILE"); // Windows has no HOME
+    }
     if (home && home[0] != '\0') {
         return std::filesystem::path(home) / ".dinger-derby" / "bests.txt";
     }

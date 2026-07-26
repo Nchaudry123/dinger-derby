@@ -6,6 +6,11 @@
 // context, so the GPU path must not depend on Core-only VAOs.
 #include <OpenGL/gl.h>
 #include <OpenGL/glext.h>
+#elif defined(_WIN32)
+// opengl32.dll only exports OpenGL 1.1 — everything past that is loaded at
+// runtime by GlLoaderWin.h.
+#include <SFML/OpenGL.hpp>
+#include "GlLoaderWin.h"
 #else
 #include <SFML/OpenGL.hpp>
 #endif
@@ -379,6 +384,13 @@ bool GlRenderer::initialize(sf::RenderWindow& window) {
         std::cerr << "GL: failed to activate window context" << std::endl;
         return false;
     }
+
+#if defined(_WIN32)
+    if (!loadWinGlFunctions()) {
+        std::cerr << "GL: failed to resolve required OpenGL entry points" << std::endl;
+        return false;
+    }
+#endif
 
     const char* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
     const char* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));

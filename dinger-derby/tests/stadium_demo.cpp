@@ -38,7 +38,10 @@ bool loadUiFont(sf::Font& font) {
              "/System/Library/Fonts/Supplemental/Arial.ttf",
              "/System/Library/Fonts/Supplemental/Helvetica.ttf",
              "/System/Library/Fonts/Helvetica.ttc",
-             "/System/Library/Fonts/SFNS.ttf"}) {
+             "/System/Library/Fonts/SFNS.ttf",
+             "C:/Windows/Fonts/segoeui.ttf",
+             "C:/Windows/Fonts/arial.ttf",
+             "C:/Windows/Fonts/calibri.ttf"}) {
         if (font.openFromFile(path)) {
             return true;
         }
@@ -54,7 +57,7 @@ void drawText(
     sf::Vector2f p,
     sf::Color c
 ) {
-    sf::Text t(font, s, size);
+    sf::Text t(font, sf::String::fromUtf8(s.begin(), s.end()), size);
     t.setFillColor(c);
     t.setPosition(p);
     w.draw(t);
