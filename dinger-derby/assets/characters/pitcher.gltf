@@ -333,7 +333,7 @@
 			"children":[
 				15
 			],
-			"name":"Forearm_L",
+			"name":"Elbow_L",
 			"rotation":[
 				-5.424612226079262e-08,
 				-2.042763117060531e-05,
@@ -355,7 +355,7 @@
 			"children":[
 				16
 			],
-			"name":"UpperArm_L",
+			"name":"Shoulder_L",
 			"rotation":[
 				-0.35606542229652405,
 				0.6110194325447083,
@@ -715,7 +715,7 @@
 			"children":[
 				34
 			],
-			"name":"Forearm_R",
+			"name":"Elbow_R",
 			"rotation":[
 				5.35167288262528e-08,
 				2.0668843717430718e-05,
@@ -737,7 +737,7 @@
 			"children":[
 				35
 			],
-			"name":"UpperArm_R",
+			"name":"Shoulder_R",
 			"rotation":[
 				-0.35606539249420166,
 				-0.6110197305679321,
