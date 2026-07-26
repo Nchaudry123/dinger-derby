@@ -1325,10 +1325,15 @@ void addFan(Mesh3D& m, Vector3 feet, float sc, sf::Color shirt, sf::Color skin) 
 }
 
 sf::Color fanShirt(int id) {
+    // Deliberately avoids seatBlueColor()/seatRedColor() — using the exact
+    // riser paint as a shirt color camouflaged ~20% of the crowd against
+    // the seat background, especially at a distance/oblique angle where
+    // the fan figures were already a handful of pixels.
     const sf::Color opts[] = {
-        seatBlueColor(), seatRedColor(), sf::Color(245, 245, 248), sf::Color(35, 35, 45),
-        sf::Color(25, 110, 65), sf::Color(210, 160, 40), sf::Color(90, 50, 120),
-        sf::Color(200, 90, 40), sf::Color(50, 140, 180), sf::Color(160, 40, 70)};
+        sf::Color(245, 245, 248), sf::Color(35, 35, 45), sf::Color(25, 110, 65),
+        sf::Color(210, 160, 40),  sf::Color(90, 50, 120), sf::Color(200, 90, 40),
+        sf::Color(50, 140, 180),  sf::Color(160, 40, 70), sf::Color(230, 210, 40),
+        sf::Color(220, 220, 225)};
     return opts[static_cast<unsigned>(id) % 10];
 }
 
@@ -1361,7 +1366,7 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
         float y = seatBaseY(L, ang) + 0.65f;
 
         for (int row = 0; row < rows; row++) {
-            float fill = ofBleach ? 0.72f : (row < 3 ? 0.78f : 0.58f);
+            float fill = ofBleach ? 0.82f : (row < 3 ? 0.85f : 0.74f);
             if (hash01(fanId * 13 + row * 3) > fill) {
                 fanId++;
                 r += dRow;
@@ -1371,7 +1376,7 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             Vector3 seat = L.fromHome(r + dRow * 0.3f, ang, y);
             seat.x += (hash01(fanId) - 0.5f) * 0.42f;
             seat.z += (hash01(fanId + 3) - 0.5f) * 0.42f;
-            float sc = 0.82f + 0.28f * hash01(fanId + 9);
+            float sc = 0.95f + 0.35f * hash01(fanId + 9);
             addFan(sectors[sector], seat, sc, fanShirt(fanId), fanSkin(fanId + 4));
             fanId++;
             r += dRow;
