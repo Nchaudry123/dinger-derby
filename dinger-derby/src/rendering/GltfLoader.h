@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "CharacterModel3D.h"
 #include "SkinnedModel3D.h"
 
 struct GltfLoadResult {
@@ -18,9 +19,9 @@ GltfLoadResult loadGltfFile(const std::string& path);
 
 // Resolve character asset with fallbacks:
 // 1) assets/characters/<name>.gltf from CWD and parents
-// 2) CharacterModel3D procedural athlete (Pitcher / Catcher)
+// 2) CharacterModel3D procedural build for the given role
 SkinnedModel3D loadCharacterOrProcedural(
     const std::string& name,
-    bool catcher,
+    CharacterModel3D::Role role,
     int detail = 2
 );

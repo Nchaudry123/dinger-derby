@@ -727,7 +727,7 @@ GltfLoadResult loadGltfFile(const std::string& path) {
 
 SkinnedModel3D loadCharacterOrProcedural(
     const std::string& name,
-    bool catcher,
+    CharacterModel3D::Role role,
     int detail
 ) {
     // Prefer the workshop CharacterModel3D athlete (multi-bone arms + throw_preview).
@@ -738,8 +738,6 @@ SkinnedModel3D loadCharacterOrProcedural(
     } else if (detail == 1) {
         d = CharacterModel3D::Detail::Medium;
     }
-    CharacterModel3D::Role role =
-        catcher ? CharacterModel3D::Role::Catcher : CharacterModel3D::Role::Pitcher;
 
     std::vector<std::string> candidates = {
         "assets/characters/" + name + ".gltf",

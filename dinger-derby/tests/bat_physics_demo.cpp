@@ -1560,10 +1560,11 @@ int main() {
     // Same assets as pitching sim
     Mesh3D baseballMesh = BaseballVisual3D::makeMesh(56, 112);
     // Highest procedural detail (CharacterModel3D High); glTF overrides if present.
-    SkinnedModel3D pitcherModel = loadCharacterOrProcedural("pitcher", false, 2);
+    SkinnedModel3D pitcherModel =
+        loadCharacterOrProcedural("pitcher", CharacterModel3D::Role::Pitcher, 2);
     // Batter silhouette at the plate for scale / product feel (faces mound / -Z).
     SkinnedModel3D batterModel =
-        CharacterModel3D::build(CharacterModel3D::Role::Athlete, CharacterModel3D::Detail::High);
+        loadCharacterOrProcedural("batter", CharacterModel3D::Role::Athlete, 2);
     AnimationClip deliveryClip;
     if (const AnimationClip* c = pitcherModel.findClip("throw_preview")) {
         deliveryClip = *c;
@@ -1583,7 +1584,8 @@ int main() {
     AnimationClip batterSwingClip = BaseballAnims::batterSwing(batterModel);
 
     // Catcher behind the plate — receives pitches on takes / whiffs.
-    SkinnedModel3D catcherModel = loadCharacterOrProcedural("catcher", true, 2);
+    SkinnedModel3D catcherModel =
+        loadCharacterOrProcedural("catcher", CharacterModel3D::Role::Catcher, 2);
     AnimationClip catcherIdleClip;
     if (const AnimationClip* c = catcherModel.findClip("catcher_idle")) {
         catcherIdleClip = *c;

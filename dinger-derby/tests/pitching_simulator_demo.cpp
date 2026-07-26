@@ -1255,8 +1255,10 @@ int main() {
     auto playerDetail = [&]() { return fullQuality ? 2 : 2; }; // always high model detail
 
     // Skinned path: glTF if present, else CharacterModel3D (multi-bone throw).
-    SkinnedModel3D pitcherModel = loadCharacterOrProcedural("pitcher", false, playerDetail());
-    SkinnedModel3D catcherModel = loadCharacterOrProcedural("catcher", true, playerDetail());
+    SkinnedModel3D pitcherModel =
+        loadCharacterOrProcedural("pitcher", CharacterModel3D::Role::Pitcher, playerDetail());
+    SkinnedModel3D catcherModel =
+        loadCharacterOrProcedural("catcher", CharacterModel3D::Role::Catcher, playerDetail());
 
     // Delivery clip preference: throw_preview (CharacterModel3D) → yamamoto → generated.
     AnimationClip deliveryClip;
