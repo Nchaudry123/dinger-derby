@@ -1880,6 +1880,12 @@ int main() {
     bool ballReleased = false;
     bool hasHit = false;
     HitInfo lastHit;
+    // Fixed-timestep physics accumulator. Must persist across frames (only
+    // reset at a new pitch, in beginPitch) — at high framerates dt is
+    // smaller than fixedStep, so resetting it every frame instead of
+    // carrying the remainder starves the physics loop of steps and makes
+    // ball speed depend on FPS instead of wall-clock time.
+    float physAcc = 0.0f;
     float poseClock = 0.0f;
     float rebuildTimer = 0.0f;
     float practiceRepitchTimer = -1.0f;
@@ -2292,6 +2298,7 @@ int main() {
             practiceRepitchTimer = -1.0f;
             return;
         }
+        physAcc = 0.0f;
         world = PhysicsWorld3D();
         world.gravity = Vector3(0, -9.8f, 0);
         // Generous open-air bounds, well beyond Stadium3D's own outfield
@@ -2705,8 +2712,8 @@ int main() {
 
         // Flight + bat contact + at-bat resolution
         if (ballReleased) {
-            float acc = dt;
-            while (acc >= fixedStep) {
+            physAcc += dt;
+            while (physAcc >= fixedStep) {
                 prevBallZ = baseball.position.z;
 
                 if (ballSettled) {
@@ -3260,7 +3267,7 @@ int main() {
                 }
 
                 spinY += 8.0f * fixedStep;
-                acc -= fixedStep;
+                physAcc -= fixedStep;
             }
             if (trail.empty() || (baseball.position - trail.back()).magnitude() > 0.12f) {
                 trail.push_back(baseball.position);
