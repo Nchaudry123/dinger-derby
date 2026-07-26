@@ -1297,9 +1297,15 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         ball(m, W(shL) + Vector3(-0.02f, 0.02f, 0), 0.040f, 0.018f, 0.040f, kAccentLite, 4, 8, shL, 0.8f, clavL, 0.2f);
     }
     if (athlete) {
-        // Compression sleeves already blue; add chest band + number.
+        // Compression sleeves already blue; add chest band + number (front).
         ball(m, G[chest].transformPoint(Vector3(0, 0.0f, 0.100f)), 0.048f, 0.060f, 0.012f, kAccent, 6, 10, chest, 1.0f);
         ball(m, W(chest) + Vector3(0, -0.08f, 0.04f), 0.130f, 0.022f, 0.100f, kUndershirtDeep, 5, 12, chest, 0.7f, spine2, 0.3f);
+        // Back number plate — the default HR Derby camera sits behind the
+        // plate looking at the pitcher, so the batter's BACK (not the front
+        // plate above) is what's actually on screen during play.
+        ball(m, G[chest].transformPoint(Vector3(0, 0.02f, -0.112f)), 0.055f, 0.070f, 0.014f, kAccent, 6, 10, chest, 1.0f);
+        ball(m, G[chest].transformPoint(Vector3(-0.018f, 0.02f, -0.120f)), 0.014f, 0.055f, 0.008f, kJersey, 4, 6, chest, 1.0f);
+        ball(m, G[chest].transformPoint(Vector3(0.018f, 0.02f, -0.120f)), 0.014f, 0.055f, 0.008f, kJersey, 4, 6, chest, 1.0f);
     }
     if (catcher) {
         // Thick chest protector with layered plates + red trim.
@@ -1450,8 +1456,13 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         // Cap logo patch.
         ball(m, G[head].transformPoint(Vector3(0, 0.075f, 0.055f)), 0.020f, 0.016f, 0.010f, kAccentLite, 4, 6, head, 1.0f);
     } else {
-        // Athlete: headband for identity.
-        ball(m, G[head].transformPoint(Vector3(0, 0.055f, 0.02f)), 0.100f, 0.018f, 0.095f, kAccent, 5, 12, head, 1.0f);
+        // Batting helmet — hard-shell dome + brim (team navy). Batters wear
+        // a full helmet, not a soft cap; this used to be a thin headband
+        // leaving the batter bald-looking, especially from behind where the
+        // default HR Derby camera sits.
+        ball(m, G[head].transformPoint(Vector3(0, 0.072f, -0.008f)), 0.118f, 0.088f, 0.116f, kCap, hr + 1, hs + 2, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0, 0.048f, 0.098f)), 0.072f, 0.020f, 0.044f, kCapDeep, 6, 12, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0, 0.100f, 0.018f)), 0.020f, 0.016f, 0.016f, kAccent, 5, 8, head, 1.0f);
     }
 
     // Soft waist blend pants → jersey.
