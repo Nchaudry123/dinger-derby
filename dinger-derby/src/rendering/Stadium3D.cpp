@@ -195,19 +195,20 @@ float seatBaseY(const Layout& L, float ang) {
     return 0.35f + u2 * 2.0f;
 }
 
-// Full seating arc: horseshoe + OF bleachers (entire 360° except tiny CF board gap)
+// Full seating arc: the whole 360° wraps with stands — no gap. The
+// scoreboard structure sits in front of the CF bleachers rather than
+// requiring a hole cut in them; a real gap there was extremely visible
+// (trees/city showing straight through) since it sits dead-center in the
+// batter/mound camera every single pitch.
 bool inSeatArc(const Layout& L, float ang) {
-    wrapAng(ang);
-    // Leave narrow CF board gap for scoreboard
-    if (std::abs(ang) < 0.10f) {
-        return false;
-    }
+    (void)L;
+    (void)ang;
     return true;
 }
 
 bool isOfBleacher(const Layout& L, float ang) {
     wrapAng(ang);
-    return std::abs(ang) <= L.foulAngleRad() + 0.02f && std::abs(ang) >= 0.10f;
+    return std::abs(ang) <= L.foulAngleRad() + 0.02f;
 }
 
 bool isClubZone(float ang) {
@@ -1406,9 +1407,6 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     for (int i = 0; i < 80; i++) {
         float t = (static_cast<float>(i) + 0.5f) / 80.0f;
         float ang = -L.foulAngleRad() + t * 2.0f * L.foulAngleRad();
-        if (std::abs(ang) < 0.12f) {
-            continue;
-        }
         int sector = static_cast<int>(((ang + pi) / (2.0f * pi)) * kFanSectorCount) %
                      kFanSectorCount;
         if (sector < 0) {
