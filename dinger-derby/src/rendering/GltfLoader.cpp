@@ -390,6 +390,68 @@ bool readIndexAccessor(
     return true;
 }
 
+// COLOR_0 can be FLOAT (already 0..1), or normalized UNSIGNED_BYTE/
+// UNSIGNED_SHORT (0..255 / 0..65535 representing 0..1) — component-type
+// aware, always producing normalized floats. Handles VEC3 (alpha=1) and
+// VEC4 accessor types.
+bool readColorAccessor(
+    const Json& root,
+    const std::vector<unsigned char>& bin,
+    int accessorIndex,
+    std::vector<float>& out
+) {
+    const Json* accessors = root.get("accessors");
+    const Json* bufferViews = root.get("bufferViews");
+    if (!accessors || accessors->type != Json::Array ||
+        accessorIndex < 0 || accessorIndex >= static_cast<int>(accessors->a.size())) {
+        return false;
+    }
+    const Json& acc = accessors->a[accessorIndex];
+    int comps = accessorComponentCount(acc);
+    int count = acc.integer("count") * comps;
+    int componentType = acc.integer("componentType", 5126);
+    int bvIndex = acc.integer("bufferView", -1);
+    int accOffset = acc.integer("byteOffset", 0);
+    if (!bufferViews || bvIndex < 0 || bvIndex >= static_cast<int>(bufferViews->a.size())) {
+        return false;
+    }
+    const Json& bv = bufferViews->a[bvIndex];
+    int bvOffset = bv.integer("byteOffset", 0);
+    size_t offset = static_cast<size_t>(bvOffset + accOffset);
+
+    size_t compSize = 4;
+    if (componentType == 5121 || componentType == 5120) {
+        compSize = 1;
+    } else if (componentType == 5123 || componentType == 5122) {
+        compSize = 2;
+    }
+    size_t bytes = static_cast<size_t>(count) * compSize;
+    if (offset + bytes > bin.size()) {
+        return false;
+    }
+    const unsigned char* src = bin.data() + offset;
+    int vecCount = count / comps;
+    out.assign(static_cast<size_t>(vecCount) * 4, 1.0f);
+    for (int i = 0; i < count; i++) {
+        float f;
+        if (componentType == 5126) {
+            std::memcpy(&f, src + i * 4, 4);
+        } else if (componentType == 5121) {
+            f = src[i] / 255.0f;
+        } else if (componentType == 5123) {
+            unsigned short v;
+            std::memcpy(&v, src + i * 2, 2);
+            f = v / 65535.0f;
+        } else {
+            f = 1.0f;
+        }
+        int vecIdx = i / comps;
+        int comp = i % comps;
+        out[static_cast<size_t>(vecIdx) * 4 + comp] = f;
+    }
+    return true;
+}
+
 } // namespace
 
 GltfLoadResult loadGltfFile(const std::string& path) {
@@ -585,6 +647,7 @@ GltfLoadResult loadGltfFile(const std::string& path) {
                 int nrmAcc = attrs->integer("NORMAL", -1);
                 int jntAcc = attrs->integer("JOINTS_0", -1);
                 int wgtAcc = attrs->integer("WEIGHTS_0", -1);
+                int colAcc = attrs->integer("COLOR_0", -1);
                 int idxAcc = prim.integer("indices", -1);
                 int matIdx = prim.integer("material", -1);
 
@@ -596,6 +659,7 @@ GltfLoadResult loadGltfFile(const std::string& path) {
                 std::vector<float> normals;
                 std::vector<unsigned short> joints0;
                 std::vector<float> weights0;
+                std::vector<float> colors0;
                 std::vector<unsigned short> indices;
 
                 if (posAcc >= 0) {
@@ -603,6 +667,12 @@ GltfLoadResult loadGltfFile(const std::string& path) {
                 }
                 if (nrmAcc >= 0) {
                     readAccessor(root, bin, nrmAcc, normals);
+                }
+                if (colAcc >= 0) {
+                    // Baked per-vertex color (this engine has no texture
+                    // sampling, so decimated/color-baked assets carry their
+                    // look via COLOR_0 instead of a material texture).
+                    readColorAccessor(root, bin, colAcc, colors0);
                 }
                 if (jntAcc >= 0) {
                     // JOINTS_0 is UNSIGNED_BYTE for small (<256-joint) rigs,
@@ -630,7 +700,19 @@ GltfLoadResult loadGltfFile(const std::string& path) {
                     } else {
                         v.normal = Vector3(0.0f, 1.0f, 0.0f);
                     }
-                    v.color = primColor;
+                    if (static_cast<int>(colors0.size()) >= (i + 1) * 4) {
+                        auto to255 = [](float f) {
+                            return static_cast<std::uint8_t>(std::clamp(f * 255.0f + 0.5f, 0.0f, 255.0f));
+                        };
+                        v.color = sf::Color(
+                            to255(colors0[i * 4 + 0]),
+                            to255(colors0[i * 4 + 1]),
+                            to255(colors0[i * 4 + 2]),
+                            to255(colors0[i * 4 + 3])
+                        );
+                    } else {
+                        v.color = primColor;
+                    }
                     if (static_cast<int>(joints0.size()) >= (i + 1) * 4 && !skinJoints.empty()) {
                         for (int k = 0; k < 4; k++) {
                             int skinJ = joints0[i * 4 + k];
