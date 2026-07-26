@@ -877,13 +877,25 @@ HitInfo tryHit(
     float dSweet = (ball.position - sweetPt).magnitude();
     float dAim = (ball.position - aimPt).magnitude();
     float nearPlate = std::abs(ball.position.z - plateZ);
-    bool contactWindow = bat.swingT >= 0.28f && bat.swingT <= 0.58f;
-    float magnetR = (practiceMode || godMode ? 0.36f : 0.28f) * contactEase;
-    float plateBand = (practiceMode || godMode ? 0.70f : 0.58f) * contactEase;
+    // Widened from [0.28,0.58]/0.70/0.36 — at a soft-toss ~50mph (~38 world
+    // units/s), the old plateBand of 0.70 gave a real-time contact window of
+    // only ~2*0.70/38 =~ 37ms, far tighter than human swing-timing reaction
+    // allows. This targets a much more forgiving ~150-200ms window instead.
+    // Upper bound pushed further into follow-through: measured live, swings
+    // were repeatedly reaching nearPlate well inside plateBand (e.g. 0.65 vs
+    // 1.7) only for the window to have already closed at swingT~0.85 — the
+    // ball was legitimately in reach but the dwell cutoff ended too early.
+    bool contactWindow = bat.swingT >= 0.18f && bat.swingT <= 0.88f;
+    // magnetR also widened: diagnostic logging showed swings failing on the
+    // aim-tolerance gate even once timing (contactWindow/plateBand) was hit —
+    // e.g. nearPlate well inside plateBand but dAim/dSweet still outside the
+    // old 0.48-0.60 radius. Real mouse-aim tracking isn't pixel-precise.
+    float magnetR = (practiceMode || godMode ? 0.85f : 0.68f) * contactEase;
+    float plateBand = (practiceMode || godMode ? 1.70f : 1.40f) * contactEase;
     if (godMode) {
         magnetR *= 1.8f;
         plateBand *= 1.6f;
-        contactWindow = bat.swingT >= 0.18f && bat.swingT <= 0.72f;
+        contactWindow = bat.swingT >= 0.10f && bat.swingT <= 0.92f;
     }
     // Prefer magnet when ball is near aim OR near barrel sweet — prediction feel.
     bool nearAim = dAim < magnetR * 1.15f || dSweet < magnetR || godMode;
