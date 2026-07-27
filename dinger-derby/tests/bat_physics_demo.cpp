@@ -2640,6 +2640,7 @@ int main() {
                     if (!bat.swinging() && !pitchResolved && ballReleased &&
                         !(playMode == PlayMode::Derby && derby.roundOver)) {
                         startSwingFromGrip(bat, reticle, batCfg, lastGripHands, lastGripAxis);
+                        sfx.playWhoosh(clampf((prof.power - 0.6f) / 0.7f, 0.0f, 1.0f));
                         swungThisPitch = true;
                         hasHit = false;
                         showHelp = false;
@@ -2652,6 +2653,7 @@ int main() {
                 if (m->button == sf::Mouse::Button::Left && !bat.swinging() && !pitchResolved &&
                     ballReleased && !(playMode == PlayMode::Derby && derby.roundOver)) {
                     startSwingFromGrip(bat, reticle, batCfg, lastGripHands, lastGripAxis);
+                    sfx.playWhoosh(clampf((prof.power - 0.6f) / 0.7f, 0.0f, 1.0f));
                     swungThisPitch = true;
                     hasHit = false;
                     showHelp = false;
@@ -3265,6 +3267,7 @@ int main() {
                     if (atPlate && nearMitt) {
                         ballCaught = true;
                         catcherReceiveAge = 0.0f;
+                        sfx.playMittPop(pitchMph);
                         baseball.position = glove;
                         baseball.velocity = Vector3();
                         baseball.angularVelocity = Vector3();
@@ -3312,6 +3315,15 @@ int main() {
 
                 spinY += 8.0f * fixedStep;
                 physAcc -= fixedStep;
+            }
+            // Live Statcast-style ticker while the ball is in flight.
+            if (hasHit && !ballSettled) {
+                float projFt = projectLandingDistanceFeet(baseball.position, baseball.velocity);
+                float curFt = stadiumLayout.radiusFromHome(baseball.position) * feetPerWorldUnit;
+                std::ostringstream oss;
+                oss << std::fixed << std::setprecision(0) << lastHit.exitMph << " mph  LA "
+                    << lastHit.launchDeg << " deg   " << curFt << " ft -> ~" << projFt << " ft";
+                status = oss.str();
             }
             if (trail.empty() || (baseball.position - trail.back()).magnitude() > 0.12f) {
                 trail.push_back(baseball.position);
