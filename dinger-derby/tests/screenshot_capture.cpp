@@ -7,6 +7,7 @@
 //   docs/screenshots/stadium_overview.png   full-park aerial (bowl + canopy)
 //   docs/screenshots/stadium_broadcast.png  high-home broadcast view to CF
 //   docs/screenshots/plate_duel.png         pitcher windup vs batter stance
+//   docs/screenshots/homer_celebration.png  batter celebrating a no-doubter
 //
 // Run from the project root:  ./build/screenshot_capture
 
@@ -71,7 +72,8 @@ void renderStadium(
     FrameBuffer& fb,
     const Camera3D& cam,
     const Stadium3D::Meshes& meshes,
-    float cheerTime
+    float cheerTime,
+    float cheerBoost = 1.15f
 ) {
     RasterMeshRenderCache cache;
     fb.clear(Stadium3D::skyColor());
@@ -92,8 +94,8 @@ void renderStadium(
     );
 
     for (int i = 0; i < static_cast<int>(meshes.fanSectors.size()); i++) {
-        float bob = Stadium3D::fanCheerOffsetY(i, cheerTime, 1.15f);
-        float sway = Stadium3D::fanCheerOffsetX(i, cheerTime, 1.15f);
+        float bob = Stadium3D::fanCheerOffsetY(i, cheerTime, cheerBoost);
+        float sway = Stadium3D::fanCheerOffsetX(i, cheerTime, cheerBoost);
         drawMesh(
             fb, cam, meshes.fanSectors[i],
             Matrix4::translation(Vector3(sway, bob, 0.0f)),
@@ -265,6 +267,49 @@ bool shotPlateDuel(const Stadium3D::Layout& L, const Stadium3D::Meshes& meshes) 
     return saveShot(fb, "docs/screenshots/plate_duel.png");
 }
 
+bool shotCelebration(const Stadium3D::Layout& L, const Stadium3D::Meshes& meshes) {
+    const float plateZ = L.plateZ();
+
+    SkinnedModel3D batterModel =
+        CharacterModel3D::build(CharacterModel3D::Role::Athlete, CharacterModel3D::Detail::High);
+    AnimationClip celebrateClip = BaseballAnims::batterCelebrate(batterModel);
+
+    SkeletonAnimator batterAnim;
+    batterAnim.setModel(batterModel);
+    batterAnim.applyClipNormalized(celebrateClip, 0.45f); // arms up, mid-roar
+    Mesh3D batterMesh = batterModel.skinToMesh(batterAnim.skinMatrices());
+
+    // He just watched it leave: near the plate, turned toward the mound / CF.
+    Matrix4 batterXform =
+        Matrix4::translation(Vector3(-0.6f, 0.0f, plateZ - 0.9f)) *
+        Matrix4::rotationY(kPi);
+
+    // Tossed bat lying on the dirt beside the box.
+    Mesh3D batMesh = makeBatMesh();
+    Matrix4 batXform = batModelMatrix(
+        Vector3(0.7f, 0.08f, plateZ + 0.4f),
+        Vector3(0.9f, 0.05f, 0.35f).normalized()
+    );
+
+    FrameBuffer fb(kWidth, kHeight);
+    Camera3D cam;
+    configureCamera(cam, 400.0f);
+    // Broadcast "no-doubter" frame: celebrating batter low-center, crown
+    // videoboard and CF skyline over his shoulder, crowd at full roar.
+    lookAt(
+        cam,
+        Vector3(2.0f, 1.7f, plateZ + 2.7f),
+        Vector3(-0.7f, 1.9f, plateZ - 22.0f)
+    );
+
+    renderStadium(fb, cam, meshes, 2.6f, 1.9f); // crowd at max roar
+    RasterMeshRenderCache cache;
+    drawMesh(fb, cam, batterMesh, batterXform, sf::Color(220, 200, 180), cache);
+    drawMesh(fb, cam, batMesh, batXform, sf::Color(210, 150, 70), cache);
+
+    return saveShot(fb, "docs/screenshots/homer_celebration.png");
+}
+
 } // namespace
 
 int main() {
@@ -282,6 +327,7 @@ int main() {
     ok &= shotOverview(layout, meshes);
     ok &= shotBroadcast(layout, meshes);
     ok &= shotPlateDuel(layout, meshes);
+    ok &= shotCelebration(layout, meshes);
 
     return ok ? 0 : 1;
 }

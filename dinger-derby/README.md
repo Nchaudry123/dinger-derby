@@ -26,6 +26,8 @@ Rendered headlessly by the engine's own software rasterizer
 
 ![The duel — batter in stance vs pitcher mid-windup](docs/screenshots/plate_duel.png)
 
+![The no-doubter — bat tossed, arms up, crowd at full roar](docs/screenshots/homer_celebration.png)
+
 ## Controls (bat_physics_demo)
 
 | Input | Action |
