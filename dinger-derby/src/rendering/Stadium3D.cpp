@@ -347,10 +347,16 @@ Mesh3D buildField(const Layout& L) {
         float ang1 = -pi + t1 * 2.0f * pi;
         float angM = 0.5f * (ang0 + ang1);
         wrapAng(angM);
-        if (std::abs(angM) <= L.foulAngleRad() + 0.02f) {
+        // Skip only the true fair interior. The old +0.02 margin left a
+        // no-man's-land wedge along BOTH foul lines where neither the fair
+        // pie nor this fill drew anything — the sky showed straight through
+        // (the light-blue strips flanking the field, widening toward the
+        // foul poles). Straddling segments now overlap the fair edge by a
+        // hair at y=0.002 (above the fair pie's y=0.0 — no z-fight).
+        if (std::abs(angM) < L.foulAngleRad() - 0.001f) {
             continue; // fair handled above
         }
-        float rSeat = seatInnerR(L, angM) - 0.4f;
+        float rSeat = seatInnerR(L, angM) + 0.1f; // overlap the fascia — no see-through slit
         // Start at the plate itself — the fair pie covers r>=0.02 in fair
         // territory, and foul territory must meet it or a bare ring shows
         // through behind home.
@@ -658,6 +664,29 @@ Mesh3D buildStands(const Layout& L) {
         bool club = isClubZone(angM);
         bool isAisle = (i % 10) == 0;
 
+        // Front fascia — solid wall from the ground up to the first row.
+        // Without it the elevated bowl floated: sight lines passed straight
+        // under the first riser and out to the sky, reading as a bright
+        // light-blue strip at the base of the stands from every angle.
+        if (ofBleach) {
+            // Close the slot between the OF wall top and the first bleacher
+            // row: sloped walkway cap from the wall back up to the deck.
+            float wallR = L.wallRAtAngle(angM);
+            float wallH = L.wallHeightAtAngle(angM);
+            addQuad(
+                m, L.fromHome(wallR + 0.15f, ang0, wallH - 0.04f),
+                L.fromHome(wallR + 0.15f, ang1, wallH - 0.04f),
+                L.fromHome(rIn + 0.05f, ang1, yBase + 0.03f),
+                L.fromHome(rIn + 0.05f, ang0, yBase + 0.03f), shade(facadeGrayColor(), 0.88f)
+            );
+        } else {
+            addQuad(
+                m, L.fromHome(rIn - 0.02f, ang0, -0.12f), L.fromHome(rIn - 0.02f, ang1, -0.12f),
+                L.fromHome(rIn - 0.02f, ang1, yBase + 0.06f),
+                L.fromHome(rIn - 0.02f, ang0, yBase + 0.06f), shade(facadeGrayColor(), 0.82f)
+            );
+        }
+
         // OF bleachers: fewer rows, low; horseshoe: deep lower bowl
         int rowsLower = ofBleach ? 8 : (club ? 16 : 15);
         float r = rIn;
@@ -762,31 +791,34 @@ Mesh3D buildStands(const Layout& L) {
                 L.fromHome(rRow + 0.3f, ang1, yRow + 1.1f), L.fromHome(rRow + 0.3f, ang0, yRow + 1.1f),
                 seatGoldColor()
             );
-            // White cantilevered roof canopy rising gently outward.
+            // Slim white canopy rim capping the upper bowl — a thin roof
+            // edge over the last rows, NOT a giant flat donut (the old 17-
+            // unit-wide canopy read as a second stadium floating outside
+            // the bowl from every high angle).
             float roofY0 = yRow + 1.2f;
             addQuad(
-                m, L.fromHome(rRow - 0.4f, ang0, roofY0), L.fromHome(rRow - 0.4f, ang1, roofY0),
-                L.fromHome(rRow + 6.5f, ang1, roofY0 + 2.2f), L.fromHome(rRow + 6.5f, ang0, roofY0 + 2.2f),
+                m, L.fromHome(rRow - 1.3f, ang0, roofY0), L.fromHome(rRow - 1.3f, ang1, roofY0),
+                L.fromHome(rRow + 3.2f, ang1, roofY0 + 1.4f), L.fromHome(rRow + 3.2f, ang0, roofY0 + 1.4f),
                 roofWhite
             );
-            // Sloped underside reaching forward over the suite ring.
+            // Sloped underside just under the rim.
             addQuad(
-                m, L.fromHome(rC1 + 0.5f, ang0, roofY0 - 0.8f), L.fromHome(rC1 + 0.5f, ang1, roofY0 - 0.8f),
-                L.fromHome(rRow - 0.4f, ang1, roofY0 - 0.15f), L.fromHome(rRow - 0.4f, ang0, roofY0 - 0.15f),
+                m, L.fromHome(rRow - 1.3f, ang0, roofY0 - 0.45f), L.fromHome(rRow - 1.3f, ang1, roofY0 - 0.45f),
+                L.fromHome(rRow + 2.8f, ang1, roofY0 + 0.9f), L.fromHome(rRow + 2.8f, ang0, roofY0 + 0.9f),
                 shade(roofWhite, 0.82f)
             );
-            // Truss rib struts from fascia to the roof's back edge.
+            // Truss rib struts from fascia to the rim's back edge.
             if (i % 5 == 0) {
                 addQuad(
                     m, L.fromHome(rRow + 0.1f, ang0, yRow + 1.0f), L.fromHome(rRow + 0.1f, ang1, yRow + 1.0f),
-                    L.fromHome(rRow + 6.5f, ang1, roofY0 + 2.1f), L.fromHome(rRow + 6.5f, ang0, roofY0 + 2.1f),
+                    L.fromHome(rRow + 3.0f, ang1, roofY0 + 1.3f), L.fromHome(rRow + 3.0f, ang0, roofY0 + 1.3f),
                     shade(roofWhite, 0.7f)
                 );
             }
             // Warm LED ribbon tucked under the roof's front edge.
             addQuad(
-                m, L.fromHome(rRow - 0.45f, ang0, roofY0 - 0.18f), L.fromHome(rRow - 0.45f, ang1, roofY0 - 0.18f),
-                L.fromHome(rRow - 0.45f, ang1, roofY0 + 0.1f), L.fromHome(rRow - 0.45f, ang0, roofY0 + 0.1f),
+                m, L.fromHome(rRow - 1.35f, ang0, roofY0 - 0.18f), L.fromHome(rRow - 1.35f, ang1, roofY0 - 0.18f),
+                L.fromHome(rRow - 1.35f, ang1, roofY0 + 0.1f), L.fromHome(rRow - 1.35f, ang0, roofY0 + 0.1f),
                 ledWarm
             );
         }
@@ -1847,7 +1879,8 @@ float Layout::seatDeckYAtRadius(float radiusFromHome, float angleRad) const {
     if (past < 0.0f) {
         return 0.0f;
     }
-    return bowlBaseHeight(angleRad) + past * 0.55f;
+    // Same 0.67 row slope the stands/collision use (0.88 rise per ~1.31 step).
+    return bowlBaseHeight(angleRad) + past * 0.67f;
 }
 
 bool Layout::containInsideDome(Vector3&, Vector3&, float) const {
@@ -1952,13 +1985,29 @@ bool pastFairFence(const Layout& layout, float r, float ang, float radius, float
     return r + radius > layout.wallRAtAngle(ang) + eps;
 }
 
+// Ground height for collision: field level inside the bowl footprint,
+// city grade (-1.85, matching buildCity's parking/suburb ground) once the
+// ball is past the last row / bleachers. Balls landing beyond the stands
+// used to hover ~4 ft in the air on an invisible field-height floor.
+float collisionGroundY(const Layout& layout, float r, float ang, float radius) {
+    wrapAng(ang);
+    float rBowl = layout.bowlInnerRadius(ang);
+    // OF bleachers: 8 rows ≈ 11 units deep, then the city apron.
+    // Foul horseshoe: 15–16 rows ≈ 21 units + concourse margin.
+    bool fairArc = std::abs(ang) <= layout.foulAngleRad() + 0.02f;
+    float depth = fairArc ? 13.5f : 24.0f;
+    if (r > rBowl + depth) {
+        return -1.85f + radius;
+    }
+    return radius + 0.01f;
+}
+
 } // namespace
 
 BallCollisionHit collideBall(
     const Layout& layout, Vector3& position, Vector3& velocity, float radius, bool stickOnContact
 ) {
     BallCollisionHit hit;
-    const float groundY = radius + 0.01f;
     const float fa = layout.foulAngleRad();
 
     auto refreshPolar = [&](float& rOut, float& angOut) {
@@ -1967,6 +2016,8 @@ BallCollisionHit collideBall(
 
     float r = 0.0f, ang = 0.0f;
     refreshPolar(r, ang);
+    // Field level in play, city grade once the ball leaves the bowl.
+    float groundY = collisionGroundY(layout, r, ang, radius);
     hit.sprayDeg = ang * (180.0f / pi);
     // Tight fair cone — foul strip near the line uses foul geometry (dugouts / seats).
     bool fair = std::abs(ang) <= fa + 0.012f;
@@ -2011,9 +2062,11 @@ BallCollisionHit collideBall(
         const float rWorld = layout.maxWallR() + 72.0f;
         if (r + radius > rWorld) {
             Vector3 target = layout.fromHome(rWorld - radius - 0.08f, ang, position.y);
-            target.y = std::max(target.y, groundY);
+            target.y = std::max(target.y, collisionGroundY(layout, rWorld, ang, radius));
             position = target;
-            bounceRadial(velocity, ang, 0.28f, 0.70f);
+            // Near-zero restitution: kill outward motion without a visible
+            // mid-air bounce off an invisible ring over the parking lot.
+            bounceRadial(velocity, ang, 0.04f, 0.60f);
             if (velocity.y > 1.5f) {
                 velocity.y *= 0.45f;
             }
@@ -2028,16 +2081,19 @@ BallCollisionHit collideBall(
         }
     }
 
-    // ── 3. Soft sky clamp (open park — kill moonshots that never land) ─
+    // ── 3. Soft sky damp (open park — no visible ceiling bounce) ────────
     {
-        const float yCeil = 78.0f;
-        if (position.y + radius > yCeil) {
-            position.y = yCeil - radius;
-            if (velocity.y > 0.0f) {
-                velocity.y = -velocity.y * 0.18f;
+        const float yCeil = 95.0f;
+        if (position.y > yCeil) {
+            // Bleed off climb rate at extreme height; NEVER snap position
+            // or flip velocity.y — the old hard clamp ricocheted towering
+            // pop-ups off an invisible ceiling at ~156 ft.
+            velocity.y *= 0.995f;
+            velocity.x *= 0.998f;
+            velocity.z *= 0.998f;
+            if (position.y > 150.0f) {
+                velocity.y = std::min(velocity.y, 0.0f);
             }
-            velocity.x *= 0.92f;
-            velocity.z *= 0.92f;
             hit.surface = HitSurface::Roof;
             hit.impactY = position.y;
         }
@@ -2225,11 +2281,16 @@ BallCollisionHit collideBall(
             }
 
             float pastBowl = std::max(0.0f, r - rBowl);
-            // Gradual rise: lower bowl rows then steeper upper.
-            float rise = pastBowl < 6.0f ? pastBowl * 0.42f
-                                         : 6.0f * 0.42f + (pastBowl - 6.0f) * 0.62f;
+            // Match the real seat geometry: rows rise 0.88 per ~1.31 radial
+            // step (slope ≈ 0.67). The old 0.42/0.62 profile sat BELOW the
+            // visible seats, and its slope ran to infinity so balls could
+            // "land on seats" floating in mid-air behind the last row.
+            const float maxPast = fair ? 12.5f : 22.0f; // actual bowl depth
+            float rise = pastBowl * 0.67f;
             float deckY = yBase + std::min(rise, 18.0f) + radius;
-            float facadeTop = yBase + (fair ? 12.0f : 14.5f);
+            // Front face = the real fascia wall (ground → first tread),
+            // not a 12–14-unit glass pane hovering in front of the seats.
+            float facadeTop = yBase + 0.75f;
 
             // Vertical facade (first-row face) — only when nearly at the lip.
             if (r + radius > rBowl && position.y < facadeTop && position.y > groundY - 0.05f &&
@@ -2246,13 +2307,13 @@ BallCollisionHit collideBall(
                 }
                 refreshPolar(r, ang);
                 pastBowl = std::max(0.0f, r - rBowl);
-                rise = pastBowl < 6.0f ? pastBowl * 0.42f
-                                       : 6.0f * 0.42f + (pastBowl - 6.0f) * 0.62f;
+                rise = pastBowl * 0.67f;
                 deckY = yBase + std::min(rise, 18.0f) + radius;
             }
 
             // Horizontal seat deck — land when dropping into the bowl.
-            if (r + radius > rBowl && position.y < deckY && position.y > yBase - 0.8f) {
+            if (r + radius > rBowl && pastBowl < maxPast && position.y < deckY &&
+                position.y > yBase - 0.8f) {
                 position.y = deckY;
                 if (velocity.y < 0.0f) {
                     velocity.y = -velocity.y * 0.22f; // soft seats
@@ -2308,6 +2369,8 @@ BallCollisionHit collideBall(
     }
 
     // ── 9. Final ground re-clamp after barrier snaps ──────────────────
+    refreshPolar(r, ang);
+    groundY = collisionGroundY(layout, r, ang, radius);
     if (position.y < groundY) {
         position.y = groundY;
         if (velocity.y < 0.0f) {
