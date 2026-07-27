@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iomanip>
+#include <numbers>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -17,7 +18,7 @@
 
 namespace {
 
-constexpr float pi = 3.1415926535f;
+constexpr float pi = std::numbers::pi_v<float>;
 constexpr unsigned winW = 1180;
 constexpr unsigned winH = 760;
 

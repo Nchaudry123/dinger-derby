@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -19,7 +20,7 @@
 namespace ProceduralSfx {
 namespace {
 
-constexpr float kPi = 3.14159265358979323846f;
+constexpr float kPi = std::numbers::pi_v<float>;
 
 inline float frand(std::uint32_t& rng) {
     rng = rng * 1664525u + 1013904223u;

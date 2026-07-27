@@ -3,10 +3,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <numbers>
 
 namespace {
 
-constexpr float pi = 3.1415926535f;
+constexpr float pi = std::numbers::pi_v<float>;
 
 sf::Color leatherAlbedo(const Vector3& normal) {
     float warmPanel = 0.5f + 0.5f * std::sin(normal.x * 11.0f + normal.y * 7.0f);

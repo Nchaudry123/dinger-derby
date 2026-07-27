@@ -2,10 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace {
 
-constexpr float pi = 3.1415926535f;
+constexpr float pi = std::numbers::pi_v<float>;
 
 }
 

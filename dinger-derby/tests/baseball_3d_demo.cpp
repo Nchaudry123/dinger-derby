@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <vector>
 
 #include "DemoFpsCounter.h"
@@ -19,7 +20,7 @@
 
 namespace {
 
-constexpr float pi = 3.1415926535f;
+constexpr float pi = std::numbers::pi_v<float>;
 constexpr float fixedStep = 1.0f / 120.0f;
 constexpr float baseballRadius = 0.42f;
 const Vector3 boxMinimum(-3.2f, -2.2f, -2.0f);

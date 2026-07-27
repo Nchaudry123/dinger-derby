@@ -2,9 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace {
-constexpr float kPi = 3.14159265358979323846f;
+constexpr float kPi = std::numbers::pi_v<float>;
 }
 
 Quaternion::Quaternion(float x, float y, float z, float w)

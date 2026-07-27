@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -49,7 +50,7 @@
 
 namespace {
 
-constexpr float kPi = 3.14159265f;
+constexpr float kPi = std::numbers::pi_v<float>;
 
 bool loadUiFont(sf::Font& font) {
     const std::vector<std::filesystem::path> candidates = {

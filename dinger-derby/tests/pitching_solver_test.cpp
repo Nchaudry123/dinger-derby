@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <numbers>
 #include <string>
 
 #include "math/Vector3.h"
@@ -16,7 +17,7 @@ constexpr float baseballRadius = 0.065f;
 constexpr float feetPerWorldUnit = 2.0f;
 constexpr float pitchAirDensity = 0.075f;
 constexpr float plateZ = 60.5f / feetPerWorldUnit;
-constexpr float pi = 3.1415926535f;
+constexpr float pi = std::numbers::pi_v<float>;
 const Vector3 releasePoint(-0.22f, 1.72f, 0.0f);
 const Vector3 boundsMinimum(-3.2f, -40.0f, -2.0f);
 const Vector3 boundsMaximum(3.2f, 3.6f, plateZ + 4.0f);

@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <numbers>
 #include <random>
 #include <sstream>
 #include <string>
@@ -36,7 +37,7 @@
 
 namespace {
 
-constexpr float pi = 3.1415926535f;
+constexpr float pi = std::numbers::pi_v<float>;
 constexpr float fixedStep = 1.0f / 180.0f;
 
 float smoothstep(float edge0, float edge1, float x) {

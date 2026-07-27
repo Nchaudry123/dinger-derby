@@ -2,10 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace {
 
-constexpr float pi = 3.1415926535f;
+constexpr float pi = std::numbers::pi_v<float>;
 constexpr float minimumDragSpeed = 0.0001f;
 constexpr float minimumSpinRate = 1e-4f;
 

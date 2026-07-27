@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace {
 
@@ -27,7 +28,7 @@ const sf::Color kSock(245, 245, 250);
 const sf::Color kBelt(36, 38, 44);
 const sf::Color kHair(36, 28, 24);
 
-constexpr float kPi = 3.14159265f;
+constexpr float kPi = std::numbers::pi_v<float>;
 
 Vector3 safeNorm(const Vector3& v, const Vector3& fb = Vector3(0.0f, 1.0f, 0.0f)) {
     float m = v.magnitude();
