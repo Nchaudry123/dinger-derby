@@ -28,4 +28,14 @@ AnimationClip batterStance(const SkinnedModel3D& model);
 // sequencing; Ohtani MLB toe-tap (not NPB high kick) + early foot down.
 AnimationClip batterSwing(const SkinnedModel3D& model);
 
+// Post-homer celebration — arms (and bat) swept overhead into a big V, torso
+// arch, eyes to the sky, wrist flick at the peak, small hop, settle back.
+// Duration 2.2s. Drive with applyClipNormalized.
+AnimationClip batterCelebrate(const SkinnedModel3D& model);
+
+// Big-out / strikeout celebration — glove clutched to chest, double fist
+// pump with a hop on the second pump. Duration 1.8s.
+// Drive with applyClipNormalized.
+AnimationClip pitcherCelebrate(const SkinnedModel3D& model);
+
 } // namespace BaseballAnims

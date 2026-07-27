@@ -566,11 +566,11 @@ Quaternion ohtaniHeadSet() { return eul(-0.04f, 0.55f, 0.0f); } // track pitcher
 //   hands at/above rear shoulder · bat ~45° · barrel high BEHIND the head.
 // Hang-bind: −rx raise, +rz open R, −rz open L. Minimal ry (no noodle twist).
 // Rear elbow (R) forms a high L near the ear; top hand (L) stacks above it.
-Quaternion ohtaniShoulderR() { return eul(-1.42f, 0.06f, 0.18f); } // rear hand high
-Quaternion ohtaniElbowR() { return eul(1.18f, 0.0f, 0.0f); }      // L at ear (hands close)
+Quaternion ohtaniShoulderR() { return eul(-1.56f, 0.06f, 0.20f); } // rear hand above shoulder
+Quaternion ohtaniElbowR() { return eul(1.34f, 0.0f, 0.0f); }      // L high at ear (hands up)
 Quaternion ohtaniWristR() { return eul(-0.38f, 0.18f, 0.42f); }    // tip up + back
-Quaternion ohtaniShoulderL() { return eul(-1.22f, 0.04f, 0.48f); } // top hand stacked inward
-Quaternion ohtaniElbowL() { return eul(1.15f, 0.0f, 0.0f); }
+Quaternion ohtaniShoulderL() { return eul(-1.36f, 0.04f, 0.50f); } // top hand stacked above rear shoulder
+Quaternion ohtaniElbowL() { return eul(1.30f, 0.0f, 0.0f); }
 Quaternion ohtaniWristL() { return eul(-0.24f, -0.10f, -0.28f); }
 
 // Athletic base — soft knees, rear leg slightly more loaded.
@@ -769,17 +769,17 @@ AnimationClip batterStance(const SkinnedModel3D& model) {
 
     pushArmMidStance(clip, model, t);
 
-    // Hands locked high by the rear ear; bat tip overhead (tiny live settle).
+    // Hands locked high above the rear shoulder; bat tip overhead (tiny live settle).
     pushRot(clip, J("Shoulder_R"), t, {
         ohtaniShoulderR(),
-        eul(-1.40f, 0.05f, 0.19f),
-        eul(-1.44f, 0.07f, 0.17f),
-        eul(-1.41f, 0.06f, 0.18f),
+        eul(-1.54f, 0.05f, 0.21f),
+        eul(-1.58f, 0.07f, 0.19f),
+        eul(-1.55f, 0.06f, 0.20f),
         ohtaniShoulderR()
     });
     pushRot(clip, J("Elbow_R"), t, {
         ohtaniElbowR(),
-        eul(1.20f, 0, 0), eul(1.15f, 0, 0), eul(1.19f, 0, 0), ohtaniElbowR()
+        eul(1.36f, 0, 0), eul(1.31f, 0, 0), eul(1.35f, 0, 0), ohtaniElbowR()
     });
     pushRot(clip, J("Wrist_R"), t, {
         ohtaniWristR(),
@@ -794,14 +794,14 @@ AnimationClip batterStance(const SkinnedModel3D& model) {
     });
     pushRot(clip, J("Shoulder_L"), t, {
         ohtaniShoulderL(),
-        eul(-1.20f, 0.03f, 0.49f),
-        eul(-1.24f, 0.05f, 0.47f),
-        eul(-1.21f, 0.04f, 0.48f),
+        eul(-1.34f, 0.03f, 0.51f),
+        eul(-1.38f, 0.05f, 0.49f),
+        eul(-1.35f, 0.04f, 0.50f),
         ohtaniShoulderL()
     });
     pushRot(clip, J("Elbow_L"), t, {
         ohtaniElbowL(),
-        eul(1.17f, 0, 0), eul(1.12f, 0, 0), eul(1.16f, 0, 0), ohtaniElbowL()
+        eul(1.32f, 0, 0), eul(1.27f, 0, 0), eul(1.31f, 0, 0), ohtaniElbowL()
     });
     pushRot(clip, J("Wrist_L"), t, {
         ohtaniWristL(),
@@ -924,9 +924,9 @@ AnimationClip batterSwing(const SkinnedModel3D& model) {
 
     // 1) PELVIS first — opens earliest after plant (Welch hip ~714°/s lead).
     pushRot(clip, J("Hips"), t, {
-        eul(0.06f, -0.72f, 0.02f),  // closed coil (readable, not extreme)
-        eul(0.07f, -0.66f, 0.02f),  // stay closed on toe-tap
-        eul(0.09f, -0.42f, 0.04f),  // stride — begin to open
+        eul(0.06f, -0.82f, 0.02f),  // closed coil — deeper rear hip turn
+        eul(0.07f, -0.74f, 0.02f),  // stay closed on toe-tap
+        eul(0.09f, -0.46f, 0.04f),  // stride — begin to open
         eul(0.11f, -0.14f, 0.05f),  // plant — still relatively closed
         eul(0.13f,  0.28f, 0.07f),  // HIP FIRE (segment 1 peak)
         eul(0.15f,  0.58f, 0.08f),  // CONTACT — hips open hard
@@ -998,22 +998,22 @@ AnimationClip batterSwing(const SkinnedModel3D& model) {
     // 3–4) ARMS: hold high-tip load → quiet through plant → slot → contact.
     pushRot(clip, J("Shoulder_R"), t, {
         ohtaniShoulderR(),
-        eul(-1.40f, 0.10f, 0.26f),  // load — hands still high
-        eul(-1.32f, 0.08f, 0.24f),  // stride
-        eul(-1.22f, 0.04f, 0.20f),  // plant — still connected high
+        eul(-1.52f, 0.10f, 0.28f),  // load — hands still high
+        eul(-1.44f, 0.08f, 0.26f),  // stride
+        eul(-1.34f, 0.04f, 0.22f),  // plant — still connected high
         eul(-1.05f, -0.06f, 0.10f), // slot after hips
         ohtaniContactShR(),
-        eul(-0.62f, -0.40f, -0.40f),
+        eul(-0.70f, -0.46f, -0.30f), // extension — reach through the ball
         ohtaniFinishShR()
     });
     pushRot(clip, J("Elbow_R"), t, {
         ohtaniElbowR(),
-        eul(1.08f, 0, 0),
-        eul(1.05f, 0, 0),
-        eul(0.95f, 0, 0),  // still bent at plant
+        eul(1.22f, 0, 0),
+        eul(1.18f, 0, 0),
+        eul(1.08f, 0, 0),  // still bent at plant
         eul(0.58f, 0, 0),
         ohtaniContactElR(),
-        eul(0.25f, 0, 0),
+        eul(0.15f, 0, 0),  // near-full extension post-contact
         ohtaniFinishElR()
     });
     pushRot(clip, J("Wrist_R"), t, {
@@ -1034,9 +1034,9 @@ AnimationClip batterSwing(const SkinnedModel3D& model) {
 
     pushRot(clip, J("Shoulder_L"), t, {
         ohtaniShoulderL(),
-        eul(-1.20f, 0.06f, 0.36f),
-        eul(-1.12f, 0.04f, 0.32f),
-        eul(-1.00f, 0.02f, 0.24f),
+        eul(-1.32f, 0.06f, 0.38f),
+        eul(-1.24f, 0.04f, 0.34f),
+        eul(-1.12f, 0.02f, 0.26f),
         eul(-0.85f, -0.04f, 0.14f),
         ohtaniContactShL(),
         eul(-0.55f, -0.20f, 0.30f),
@@ -1044,9 +1044,9 @@ AnimationClip batterSwing(const SkinnedModel3D& model) {
     });
     pushRot(clip, J("Elbow_L"), t, {
         ohtaniElbowL(),
+        eul(1.14f, 0, 0),
+        eul(1.10f, 0, 0),
         eul(1.00f, 0, 0),
-        eul(0.96f, 0, 0),
-        eul(0.88f, 0, 0),
         eul(0.55f, 0, 0),
         ohtaniContactElL(),
         eul(0.55f, 0, 0),
@@ -1087,7 +1087,7 @@ AnimationClip batterSwing(const SkinnedModel3D& model) {
     // early plant, stiff brace into contact (Welch front-foot block).
     pushRot(clip, J("Hip_L"), t, {
         eul(0.16f, 0.12f, 0.16f),
-        eul(-0.78f, 0.12f, 0.14f),  // clear toe-tap lift (still << pitcher kick)
+        eul(-0.88f, 0.12f, 0.14f),  // clear toe-tap lift (still << pitcher kick)
         eul(-0.32f, 0.06f, 0.08f),  // stride down
         eul(-0.05f, -0.02f, 0.04f), // early PLANT
         eul(-0.03f, -0.04f, 0.02f),
@@ -1136,6 +1136,140 @@ AnimationClip batterSwing(const SkinnedModel3D& model) {
     pushRot(clip, J("Toe_R"), t, {
         eul(0.05f, 0, 0), eul(0.08f, 0, 0), eul(0.06f, 0, 0), eul(0.04f, 0, 0),
         eul(-0.02f, 0, 0), eul(-0.08f, 0, 0), eul(-0.16f, 0, 0), eul(-0.04f, 0, 0)
+    });
+
+    return clip;
+}
+
+// Hips local Y in the shared skeleton (kHipY = 4.12 * 1.78 / 8) — used by the
+// celebration hop translation channels (batter / pitcher share the rest rig;
+// the catcher is never driven by these clips).
+constexpr float kCelebrateHipY = 0.917f;
+
+AnimationClip batterCelebrate(const SkinnedModel3D& model) {
+    AnimationClip clip;
+    auto J = [&](const char* n) { return model.findJoint(n); };
+    clip.name = "bat_flip";
+    clip.duration = 2.2f;
+    // 0 start · 1 sweep · 2 PEAK (wrist flick + hop) · 3 hold · 4 lower · 5 stance
+    const std::vector<float> t = {0.0f, 0.28f, 0.62f, 1.05f, 1.60f, 2.2f};
+
+    // Arms sweep up into a big overhead V (bat in hands reads as a bat raise).
+    pushRot(clip, J("Shoulder_L"), t, {
+        eul(-1.45f, -0.10f, -0.15f),
+        eul(-2.55f, 0.28f, -0.30f),
+        eul(-2.90f, 0.34f, -0.34f),
+        eul(-2.90f, 0.34f, -0.34f),
+        eul(-2.30f, 0.20f, -0.22f),
+        eul(-1.45f, -0.10f, -0.15f)
+    });
+    pushRot(clip, J("Shoulder_R"), t, {
+        eul(-1.45f, 0.10f, 0.15f),
+        eul(-2.55f, -0.28f, 0.30f),
+        eul(-2.90f, -0.34f, 0.34f),
+        eul(-2.90f, -0.34f, 0.34f),
+        eul(-2.30f, -0.20f, 0.22f),
+        eul(-1.45f, 0.10f, 0.15f)
+    });
+    pushRot(clip, J("Elbow_L"), t, {
+        eul(1.30f, 0, 0), eul(0.70f, 0, 0), eul(0.30f, 0, 0),
+        eul(0.30f, 0, 0), eul(0.55f, 0, 0), eul(1.30f, 0, 0)
+    });
+    pushRot(clip, J("Elbow_R"), t, {
+        eul(1.30f, 0, 0), eul(0.70f, 0, 0), eul(0.30f, 0, 0),
+        eul(0.30f, 0, 0), eul(0.55f, 0, 0), eul(1.30f, 0, 0)
+    });
+    // Wrist flick at the top — the "flip" accent.
+    pushRot(clip, J("Wrist_R"), t, {
+        eul(0, 0, 0), eul(0.20f, 0, 0), eul(0.90f, 0, 0.20f),
+        eul(-0.30f, 0, 0), eul(0.10f, 0, 0), eul(0, 0, 0)
+    });
+    // Torso arch + eyes to the sky.
+    pushRot(clip, J("Spine2"), t, {
+        eul(0.05f, 0, 0), eul(-0.10f, 0, 0), eul(-0.16f, 0, 0),
+        eul(-0.16f, 0, 0), eul(-0.08f, 0, 0), eul(0.05f, 0, 0)
+    });
+    pushRot(clip, J("Chest"), t, {
+        eul(0.03f, 0, 0), eul(-0.08f, 0, 0), eul(-0.14f, 0, 0),
+        eul(-0.14f, 0, 0), eul(-0.06f, 0, 0), eul(0.03f, 0, 0)
+    });
+    pushRot(clip, J("Head"), t, {
+        eul(0, 0, 0), eul(-0.18f, 0, 0), eul(-0.34f, 0, 0),
+        eul(-0.34f, 0, 0), eul(-0.15f, 0, 0), eul(0, 0, 0)
+    });
+    // Little hop at the peak.
+    pushPos(clip, J("Hips"), t, {
+        Vector3(0, kCelebrateHipY, 0), Vector3(0, kCelebrateHipY - 0.017f, 0),
+        Vector3(0, kCelebrateHipY + 0.038f, 0), Vector3(0, kCelebrateHipY, 0),
+        Vector3(0, kCelebrateHipY, 0), Vector3(0, kCelebrateHipY, 0)
+    });
+    pushRot(clip, J("Knee_L"), t, {
+        eul(0.32f, 0, 0), eul(0.55f, 0, 0), eul(0.10f, 0, 0),
+        eul(0.32f, 0, 0), eul(0.32f, 0, 0), eul(0.32f, 0, 0)
+    });
+    pushRot(clip, J("Knee_R"), t, {
+        eul(0.46f, 0, 0), eul(0.62f, 0, 0), eul(0.18f, 0, 0),
+        eul(0.46f, 0, 0), eul(0.46f, 0, 0), eul(0.46f, 0, 0)
+    });
+
+    return clip;
+}
+
+AnimationClip pitcherCelebrate(const SkinnedModel3D& model) {
+    AnimationClip clip;
+    auto J = [&](const char* n) { return model.findJoint(n); };
+    clip.name = "pitcher_celebrate";
+    clip.duration = 1.8f;
+    // 0 set · 1 recock · 2 PUMP 1 · 3 recock · 4 PUMP 2 + hop · 5 ease · 6 set
+    const std::vector<float> t = {0.0f, 0.22f, 0.50f, 0.78f, 1.05f, 1.40f, 1.80f};
+
+    // Throw-side fist pumps twice.
+    pushRot(clip, J("Shoulder_R"), t, {
+        eul(-1.20f, 0.40f, 0.20f),
+        eul(-0.55f, 0.30f, 0.25f),
+        eul(-2.45f, -0.15f, 0.20f),
+        eul(-0.85f, 0.25f, 0.22f),
+        eul(-2.55f, -0.20f, 0.20f),
+        eul(-1.60f, 0.20f, 0.20f),
+        eul(-1.20f, 0.40f, 0.20f)
+    });
+    pushRot(clip, J("Elbow_R"), t, {
+        eul(1.40f, 0, 0), eul(1.15f, 0, 0), eul(0.55f, 0, 0),
+        eul(1.20f, 0, 0), eul(0.45f, 0, 0), eul(1.00f, 0, 0), eul(1.40f, 0, 0)
+    });
+    // Glove arm clutches to the chest.
+    pushRot(clip, J("Shoulder_L"), t, {
+        eul(-1.10f, 0.90f, 0.12f), eul(-0.90f, 0.95f, -0.15f), eul(-0.85f, 0.90f, -0.20f),
+        eul(-0.85f, 0.90f, -0.20f), eul(-0.90f, 0.90f, -0.18f), eul(-1.00f, 0.90f, 0.0f),
+        eul(-1.10f, 0.90f, 0.12f)
+    });
+    pushRot(clip, J("Elbow_L"), t, {
+        eul(1.50f, 0, 0), eul(1.75f, 0, 0), eul(1.80f, 0, 0),
+        eul(1.80f, 0, 0), eul(1.75f, 0, 0), eul(1.60f, 0, 0), eul(1.50f, 0, 0)
+    });
+    // Chest drives with each pump + head roar.
+    pushRot(clip, J("Chest"), t, {
+        eul(0.05f, 0, 0), eul(0.14f, -0.06f, 0), eul(-0.10f, 0, 0),
+        eul(0.12f, 0, 0), eul(-0.12f, 0, 0), eul(0.02f, 0, 0), eul(0.05f, 0, 0)
+    });
+    pushRot(clip, J("Head"), t, {
+        eul(0, 0, 0), eul(0.10f, 0, 0), eul(-0.30f, 0, 0),
+        eul(0.08f, 0, 0), eul(-0.32f, 0, 0), eul(-0.05f, 0, 0), eul(0, 0, 0)
+    });
+    // Hop with the second pump.
+    pushPos(clip, J("Hips"), t, {
+        Vector3(0, kCelebrateHipY, 0), Vector3(0, kCelebrateHipY - 0.012f, 0),
+        Vector3(0, kCelebrateHipY, 0), Vector3(0, kCelebrateHipY - 0.017f, 0),
+        Vector3(0, kCelebrateHipY + 0.038f, 0), Vector3(0, kCelebrateHipY, 0),
+        Vector3(0, kCelebrateHipY, 0)
+    });
+    pushRot(clip, J("Knee_L"), t, {
+        eul(0.15f, 0, 0), eul(0.40f, 0, 0), eul(0.15f, 0, 0),
+        eul(0.42f, 0, 0), eul(0.12f, 0, 0), eul(0.15f, 0, 0), eul(0.15f, 0, 0)
+    });
+    pushRot(clip, J("Knee_R"), t, {
+        eul(0.18f, 0, 0), eul(0.45f, 0, 0), eul(0.18f, 0, 0),
+        eul(0.46f, 0, 0), eul(0.14f, 0, 0), eul(0.18f, 0, 0), eul(0.18f, 0, 0)
     });
 
     return clip;

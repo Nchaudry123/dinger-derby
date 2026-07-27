@@ -26,8 +26,10 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <iomanip>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -58,7 +60,7 @@
 namespace {
 
 // ── Same room as pitching_simulator_demo ────────────────────────────────
-constexpr float pi = 3.1415926535f;
+constexpr float pi = std::numbers::pi_v<float>;
 constexpr float kDeg = 180.0f / pi;
 constexpr float fixedStep = 1.0f / 180.0f;
 constexpr float baseballRadius = 0.065f;
@@ -780,20 +782,20 @@ void classifyHit(
         h.quality = "Grounder";
     } else if (h.launchDeg < 18.0f) {
         h.quality = (h.exitMph >= 100.0f) ? "Line Drive" : "Soft Liner";
-        if (clearsWall && h.exitMph >= 105.0f && h.launchDeg >= 15.0f) {
+        if (clearsWall && h.exitMph >= 108.0f && h.launchDeg >= 16.0f) {
             h.quality = "Home Run"; // laser over porch
         }
     } else if (h.launchDeg <= 40.0f) {
         bool moon =
-            h.launchDeg >= 25.0f && h.launchDeg <= 32.0f && h.exitMph >= 104.0f;
+            h.launchDeg >= 25.0f && h.launchDeg <= 32.0f && h.exitMph >= 106.0f;
         bool jaw =
-            h.exitMph >= 112.0f && h.launchDeg >= 27.0f && h.launchDeg <= 34.0f &&
+            h.exitMph >= 114.0f && h.launchDeg >= 27.0f && h.launchDeg <= 34.0f &&
             h.distanceFeet >= 480.0f;
         if (jaw && clearsWall) {
             h.quality = "Jaw Dropper";
         } else if (moon && clearsWall && h.distanceFeet >= 400.0f) {
             h.quality = "Moonball";
-        } else if (clearsWall && h.exitMph >= 95.0f) {
+        } else if (clearsWall && h.exitMph >= 99.0f) {
             h.quality = "Home Run";
         } else if (h.exitMph >= 90.0f) {
             h.quality = "Fly Ball";
@@ -860,7 +862,7 @@ HitInfo tryHit(
     if (godMode) {
         contactEase = 1.85f;
     }
-    float rScale = (practiceMode || godMode ? 2.9f : 1.95f) * contactEase;
+    float rScale = (practiceMode || godMode ? 2.2f : 1.45f) * contactEase;
     if (godMode) {
         rScale *= 1.45f;
     }
@@ -885,13 +887,14 @@ HitInfo tryHit(
     // were repeatedly reaching nearPlate well inside plateBand (e.g. 0.65 vs
     // 1.7) only for the window to have already closed at swingT~0.85 — the
     // ball was legitimately in reach but the dwell cutoff ended too early.
-    bool contactWindow = bat.swingT >= 0.18f && bat.swingT <= 0.88f;
-    // magnetR also widened: diagnostic logging showed swings failing on the
-    // aim-tolerance gate even once timing (contactWindow/plateBand) was hit —
-    // e.g. nearPlate well inside plateBand but dAim/dSweet still outside the
-    // old 0.48-0.60 radius. Real mouse-aim tracking isn't pixel-precise.
-    float magnetR = (practiceMode || godMode ? 0.85f : 0.68f) * contactEase;
-    float plateBand = (practiceMode || godMode ? 1.70f : 1.40f) * contactEase;
+    // Rebalanced for realism: the window now tracks the barrel's true dwell
+    // through the zone instead of nearly the full swing arc — late/early
+    // swings should miss or foul, not barrel up.
+    bool contactWindow = bat.swingT >= 0.26f && bat.swingT <= 0.72f;
+    // Aim tolerance tightened: real mouse-aim misses should produce weak
+    // contact or whiffs, not constant barrels.
+    float magnetR = (practiceMode || godMode ? 0.75f : 0.45f) * contactEase;
+    float plateBand = (practiceMode || godMode ? 1.45f : 0.95f) * contactEase;
     if (godMode) {
         magnetR *= 1.8f;
         plateBand *= 1.6f;
@@ -913,10 +916,12 @@ HitInfo tryHit(
             delta = ball.position - closest;
             dist = delta.magnitude();
         } else {
-            float pull = clampf(0.60f + 0.22f * contactEase, 0.50f, 0.88f);
+            // Weaker magnet: contact stays closer to where the bat actually
+            // is, so only genuinely squared swings find the sweet spot.
+            float pull = clampf(0.34f + 0.18f * contactEase, 0.25f, 0.62f);
             // Stronger pull when ball is closer to the reticle aim.
             float aimBonus = clampf(1.0f - dAim / (magnetR * 1.4f), 0.0f, 1.0f);
-            pull = clampf(pull + 0.12f * aimBonus, 0.50f, 0.92f);
+            pull = clampf(pull + 0.08f * aimBonus, 0.25f, 0.68f);
             closest = closest * (1.0f - pull) + target * pull;
             s = lerp(s, cfg.sweetFromKnob, pull);
             delta = ball.position - closest;
@@ -958,14 +963,14 @@ HitInfo tryHit(
         vRel = n * approach + (vRel - n * vRel.dot(n));
     }
 
-    float sweetScale = practiceMode ? prof.sweetScale * 1.60f : prof.sweetScale * 1.28f;
+    float sweetScale = practiceMode ? prof.sweetScale * 1.40f : prof.sweetScale * 1.10f;
     float sweet = sweetFactor(cfg, s, sweetScale);
     if (practiceMode) {
         sweet = clampf(sweet + 0.14f, 0.0f, 1.0f);
     } else {
-        sweet = clampf(sweet + 0.06f * contactEase, 0.0f, 1.0f);
+        sweet = clampf(sweet + 0.02f * contactEase, 0.0f, 1.0f);
     }
-    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus * 0.5f, sweet), 0.32f, 0.56f);
+    float cor = clampf(lerp(cfg.minCor, cfg.maxCor + prof.corBonus * 0.5f, sweet), 0.32f, 0.53f);
     float tip = clampf(s / cfg.length, 0.0f, 1.0f);
     float mEff =
         cfg.mass * prof.massScale * lerp(1.35f, 0.55f, tip) * lerp(0.70f, 1.08f, sweet);
@@ -1023,15 +1028,16 @@ HitInfo tryHit(
             sweet = 1.0f;
         }
 
-        float desiredMph = lerp(52.0f, 106.0f, q);
+        float desiredMph = lerp(48.0f, 101.0f, q);
         desiredMph *= lerp(0.94f, 1.05f, (prof.power - 0.7f) / 0.55f);
         if (practiceMode) {
-            desiredMph = lerp(68.0f, 102.0f, std::pow(clampf(sweet, 0.0f, 1.0f), 0.72f));
+            desiredMph =
+                lerp(68.0f, 102.0f, std::pow(clampf(sweet, 0.0f, 1.0f), 0.72f)) * 0.96f;
         }
         if (sweet < 0.35f && !godMode) {
             desiredMph = std::min(desiredMph, lerp(42.0f, 72.0f, sweet / 0.35f));
         }
-        desiredMph = clampf(desiredMph, 35.0f, 112.0f); // hard product cap
+        desiredMph = clampf(desiredMph, 35.0f, 108.0f); // hard product cap
         if (godMode) {
             desiredMph = 118.0f; // guaranteed yard
         }
@@ -1057,7 +1063,7 @@ HitInfo tryHit(
         Vector3 chartVel =
             horizDir * (speed * std::cos(la)) + Vector3(0.0f, speed * std::sin(la), 0.0f);
 
-        float blend = lerp(0.45f, 0.92f, q);
+        float blend = lerp(0.38f, 0.85f, q);
         if (practiceMode) {
             blend = lerp(0.50f, 0.94f, q);
         }
@@ -1571,9 +1577,11 @@ int main() {
 
     // Same assets as pitching sim
     Mesh3D baseballMesh = BaseballVisual3D::makeMesh(56, 112);
-    // Highest procedural detail (CharacterModel3D High); glTF overrides if present.
+    // Procedural hero pitcher (CharacterModel3D High). The low-detail
+    // pitcher.gltf asset is intentionally skipped so the mound model matches
+    // the batter/catcher art style and carries the full gear + animation set.
     SkinnedModel3D pitcherModel =
-        loadCharacterOrProcedural("pitcher", CharacterModel3D::Role::Pitcher, 2);
+        CharacterModel3D::build(CharacterModel3D::Role::Pitcher, CharacterModel3D::Detail::High);
     // Batter silhouette at the plate for scale / product feel (faces mound / -Z).
     SkinnedModel3D batterModel =
         loadCharacterOrProcedural("batter", CharacterModel3D::Role::Athlete, 2);
@@ -1594,6 +1602,9 @@ int main() {
     // RHB stance loop + swing keyed to bat.swingT (contact ≈ 0.42).
     AnimationClip batterStanceClip = BaseballAnims::batterStance(batterModel);
     AnimationClip batterSwingClip = BaseballAnims::batterSwing(batterModel);
+    // Celebrations — bat raise after a HR, fist pump when the goal falls.
+    AnimationClip batterCelebrateClip = BaseballAnims::batterCelebrate(batterModel);
+    AnimationClip pitcherCelebrateClip = BaseballAnims::pitcherCelebrate(pitcherModel);
 
     // Catcher behind the plate — receives pitches on takes / whiffs.
     SkinnedModel3D catcherModel =
@@ -1663,6 +1674,7 @@ int main() {
     GlMesh glStadiumCity;
     GlMesh glStadiumSky;
     std::vector<GlMesh> glStadiumFans(Stadium3D::kFanSectorCount);
+    std::vector<GlMesh> glStadiumFlags;
     Stadium3D::Layout stadiumLayout = Stadium3D::defaultPlayLayout();
     Stadium3D::Meshes stadiumMeshes = Stadium3D::build(stadiumLayout);
     if (useGL) {
@@ -1684,6 +1696,10 @@ int main() {
             if (i < static_cast<int>(stadiumMeshes.fanSectors.size())) {
                 glStadiumFans[i].upload(stadiumMeshes.fanSectors[i]);
             }
+        }
+        glStadiumFlags.resize(stadiumMeshes.flagMeshes.size());
+        for (std::size_t i = 0; i < stadiumMeshes.flagMeshes.size(); i++) {
+            glStadiumFlags[i].upload(stadiumMeshes.flagMeshes[i]);
         }
     }
     float stadiumCheerTime = 0.0f;
@@ -1753,11 +1769,11 @@ int main() {
     auto derbyContactEase = [&]() {
         switch (derbyDiff) {
             case DerbyDiff::Easy:
-                return 1.48f;
+                return 1.28f;
             case DerbyDiff::Hard:
-                return 0.88f;
+                return 0.78f;
             default:
-                return 1.18f;
+                return 1.00f;
         }
     };
     // Soft-toss pitch archetypes for variety (not pure random scatter).
@@ -1994,21 +2010,22 @@ int main() {
                 bat.axis = pathAxis;
             }
         } else {
-            // Stance: knob in palms, tip high by the rear ear — not pointed at PCI.
+            // Stance: knob in palms, barrel UP and back over the rear
+            // shoulder — classic loaded position, not leaned over the plate.
             float ang = reticle.plateAngleDisplay;
             Vector3 tipDir = safeNorm(
                 Vector3(
-                    0.16f + 0.22f * std::cos(ang),
-                    0.90f + 0.08f * std::sin(ang),
-                    0.10f - 0.05f * std::abs(ang)
+                    -0.10f + 0.10f * std::cos(ang),
+                    0.94f + 0.05f * std::sin(ang),
+                    0.22f
                 ),
-                Vector3(0.20f, 0.94f, 0.10f)
+                Vector3(-0.08f, 0.95f, 0.22f)
             );
             // Micro readiness lean from PCI height (elite boxes stay quiet).
             Vector3 pciLean = safeNorm(reticle.pci - gripMid, tipDir);
-            tipDir = slerpDir(tipDir, pciLean, 0.10f);
+            tipDir = slerpDir(tipDir, pciLean, 0.06f);
             bat.hands = gripMid;
-            bat.axis = slerpDir(lastGripAxis, tipDir, 0.40f);
+            bat.axis = slerpDir(lastGripAxis, tipDir, 0.60f);
             bat.pci = reticle.pci;
             bat.pci.z = plateZ;
             lastGripHands = bat.hands;
@@ -2019,6 +2036,8 @@ int main() {
     bool swingConsumed = false; // derby: one swing budget spent this pitch
     float flightAge = 0.0f; // seconds since contact (failsafe settle)
     float hrBannerTimer = 0.0f;
+    float batterCelebrateTimer = 0.0f;  // >0 → bat-raise celebration plays
+    float pitcherCelebrateTimer = 0.0f; // >0 → fist-pump celebration plays
     float prevBallR = 0.0f; // radial distance from home (for fence cross detect)
     Vector3 plateCrossPos = strikeZoneCenter;
     float prevBallZ = moundZ;
@@ -2140,6 +2159,7 @@ int main() {
         }
         noteDerbyExit();
         hrBannerTimer = 3.2f;
+        batterCelebrateTimer = batterCelebrateClip.duration; // bat raise
         std::string q = lastHit.quality ? lastHit.quality : "";
         playHrAtmosphere(q == "Jaw Dropper" || q == "Moonball");
         if (!derby.goalMet && derby.hrCount >= sessionGoalHrs) {
@@ -2147,6 +2167,7 @@ int main() {
             goalFlashTimer = 3.5f;
             careerFlash = "GOAL CLEARED   |   " + std::to_string(sessionGoalHrs) + " HR";
             careerFlashTimer = 3.5f;
+            pitcherCelebrateTimer = pitcherCelebrateClip.duration; // fist pump
         }
     };
 
@@ -2339,6 +2360,8 @@ int main() {
         flightAge = 0.0f;
         catcherAnim.applyClip(catcherIdleClip, 0.0f, true);
         hrBannerTimer = 0.0f;
+        batterCelebrateTimer = 0.0f;
+        pitcherCelebrateTimer = 0.0f;
         prevBallZ = hand0.z;
         prevBallR = 0.0f;
         plateCrossPos = strikeZoneCenter;
@@ -2529,8 +2552,9 @@ int main() {
                     playMode = PlayMode::Derby;
                     resetDerbyRound();
                     bat.type = SwingType::Contact;
-                    status = std::string("HR DERBY ") + derbyDiffName(derbyDiff) + " — " +
-                             std::to_string(kDerbySwings) + " swings";
+                    status = std::format(
+                        "HR DERBY {} — {} swings", derbyDiffName(derbyDiff), kDerbySwings
+                    );
                     statusCol = sf::Color(255, 220, 80);
                     beginPitch();
                 } else if (key->code == K::Num1 || key->code == K::Numpad1) {
@@ -2541,8 +2565,10 @@ int main() {
                         resetDerbyRound();
                         beginPitch();
                     }
-                    status = "EASY   |   fat PCI   |   goal " + std::to_string(sessionGoalHrs) +
-                             " HR   |   " + std::to_string(kDerbySwings) + " swings";
+                    status = std::format(
+                        "EASY   |   fat PCI   |   goal {} HR   |   {} swings",
+                        sessionGoalHrs, kDerbySwings
+                    );
                     statusCol = sf::Color(120, 255, 160);
                 } else if (key->code == K::Num2 || key->code == K::Numpad2) {
                     derbyDiff = DerbyDiff::Normal;
@@ -2552,8 +2578,10 @@ int main() {
                         resetDerbyRound();
                         beginPitch();
                     }
-                    status = "NORMAL   |   goal " + std::to_string(sessionGoalHrs) +
-                             " HR   |   " + std::to_string(kDerbySwings) + " swings";
+                    status = std::format(
+                        "NORMAL   |   goal {} HR   |   {} swings",
+                        sessionGoalHrs, kDerbySwings
+                    );
                     statusCol = sf::Color(255, 220, 80);
                 } else if (key->code == K::Num3 || key->code == K::Numpad3) {
                     if (careerBests.hardUnlocked == 0) {
@@ -2567,9 +2595,10 @@ int main() {
                             resetDerbyRound();
                             beginPitch();
                         }
-                        status = "HARD   |   tight PCI   |   goal " +
-                                 std::to_string(sessionGoalHrs) + " HR   |   " +
-                                 std::to_string(kDerbySwings) + " swings";
+                        status = std::format(
+                            "HARD   |   tight PCI   |   goal {} HR   |   {} swings",
+                            sessionGoalHrs, kDerbySwings
+                        );
                         statusCol = sf::Color(255, 120, 100);
                     }
                 } else if (key->code == K::P) {
@@ -2636,6 +2665,12 @@ int main() {
         if (hrBannerTimer > 0.0f) {
             hrBannerTimer = std::max(0.0f, hrBannerTimer - rawDt);
         }
+        if (batterCelebrateTimer > 0.0f) {
+            batterCelebrateTimer = std::max(0.0f, batterCelebrateTimer - rawDt);
+        }
+        if (pitcherCelebrateTimer > 0.0f) {
+            pitcherCelebrateTimer = std::max(0.0f, pitcherCelebrateTimer - rawDt);
+        }
         if (godModeFlash > 0.0f) {
             godModeFlash = std::max(0.0f, godModeFlash - rawDt);
         }
@@ -2654,7 +2689,14 @@ int main() {
 
         // Pitcher animation (same CharacterModel3D delivery as pitching sim).
         // Ball glued to throw hand until release frame.
-        if (deliveryAge >= 0.0f) {
+        if (pitcherCelebrateTimer > 0.0f && deliveryAge < 0.0f &&
+            pitcherCelebrateClip.duration > 0.0f) {
+            // Goal-cleared fist pump (only between deliveries).
+            float ct = clampf(
+                1.0f - pitcherCelebrateTimer / pitcherCelebrateClip.duration, 0.0f, 1.0f
+            );
+            pitcherAnim.applyClipNormalized(pitcherCelebrateClip, ct);
+        } else if (deliveryAge >= 0.0f) {
             deliveryAge += dt;
             float t01 = clampf(deliveryAge / deliveryDuration, 0.0f, 1.0f);
             pitcherAnim.applyClipNormalized(deliveryClip, t01);
@@ -2837,7 +2879,7 @@ int main() {
                                     lastHit.distanceFeet, rNow * feetPerWorldUnit
                                 );
                                 if (!isDingerQuality(lastHit.quality) &&
-                                    lastHit.exitMph >= 95.0f && lastHit.fair) {
+                                    lastHit.exitMph >= 98.0f && lastHit.fair) {
                                     lastHit.quality = "Home Run";
                                 }
                             }
@@ -2850,7 +2892,7 @@ int main() {
                                 std::max(lastHit.distanceFeet, rNow * feetPerWorldUnit);
                             lastHit.clearsWall = true;
                             lastHit.hitsWallFace = false;
-                            if (!isDingerQuality(lastHit.quality) && lastHit.exitMph >= 95.0f) {
+                            if (!isDingerQuality(lastHit.quality) && lastHit.exitMph >= 98.0f) {
                                 lastHit.quality = "Home Run";
                             }
                         } else if (!onDirt && !alreadyCleared &&
@@ -2876,7 +2918,7 @@ int main() {
                                         lastHit.wallMarginFeet = 0.5f;
                                     }
                                     if (!isDingerQuality(lastHit.quality) &&
-                                        lastHit.exitMph >= 95.0f && lastHit.fair) {
+                                        lastHit.exitMph >= 98.0f && lastHit.fair) {
                                         lastHit.quality = "Home Run";
                                     }
                                 } else {
@@ -2907,7 +2949,7 @@ int main() {
                                         lastHit.wallMarginFeet = 0.5f;
                                     }
                                     if (!isDingerQuality(lastHit.quality) &&
-                                        lastHit.exitMph >= 95.0f && lastHit.fair) {
+                                        lastHit.exitMph >= 98.0f && lastHit.fair) {
                                         lastHit.quality = "Home Run";
                                     }
                                 } else {
@@ -2954,11 +2996,11 @@ int main() {
                                         lastHit.wallMarginFeet = 0.5f;
                                     }
                                     if (!isDingerQuality(lastHit.quality) &&
-                                        lastHit.exitMph >= 95.0f) {
+                                        lastHit.exitMph >= 98.0f) {
                                         lastHit.quality = "Home Run";
                                     } else if (
                                         !isDingerQuality(lastHit.quality) &&
-                                        lastHit.exitMph >= 90.0f &&
+                                        lastHit.exitMph >= 100.0f &&
                                         lastHit.launchDeg < 18.0f
                                     ) {
                                         lastHit.quality = "Home Run";
@@ -2991,6 +3033,7 @@ int main() {
                                     if (isDinger && !wasDinger) {
                                         derby.hrCount += 1;
                                         hrBannerTimer = 3.2f;
+                                        batterCelebrateTimer = batterCelebrateClip.duration;
                                         resultBannerTimer = 3.0f;
                                         resultBannerTitle =
                                             (lastHit.quality &&
@@ -3002,16 +3045,14 @@ int main() {
                                                        ? "JAW DROPPER"
                                                        : "HOME RUN");
                                         resultBannerCol = sf::Color(255, 220, 60);
-                                        {
-                                            std::ostringstream sub;
-                                            sub << std::fixed << std::setprecision(0)
-                                                << lastHit.distanceFeet << " ft   "
-                                                << lastHit.exitMph << " mph";
-                                            if (lastHit.clearsWall) {
-                                                sub << "   CLEAR +" << lastHit.wallMarginFeet
-                                                    << " ft";
-                                            }
-                                            resultBannerSub = sub.str();
+                                        resultBannerSub = std::format(
+                                            "{:.0f} ft   {:.0f} mph",
+                                            lastHit.distanceFeet, lastHit.exitMph
+                                        );
+                                        if (lastHit.clearsWall) {
+                                            resultBannerSub += std::format(
+                                                "   CLEAR +{:.0f} ft", lastHit.wallMarginFeet
+                                            );
                                         }
                                         if (lastHit.quality &&
                                             (std::string(lastHit.quality) == "Moonball" ||
@@ -3029,6 +3070,8 @@ int main() {
                                             careerFlash = "GOAL CLEARED   |   " +
                                                           std::to_string(sessionGoalHrs) + " HR";
                                             careerFlashTimer = 3.5f;
+                                            pitcherCelebrateTimer =
+                                                pitcherCelebrateClip.duration;
                                         }
                                     } else if (!isDinger && wasDinger && derby.hrCount > 0) {
                                         derby.hrCount -= 1;
@@ -3301,7 +3344,7 @@ int main() {
                         lastHit.clearsWall = true;
                         lastHit.hitsWallFace = false;
                         lastHit.distanceFeet = landR * feetPerWorldUnit;
-                        if (!isDingerQuality(lastHit.quality) && lastHit.exitMph >= 95.0f) {
+                        if (!isDingerQuality(lastHit.quality) && lastHit.exitMph >= 98.0f) {
                             lastHit.quality = "Home Run";
                         }
                     } else {
@@ -3385,7 +3428,15 @@ int main() {
         }
 
         // Skin pitcher + plate batter + catcher.
-        if (bat.swinging() && batterSwingClip.duration > 0.0f) {
+        if (batterCelebrateTimer > 0.0f && batterCelebrateClip.duration > 0.0f &&
+            !bat.swinging()) {
+            // HR bat-raise celebration (bat stays glued to the raised hands).
+            float ct = clampf(
+                1.0f - batterCelebrateTimer / batterCelebrateClip.duration, 0.0f, 1.0f
+            );
+            batterAnim.applyClipNormalized(batterCelebrateClip, ct);
+            lockBatToHands(false);
+        } else if (bat.swinging() && batterSwingClip.duration > 0.0f) {
             // Already applied for grip lock above; re-apply for consistent draw.
             float st = clampf(bat.swingT, 0.0f, 1.0f);
             batterAnim.applyClipNormalized(batterSwingClip, st);
@@ -3479,6 +3530,18 @@ int main() {
                 gl.drawMesh(
                     glStadiumFans[i],
                     Matrix4::translation(Vector3(sway, bob, 0.0f)) * stadiumXform
+                );
+            }
+            // Foul-line flags — swaying in the wind (built but never drawn before).
+            for (std::size_t i = 0; i < glStadiumFlags.size(); i++) {
+                if (!glStadiumFlags[i].valid() ||
+                    i >= stadiumMeshes.flagBases.size()) {
+                    continue;
+                }
+                float yaw = Stadium3D::flagSwayYaw(static_cast<int>(i), stadiumCheerTime);
+                gl.drawMesh(
+                    glStadiumFlags[i],
+                    Matrix4::translation(stadiumMeshes.flagBases[i]) * Matrix4::rotationY(yaw)
                 );
             }
             gl.drawMesh(glPitcher, pitcherXform);
@@ -3871,27 +3934,24 @@ int main() {
 
             // Derby stats block
             if (playMode == PlayMode::Derby && !chasing) {
-                std::ostringstream goal;
-                goal << "HR  " << derby.hrCount << " / " << sessionGoalHrs;
-                if (derby.goalMet) {
-                    goal << "  OK";
-                }
-                goal << "     SW  " << derby.swingsLeft << "/" << kDerbySwings;
+                std::string goal = std::format(
+                    "HR  {} / {}{}     SW  {}/{}",
+                    derby.hrCount, sessionGoalHrs, derby.goalMet ? "  OK" : "",
+                    derby.swingsLeft, kDerbySwings
+                );
                 drawText(
-                    window, font, goal.str(), 13, {tx, ty},
+                    window, font, goal, 13, {tx, ty},
                     derby.goalMet ? sf::Color(120, 255, 170) : sf::Color(210, 230, 245)
                 );
                 ty += 18.0f;
-                std::ostringstream career;
-                career << "Best  " << careerBests.mostHrsInRound << " HR";
+                std::string career = std::format("Best  {} HR", careerBests.mostHrsInRound);
                 if (careerBests.longestHrFeet > 0.5f) {
-                    career << "   |   " << std::fixed << std::setprecision(0)
-                           << careerBests.longestHrFeet << " ft";
+                    career += std::format("   |   {:.0f} ft", careerBests.longestHrFeet);
                 }
-                drawText(window, font, career.str(), 11, {tx, ty}, sf::Color(140, 160, 170));
+                drawText(window, font, career, 11, {tx, ty}, sf::Color(140, 160, 170));
                 ty += 16.0f;
                 drawText(
-                    window, font, "LF/RF 328  |  CF 400", 11, {tx, ty},
+                    window, font, "LF 328 (tall wall)  |  CF 400  |  RF 322", 11, {tx, ty},
                     sf::Color(110, 145, 160)
                 );
             } else if (!chasing) {
@@ -3970,7 +4030,7 @@ int main() {
                     "- / =      bat crack volume\n"
                     "\n"
                     "Session goal: hit the HR target before swings run out.\n"
-                    "Park: LF/RF 328  |  CF 400  |  open-air\n"
+                    "Park: LF 328 (24-ft wall)  |  CF 400  |  RF 322  |  open-air\n"
                     "\n"
                     "Easy mode:  ↑ ↑ ↓ ↓ ← → ← →   (toggle nuclear swings)",
                     14, {px + 28, py + 52}, sf::Color(220, 235, 225)
@@ -4004,41 +4064,46 @@ int main() {
                     window, font, derby.roundOver ? "FINAL" : "SCOREBOARD", 12,
                     {px + 12, py + 8}, sf::Color(255, 220, 100)
                 );
-                std::ostringstream s1;
-                s1 << "Swings  " << derby.swingsLeft << "/" << kDerbySwings;
-                drawText(window, font, s1.str(), 14, {px + 12, py + 28}, sf::Color(230, 240, 235));
-                std::ostringstream s2;
-                s2 << "HR  " << derby.hrCount << " / " << sessionGoalHrs;
-                if (derby.goalMet) {
-                    s2 << " OK";
-                }
                 drawText(
-                    window, font, s2.str(), 18, {px + 12, py + 48},
+                    window, font, std::format("Swings  {}/{}", derby.swingsLeft, kDerbySwings),
+                    14, {px + 12, py + 28}, sf::Color(230, 240, 235)
+                );
+                drawText(
+                    window, font,
+                    std::format(
+                        "HR  {} / {}{}", derby.hrCount, sessionGoalHrs,
+                        derby.goalMet ? " OK" : ""
+                    ),
+                    18, {px + 12, py + 48},
                     derby.goalMet ? sf::Color(120, 255, 170) : sf::Color(120, 255, 160)
                 );
-                std::ostringstream s3;
-                s3 << std::fixed << std::setprecision(0) << "Long  ";
-                s3 << (derby.longestHrFeet > 0.5f
-                           ? std::to_string(static_cast<int>(derby.longestHrFeet)) + " ft"
-                           : std::string("--"));
-                drawText(window, font, s3.str(), 13, {px + 12, py + 74}, sf::Color(255, 230, 140));
-                std::ostringstream s4;
-                s4 << std::fixed << std::setprecision(0) << "EV  ";
-                s4 << (derby.bestExitMph > 0.5f
-                           ? std::to_string(static_cast<int>(derby.bestExitMph)) + " mph"
-                           : std::string("--"));
-                drawText(window, font, s4.str(), 13, {px + 12, py + 94}, sf::Color(180, 220, 255));
+                const std::string longStr = derby.longestHrFeet > 0.5f
+                    ? std::format("{} ft", static_cast<int>(derby.longestHrFeet))
+                    : std::string("--");
                 drawText(
-                    window, font, "LF/RF 328  |  CF 400", 11,
+                    window, font, std::format("Long  {}", longStr), 13, {px + 12, py + 74},
+                    sf::Color(255, 230, 140)
+                );
+                const std::string evStr = derby.bestExitMph > 0.5f
+                    ? std::format("{} mph", static_cast<int>(derby.bestExitMph))
+                    : std::string("--");
+                drawText(
+                    window, font, std::format("EV  {}", evStr), 13, {px + 12, py + 94},
+                    sf::Color(180, 220, 255)
+                );
+                drawText(
+                    window, font, "LF 328 (tall wall)  |  CF 400  |  RF 322", 11,
                     {px + 12, py + 114}, sf::Color(140, 180, 150)
                 );
 
-                std::ostringstream cb;
-                cb << "Career " << careerBests.mostHrsInRound << " HR";
-                if (careerBests.hardUnlocked) {
-                    cb << "  HARD";
-                }
-                drawText(window, font, cb.str(), 11, {px + 12, py + ph + 6}, sf::Color(150, 170, 160));
+                drawText(
+                    window, font,
+                    std::format(
+                        "Career {} HR{}", careerBests.mostHrsInRound,
+                        careerBests.hardUnlocked ? "  HARD" : ""
+                    ),
+                    11, {px + 12, py + ph + 6}, sf::Color(150, 170, 160)
+                );
             }
 
             if (careerFlashTimer > 0.0f && !careerFlash.empty()) {
