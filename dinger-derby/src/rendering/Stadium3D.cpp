@@ -67,6 +67,33 @@ void addBox(Mesh3D& m, const Vector3& center, float w, float h, float d, sf::Col
     addQuad(m, p[3], p[7], p[4], p[0], col);
 }
 
+// Yaw-rotated box (rotation about Y through the box center). Same winding as
+// addBox — a proper rotation keeps det=+1, so back-face culling still works.
+void addBoxRotY(
+    Mesh3D& m, const Vector3& center, float w, float h, float d, float yaw, sf::Color col
+) {
+    float hw = w * 0.5f, hh = h * 0.5f, hd = d * 0.5f;
+    const float c = std::cos(yaw);
+    const float s = std::sin(yaw);
+    const Vector3 local[8] = {
+        Vector3(-hw, -hh, -hd), Vector3(hw, -hh, -hd),
+        Vector3(hw, -hh, hd),   Vector3(-hw, -hh, hd),
+        Vector3(-hw, hh, -hd),  Vector3(hw, hh, -hd),
+        Vector3(hw, hh, hd),    Vector3(-hw, hh, hd),
+    };
+    Vector3 p[8];
+    for (int i = 0; i < 8; i++) {
+        const Vector3& v = local[i];
+        p[i] = center + Vector3(v.x * c + v.z * s, v.y, -v.x * s + v.z * c);
+    }
+    addQuad(m, p[0], p[1], p[2], p[3], col);
+    addQuad(m, p[4], p[7], p[6], p[5], col);
+    addQuad(m, p[0], p[4], p[5], p[1], col);
+    addQuad(m, p[1], p[5], p[6], p[2], col);
+    addQuad(m, p[2], p[6], p[7], p[3], col);
+    addQuad(m, p[3], p[7], p[4], p[0], col);
+}
+
 // Local-space bounds of a loaded prop mesh, used to derive fit-to-target
 // scale factors since props come in from Blender/Meshy at arbitrary export
 // scale (meters), not this game's world units.
@@ -1204,11 +1231,18 @@ void addCar(Mesh3D& m, const Vector3& c, float yaw, int seed) {
         sf::Color(40, 45, 55), sf::Color(180, 50, 45), sf::Color(50, 90, 160),
         sf::Color(220, 220, 225), sf::Color(60, 120, 70), sf::Color(140, 100, 40)};
     sf::Color body = bodyCols[static_cast<unsigned>(seed) % 6];
-    // Simple axis-aligned car (yaw ignored for density — fine from overhead)
-    (void)yaw;
-    addBox(m, c + Vector3(0, 0.55f, 0), 2.2f, 0.7f, 4.4f, body);
-    addBox(m, c + Vector3(0, 1.05f, -0.2f), 1.9f, 0.55f, 2.4f, shade(body, 0.85f));
-    addBox(m, c + Vector3(0, 1.15f, -0.2f), 1.7f, 0.35f, 2.0f, sf::Color(80, 140, 180, 150));
+    // Cars park in radial stalls: yaw = pi - stallAngle aims the car's long
+    // axis (local +Z) along the stall; odd seeds back in, evens nose in.
+    float carYaw = pi - yaw + ((seed % 2 == 0) ? 0.0f : pi);
+    auto part = [&](const Vector3& off, float w, float h, float d, sf::Color col) {
+        float cy = std::cos(carYaw);
+        float sy = std::sin(carYaw);
+        Vector3 rotOff(off.x * cy + off.z * sy, off.y, -off.x * sy + off.z * cy);
+        addBoxRotY(m, c + rotOff, w, h, d, carYaw, col);
+    };
+    part(Vector3(0, 0.55f, 0), 2.2f, 0.7f, 4.4f, body);
+    part(Vector3(0, 1.05f, -0.2f), 1.9f, 0.55f, 2.4f, shade(body, 0.85f));
+    part(Vector3(0, 1.15f, -0.2f), 1.7f, 0.35f, 2.0f, sf::Color(80, 140, 180, 150));
 }
 
 Mesh3D buildCity(const Layout& L) {
@@ -1553,18 +1587,27 @@ Mesh3D buildLines(const Layout& L) {
 // CROWDS — dense bowl + OF bleachers
 // ═══════════════════════════════════════════════════════════════════════
 
-void addFan(Mesh3D& m, Vector3 feet, float sc, sf::Color shirt, sf::Color skin) {
+// One fan figure, yaw-rotated so shoulders square up toward home plate
+// instead of every fan in the park sharing one world-space orientation.
+// Local +Z is the fan's facing direction; callers pass yaw = -seatAngle.
+void addFan(Mesh3D& m, Vector3 feet, float yaw, float sc, sf::Color shirt, sf::Color skin) {
+    const float c = std::cos(yaw);
+    const float s = std::sin(yaw);
+    auto place = [&](const Vector3& local, float w, float h, float d, sf::Color col) {
+        Vector3 off(local.x * c + local.z * s, local.y, -local.x * s + local.z * c);
+        addBoxRotY(m, feet + off, w, h, d, yaw, col);
+    };
     // Torso
-    addBox(m, feet + Vector3(0, 0.58f * sc, 0), 0.38f * sc, 1.05f * sc, 0.3f * sc, shirt);
+    place(Vector3(0, 0.58f * sc, 0), 0.38f * sc, 1.05f * sc, 0.3f * sc, shirt);
     // Head
-    addBox(m, feet + Vector3(0, 1.28f * sc, 0), 0.3f * sc, 0.3f * sc, 0.3f * sc, skin);
+    place(Vector3(0, 1.28f * sc, 0), 0.3f * sc, 0.3f * sc, 0.3f * sc, skin);
     // Legs
-    addBox(
-        m, feet + Vector3(-0.1f * sc, 0.18f * sc, 0), 0.14f * sc, 0.4f * sc, 0.16f * sc,
+    place(
+        Vector3(-0.1f * sc, 0.18f * sc, 0), 0.14f * sc, 0.4f * sc, 0.16f * sc,
         shade(shirt, 0.7f)
     );
-    addBox(
-        m, feet + Vector3(0.1f * sc, 0.18f * sc, 0), 0.14f * sc, 0.4f * sc, 0.16f * sc,
+    place(
+        Vector3(0.1f * sc, 0.18f * sc, 0), 0.14f * sc, 0.4f * sc, 0.16f * sc,
         shade(shirt, 0.7f)
     );
 }
@@ -1620,7 +1663,10 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             seat.x += (hash01(fanId) - 0.5f) * 0.42f;
             seat.z += (hash01(fanId + 3) - 0.5f) * 0.42f;
             float sc = 0.95f + 0.35f * hash01(fanId + 9);
-            addFan(sectors[sector], seat, sc, fanShirt(fanId), fanSkin(fanId + 4));
+            // Face home plate with a little per-fan slouch so the crowd
+            // doesn't look like a cloned army.
+            float yaw = -ang + (hash01(fanId + 17) - 0.5f) * 0.55f;
+            addFan(sectors[sector], seat, yaw, sc, fanShirt(fanId), fanSkin(fanId + 4));
             fanId++;
         };
 
@@ -1674,8 +1720,9 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
                 float y = h + 0.85f + row * 0.85f;
                 Vector3 seat = L.fromHome(r, ang, y);
                 seat.x += (hash01(i * 7 + row) - 0.5f) * 0.3f;
+                float yaw = -ang + (hash01(i * 13 + row * 7) - 0.5f) * 0.55f;
                 addFan(
-                    sectors[sector], seat, 0.9f, fanShirt(i * 5 + row + 20),
+                    sectors[sector], seat, yaw, 0.9f, fanShirt(i * 5 + row + 20),
                     fanSkin(i + row + 2)
                 );
             }
