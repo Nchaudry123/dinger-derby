@@ -15,6 +15,17 @@ Highlights:
 - **Real hit physics** — PCI aiming, exit-velocity classes, fence collision,
   derby scoring with career bests
 
+## Screenshots
+
+Rendered headlessly by the engine's own software rasterizer
+(`screenshot_capture`, run it from the project root after building):
+
+![Full-park aerial — horseshoe bowl, roof canopy, brick rotunda](docs/screenshots/stadium_overview.png)
+
+![High-home broadcast view — striped outfield, skyline beyond the wall](docs/screenshots/stadium_broadcast.png)
+
+![The duel — batter in stance vs pitcher mid-windup](docs/screenshots/plate_duel.png)
+
 ## Controls (bat_physics_demo)
 
 | Input | Action |
