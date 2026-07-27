@@ -227,7 +227,8 @@ void applyCameraShake(Camera3D& cam, float shakeTimer, float intensity) {
 
 Matrix4 pitcherWorldTransform() {
     // Match pitching sim: centered on the rubber, facing +Z toward home.
-    return Matrix4::translation(Vector3(0.0f, 0.0f, moundZ));
+    // Feet on the raised mound table (y = mound top).
+    return Matrix4::translation(Vector3(0.0f, 0.28f, moundZ));
 }
 
 // ── Overlay helpers (same field language as pitching sim) ───────────────
@@ -3506,7 +3507,7 @@ int main() {
                 ballShadowR = clampf(ballShadowR, 0.30f, 1.15f);
                 float ballAlpha = clampf(0.50f - baseball.position.y * 0.028f, 0.14f, 0.50f);
                 gl.drawGroundShadow(baseball.position, ballShadowR, ballAlpha);
-                gl.drawGroundShadow(Vector3(0.0f, 0.0f, moundZ), 0.55f, 0.28f);
+                gl.drawGroundShadow(Vector3(0.0f, 0.30f, moundZ), 0.55f, 0.28f);
             }
             gl.drawMesh(glStadiumStands, stadiumXform);
             gl.drawMesh(glStadiumWalls, stadiumXform);

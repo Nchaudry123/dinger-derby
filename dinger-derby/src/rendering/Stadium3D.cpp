@@ -122,10 +122,13 @@ void addDisk(Mesh3D& m, const Vector3& c, float r, float y, int segs, sf::Color 
     for (int i = 0; i < segs; i++) {
         float a0 = (static_cast<float>(i) / segs) * 2.0f * pi;
         float a1 = (static_cast<float>(i + 1) / segs) * 2.0f * pi;
+        // Wind so the fan normal faces +Y — the old (p0, p1) order faced
+        // downward and every flat disk (mound tiers, base cutouts, home
+        // circle, on-deck circles) was back-face culled from above.
         addTri(
             m, Vector3(c.x, y, c.z),
-            Vector3(c.x + std::cos(a0) * r, y, c.z + std::sin(a0) * r),
-            Vector3(c.x + std::cos(a1) * r, y, c.z + std::sin(a1) * r), col
+            Vector3(c.x + std::cos(a1) * r, y, c.z + std::sin(a1) * r),
+            Vector3(c.x + std::cos(a0) * r, y, c.z + std::sin(a0) * r), col
         );
     }
 }
@@ -141,6 +144,24 @@ void addRing(
         Vector3 p2(c.x + std::cos(a1) * r1, y, c.z + std::sin(a1) * r1);
         Vector3 p3(c.x + std::cos(a0) * r1, y, c.z + std::sin(a0) * r1);
         addQuad(m, p0, p1, p2, p3, col);
+    }
+}
+
+// Sloped side wall between two rings at different heights (mound tiers).
+// Wound (p0, p3, p2, p1) so the surface normal points outward/up — the
+// natural (p0, p1, p2, p3) order faces inward/down and culls from outside.
+void addFrustum(
+    Mesh3D& m, const Vector3& c, float r0, float y0, float r1, float y1, int segs,
+    sf::Color col
+) {
+    for (int i = 0; i < segs; i++) {
+        float a0 = (static_cast<float>(i) / segs) * 2.0f * pi;
+        float a1 = (static_cast<float>(i + 1) / segs) * 2.0f * pi;
+        Vector3 p0(c.x + std::cos(a0) * r0, y0, c.z + std::sin(a0) * r0);
+        Vector3 p1(c.x + std::cos(a1) * r0, y0, c.z + std::sin(a1) * r0);
+        Vector3 p2(c.x + std::cos(a1) * r1, y1, c.z + std::sin(a1) * r1);
+        Vector3 p3(c.x + std::cos(a0) * r1, y1, c.z + std::sin(a0) * r1);
+        addQuad(m, p0, p3, p2, p1, col);
     }
 }
 
@@ -225,7 +246,6 @@ Mesh3D buildField(const Layout& L) {
     Mesh3D m;
     const float aL = -L.foulAngleRad();
     const float aR = L.foulAngleRad();
-    const float bp = L.basePath();
     const Vector3 home = L.home();
     const Vector3 b1 = L.firstBase(), b2 = L.secondBase(), b3 = L.thirdBase();
     const sf::Color grass = grassColor();
@@ -238,6 +258,12 @@ Mesh3D buildField(const Layout& L) {
     // Fair grass pie, mowed as a pinwheel of wide triangular wedges radiating
     // from home plate (the real, very recognizable MLB crosshatch look),
     // rather than concentric rings.
+    //
+    // The home-plate dirt circle is colored INTO the inner wedges instead of
+    // overlaid as a separate disk: these wedge triangles are ~100 units long,
+    // and stacked coplanar overlays lose the depth test to them (screen-space
+    // z interpolation error on huge thin tris) no matter the y offset.
+    const float homeDirtR = 5.8f;
     const int fairSegs = 96;
     const int mowWedges = 18;
     for (int i = 0; i < fairSegs; i++) {
@@ -250,10 +276,17 @@ Mesh3D buildField(const Layout& L) {
         float rGrass0 = rFence0 - trackW;
         float rGrass1 = rFence1 - trackW;
 
+        // Inner dirt disc (home circle) as part of the same surface.
+        addQuad(
+            m, L.fromHome(0.02f, ang0, 0.0f), L.fromHome(0.02f, ang1, 0.0f),
+            L.fromHome(homeDirtR, ang1, 0.0f), L.fromHome(homeDirtR, ang0, 0.0f),
+            dirt
+        );
+
         int wedgeIdx = (i * mowWedges) / fairSegs;
         sf::Color fc = (wedgeIdx % 2 == 0) ? grass : gDk;
         addQuad(
-            m, L.fromHome(0.25f, ang0, 0.0f), L.fromHome(0.25f, ang1, 0.0f),
+            m, L.fromHome(homeDirtR, ang0, 0.0f), L.fromHome(homeDirtR, ang1, 0.0f),
             L.fromHome(rGrass1, ang1, 0.0f), L.fromHome(rGrass0, ang0, 0.0f), fc
         );
 
@@ -291,65 +324,58 @@ Mesh3D buildField(const Layout& L) {
             continue; // fair handled above
         }
         float rSeat = seatInnerR(L, angM) - 0.4f;
-        float rIn = 2.0f;
-        // Near foul lines start from the line
-        float delta = std::abs(angM) - L.foulAngleRad();
-        if (delta < 0.5f) {
-            rIn = 3.0f;
-        }
-        addQuad(
-            m, L.fromHome(rIn, ang0, 0.002f), L.fromHome(rIn, ang1, 0.002f),
-            L.fromHome(rSeat, ang1, 0.002f), L.fromHome(rSeat, ang0, 0.002f),
-            shade(grass, 0.90f + 0.04f * hash01(i))
-        );
-    }
-
-    // Dirt diamond (paths + skin)
-    {
-        Vector3 pts[4] = {home, b1, b2, b3};
-        for (int i = 0; i < 4; i++) {
-            addPath(m, pts[i], pts[(i + 1) % 4], 1.6f, 0.02f, dirt);
-            addPath(m, pts[i], pts[(i + 1) % 4], 0.32f, 0.022f, dDk);
-        }
-        // Filled dirt diamond
-        addQuad(
-            m, home + Vector3(0, 0.011f, 0), b1 + Vector3(0, 0.011f, 0),
-            b2 + Vector3(0, 0.011f, 0), b3 + Vector3(0, 0.011f, 0), shade(dirt, 0.98f)
-        );
-        // Inner grass diamond
-        Vector3 ih = home + (b2 - home) * 0.20f;
-        Vector3 i1 = b1 + (b2 - b1) * 0.18f + (home - b1) * 0.12f;
-        Vector3 i2 = b2 + (home - b2) * 0.14f;
-        Vector3 i3 = b3 + (b2 - b3) * 0.18f + (home - b3) * 0.12f;
-        ih.y = i1.y = i2.y = i3.y = 0.016f;
-        addQuad(m, ih, i1, i2, i3, grass);
-        // Arc dirt between 1B-2B-3B (skinned infield curve)
-        for (int i = 0; i < 24; i++) {
-            float t0 = static_cast<float>(i) / 24.0f;
-            float t1 = static_cast<float>(i + 1) / 24.0f;
-            float ang0 = aL + (aR - aL) * t0;
-            float ang1 = aL + (aR - aL) * t1;
-            float rIn = bp * 1.05f;
-            float rOut = bp * 1.42f;
+        // Start at the plate itself — the fair pie covers r>=0.02 in fair
+        // territory, and foul territory must meet it or a bare ring shows
+        // through behind home.
+        float rIn = 0.02f;
+        // Continue the home dirt circle into foul territory on the same
+        // surface (no coplanar overlay — see the fair-pie note above).
+        float rDirtOut = std::min(homeDirtR + 0.3f, rSeat);
+        if (rDirtOut > rIn) {
             addQuad(
-                m, L.fromHome(rIn, ang0, 0.013f), L.fromHome(rIn, ang1, 0.013f),
-                L.fromHome(rOut, ang1, 0.013f), L.fromHome(rOut, ang0, 0.013f),
-                shade(dirt, 0.96f)
+                m, L.fromHome(rIn, ang0, 0.002f), L.fromHome(rIn, ang1, 0.002f),
+                L.fromHome(rDirtOut, ang1, 0.002f), L.fromHome(rDirtOut, ang0, 0.002f),
+                dirt
+            );
+        }
+        if (rSeat > rDirtOut) {
+            addQuad(
+                m, L.fromHome(rDirtOut, ang0, 0.002f), L.fromHome(rDirtOut, ang1, 0.002f),
+                L.fromHome(rSeat, ang1, 0.002f), L.fromHome(rSeat, ang0, 0.002f),
+                shade(grass, 0.90f + 0.04f * hash01(i))
             );
         }
     }
 
+    // MLB grass-infield look: the mowed fair grass runs uninterrupted under
+    // the whole diamond (Yankee / Dodger / Wrigley style). Dirt shows only as
+    // the home circle, the base cutouts, and the mound — no filled dirt
+    // diamond or skinned arc band (that minority old-turf-park look read
+    // wrong at a glance).
+    //
+    // (The base "paths" stay grass; only the cutouts are dirt.)
+
     // Mound, home circle, bases
-    addDisk(m, L.mound(), 4.4f, 0.024f, 32, dirt);
-    addRing(m, L.mound(), 2.2f, 4.4f, 0.026f, 28, shade(dirt, 0.94f));
-    addDisk(m, L.mound(), 2.2f, 0.028f, 24, dDk);
-    addBox(m, L.mound() + Vector3(0, 0.14f, 0), 1.6f, 0.26f, 2.4f, shade(dirt, 1.06f));
-    addDisk(m, home + Vector3(0, 0, -0.2f), 5.8f, 0.023f, 32, dirt);
-    addDisk(m, b1, 2.4f, 0.025f, 20, dirt);
-    addDisk(m, b2, 2.4f, 0.025f, 20, dirt);
-    addDisk(m, b3, 2.4f, 0.025f, 20, dirt);
+    // Raised pitcher's mound: two sloped tiers up to a flat table (~10" in
+    // MLB scale ≈ 0.42 world units) with the white rubber on top.
+    // NOTE: dirt sits a full 0.05 above the grass — anything thinner loses
+    // the depth test to the 100-unit mow-wedge triangles (barycentric
+    // precision on long thin tris) and green spikes bleed through.
+    addDisk(m, L.mound(), 4.4f, 0.05f, 32, shade(dirt, 0.95f));
+    addFrustum(m, L.mound(), 4.4f, 0.05f, 3.2f, 0.15f, 30, dirt);
+    addDisk(m, L.mound(), 3.2f, 0.15f, 30, dirt);
+    addFrustum(m, L.mound(), 3.2f, 0.15f, 2.1f, 0.28f, 26, shade(dirt, 1.02f));
+    addDisk(m, L.mound(), 2.1f, 0.28f, 26, shade(dirt, 1.04f));
+    addBox(
+        m, L.mound() + Vector3(0.0f, 0.30f, 0.55f), 1.45f, 0.055f, 0.45f,
+        sf::Color(248, 248, 245)
+    );
+    // (Home dirt circle is baked into the fair-pie / foul-fill surfaces above.)
+    addDisk(m, b1, 2.9f, 0.05f, 20, dirt);
+    addDisk(m, b2, 2.9f, 0.05f, 20, dirt);
+    addDisk(m, b3, 2.9f, 0.05f, 20, dirt);
     auto bag = [&](Vector3 p) {
-        addBox(m, p + Vector3(0, 0.07f, 0), 0.88f, 0.09f, 0.88f, sf::Color(248, 248, 245));
+        addBox(m, p + Vector3(0, 0.09f, 0), 0.88f, 0.09f, 0.88f, sf::Color(248, 248, 245));
     };
     bag(b1);
     bag(b2);
@@ -357,21 +383,21 @@ Mesh3D buildField(const Layout& L) {
     // Home plate
     {
         float pz = L.plateZ();
-        Vector3 tip(0, 0.045f, pz + 0.55f);
-        Vector3 bl(-0.55f, 0.045f, pz - 0.35f), br(0.55f, 0.045f, pz - 0.35f);
-        Vector3 fl(-0.55f, 0.045f, pz + 0.12f), fr(0.55f, 0.045f, pz + 0.12f);
+        Vector3 tip(0, 0.075f, pz + 0.55f);
+        Vector3 bl(-0.55f, 0.075f, pz - 0.35f), br(0.55f, 0.075f, pz - 0.35f);
+        Vector3 fl(-0.55f, 0.075f, pz + 0.12f), fr(0.55f, 0.075f, pz + 0.12f);
         addTri(m, tip, fl, fr, sf::Color(252, 252, 250));
         addQuad(m, fl, fr, br, bl, sf::Color(252, 252, 250));
     }
     // Batter boxes
-    addBox(m, Vector3(-1.7f, 0.03f, L.plateZ() - 0.2f), 2.1f, 0.02f, 3.1f, shade(dDk, 1.05f));
-    addBox(m, Vector3(1.7f, 0.03f, L.plateZ() - 0.2f), 2.1f, 0.02f, 3.1f, shade(dDk, 1.05f));
+    addBox(m, Vector3(-1.7f, 0.06f, L.plateZ() - 0.2f), 2.1f, 0.02f, 3.1f, shade(dDk, 1.05f));
+    addBox(m, Vector3(1.7f, 0.06f, L.plateZ() - 0.2f), 2.1f, 0.02f, 3.1f, shade(dDk, 1.05f));
 
     // On-deck circles — chalk-rimmed dirt discs behind home, both sides.
     for (float cx : {-7.5f, 7.5f}) {
         Vector3 oc(cx, 0.0f, L.plateZ() + 6.5f);
-        addDisk(m, oc, 2.6f, 0.021f, 24, shade(dirt, 0.92f));
-        addRing(m, oc, 2.35f, 2.6f, 0.027f, 24, sf::Color(248, 248, 245));
+        addDisk(m, oc, 2.6f, 0.05f, 24, shade(dirt, 0.92f));
+        addRing(m, oc, 2.35f, 2.6f, 0.056f, 24, sf::Color(248, 248, 245));
     }
 
     m.rebuildNormals();
@@ -1489,15 +1515,26 @@ Mesh3D buildLines(const Layout& L) {
     Mesh3D m;
     sf::Color chalk(248, 248, 245);
     auto line = [&](Vector3 a, Vector3 b, float hw) {
-        addPath(m, a, b, hw, 0.038f, chalk);
+        // Above the 0.05 dirt cutouts (and well above the 0.002 grass) so the
+        // chalk never loses the depth test to the huge ground triangles.
+        addPath(m, a, b, hw, 0.065f, chalk);
     };
     float aL = -L.foulAngleRad(), aR = L.foulAngleRad();
     line(L.home(), L.fromHome(L.wallRAtAngle(aL) + 0.5f, aL, 0), 0.13f);
     line(L.home(), L.fromHome(L.wallRAtAngle(aR) + 0.5f, aR, 0), 0.13f);
-    line(L.home(), L.firstBase(), 0.09f);
-    line(L.firstBase(), L.secondBase(), 0.09f);
-    line(L.secondBase(), L.thirdBase(), 0.09f);
-    line(L.thirdBase(), L.home(), 0.09f);
+    // No chalk between the bases — real MLB parks only paint the foul lines,
+    // the batter's boxes, and the catcher's box.
+    // Catcher's box (directly behind home plate)
+    {
+        float hw = 1.05f;
+        float z0 = L.plateZ() + 0.45f;
+        float z1 = L.plateZ() + 2.35f;
+        Vector3 a(-hw, 0, z0), b(hw, 0, z0), c(hw, 0, z1), d(-hw, 0, z1);
+        line(a, b, 0.05f);
+        line(b, c, 0.05f);
+        line(c, d, 0.05f);
+        line(d, a, 0.05f);
+    }
     // Batter box outlines
     for (float cx : {-1.7f, 1.7f}) {
         float zc = L.plateZ() - 0.2f;
@@ -1554,82 +1591,63 @@ sf::Color fanSkin(int id) {
 
 std::vector<Mesh3D> buildFanSectors(const Layout& L) {
     std::vector<Mesh3D> sectors(kFanSectorCount);
-    // Keep crowd dense enough to read, light enough to upload reliably on macOS GL.
-    const int angSamples = 120;
-    const float dRow = 1.55f;
-    const float rise = 0.95f;
+    // Row walk mirrors buildStands EXACTLY (same dRow/rise/row counts and the
+    // same concourse → suite → upper-bowl offsets) so every fan sits on a
+    // real seat tread: a dense foul-pole-to-foul-pole MLB sellout bowl.
+    // Previously fans filled only the front ~9 rows of 15–16-row sections
+    // (bare seat backs down both lines) and the upper-deck crowd behind home
+    // floated in front of the glass (the "dome of people").
+    const int angSamples = 200;
+    const float dRow = 1.35f;
+    const float rise = 0.88f;
     int fanId = 0;
 
     for (int i = 0; i < angSamples; i++) {
         float t = (static_cast<float>(i) + 0.5f) / angSamples;
         float ang = -pi + t * 2.0f * pi;
-        if (!inSeatArc(L, ang)) {
-            continue;
-        }
         int sector = static_cast<int>(t * kFanSectorCount) % kFanSectorCount;
         bool ofBleach = isOfBleacher(L, ang);
         bool club = isClubZone(ang);
-        int rows = ofBleach ? 5 : (club ? 10 : 9);
-        float r = seatInnerR(L, ang) + 0.5f;
-        float y = seatBaseY(L, ang) + 0.65f;
+        // Walkway aisles stay mostly clear, matching the gray aisle paint.
+        const float aisleFill = (i % 10 == 0) ? 0.15f : 1.0f;
 
-        for (int row = 0; row < rows; row++) {
-            float fill = ofBleach ? 0.82f : (row < 3 ? 0.85f : 0.74f);
-            if (hash01(fanId * 13 + row * 3) > fill) {
+        auto seatFan = [&](float rRow, float ySeat, float fillBase) {
+            if (hash01(fanId * 13 + 7) > fillBase * aisleFill) {
                 fanId++;
-                r += dRow;
-                y += rise;
-                continue;
+                return;
             }
-            Vector3 seat = L.fromHome(r + dRow * 0.3f, ang, y);
+            Vector3 seat = L.fromHome(rRow, ang, ySeat);
             seat.x += (hash01(fanId) - 0.5f) * 0.42f;
             seat.z += (hash01(fanId + 3) - 0.5f) * 0.42f;
             float sc = 0.95f + 0.35f * hash01(fanId + 9);
             addFan(sectors[sector], seat, sc, fanShirt(fanId), fanSkin(fanId + 4));
             fanId++;
-            r += dRow;
+        };
+
+        float r = seatInnerR(L, ang);
+        float y = seatBaseY(L, ang);
+        const int rowsLower = ofBleach ? 8 : (club ? 16 : 15);
+        for (int row = 0; row < rowsLower; row++) {
+            float y1 = y + rise * 0.82f; // tread top, same as the seat quad
+            float fill = ofBleach ? 0.88f : (row < 4 ? 0.93f : 0.86f);
+            seatFan(r + dRow * 0.45f, y1 + 0.02f, fill);
+            r = r + dRow * 0.92f + dRow * 0.05f;
             y += rise;
         }
 
         if (club) {
-            // Fans seated in the new steep upper bowl above the suite glass.
-            float rU = seatInnerR(L, ang) + 23.0f;
-            float yU = seatBaseY(L, ang) + 21.6f;
-            for (int row = 0; row < 5; row++) {
-                if (hash01(fanId * 17 + row) > 0.7f) {
-                    fanId++;
-                    rU += dRow;
-                    yU += rise;
-                    continue;
-                }
-                Vector3 seat = L.fromHome(rU, ang, yU);
-                addFan(sectors[sector], seat, 0.9f, fanShirt(fanId + 50), fanSkin(fanId));
-                fanId++;
-                rU += dRow;
-                yU += rise;
+            // Upper bowl above the suite glass — same walk as buildStands:
+            // concourse (4.2) → fascia (0.6 + 0.4) → 9 steep rows.
+            float rC1 = r + 4.2f;
+            float yC = y + 0.15f;
+            float rRow = rC1 + 0.6f + 0.4f;
+            float yRow = yC + 3.2f + 3.6f;
+            for (int row = 0; row < 9; row++) {
+                float y1 = yRow + rise * 0.72f;
+                seatFan(rRow + dRow * 0.4f, y1 + 0.02f, 0.8f);
+                rRow = rRow + dRow * 0.82f + 0.05f;
+                yRow += rise * 0.9f;
             }
-        }
-    }
-
-    // OF bleacher pass
-    for (int i = 0; i < 80; i++) {
-        float t = (static_cast<float>(i) + 0.5f) / 80.0f;
-        float ang = -L.foulAngleRad() + t * 2.0f * L.foulAngleRad();
-        int sector = static_cast<int>(((ang + pi) / (2.0f * pi)) * kFanSectorCount) %
-                     kFanSectorCount;
-        if (sector < 0) {
-            sector += kFanSectorCount;
-        }
-        float r0 = seatInnerR(L, ang);
-        float y0 = seatBaseY(L, ang);
-        for (int row = 0; row < 4; row++) {
-            if (hash01(i * 31 + row * 5) > 0.8f) {
-                continue;
-            }
-            float r = r0 + 1.0f + row * dRow;
-            float y = y0 + 0.7f + row * rise;
-            Vector3 seat = L.fromHome(r, ang, y);
-            addFan(sectors[sector], seat, 0.85f, fanShirt(i * 3 + row), fanSkin(i + row));
         }
     }
 

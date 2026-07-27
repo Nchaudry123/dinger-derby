@@ -1145,7 +1145,8 @@ Vector3 launchPitch(
 
 // Pitcher root transform — centered on the rubber, facing +Z toward home.
 Matrix4 pitcherWorldTransform() {
-    return Matrix4::translation(Vector3(0.0f, 0.0f, moundZ));
+    // Feet on the raised mound table (y = mound top).
+    return Matrix4::translation(Vector3(0.0f, 0.28f, moundZ));
 }
 
 bool freezePitchAtPlate(

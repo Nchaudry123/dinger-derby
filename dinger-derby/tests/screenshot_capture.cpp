@@ -232,7 +232,8 @@ bool shotPlateDuel(const Stadium3D::Layout& L, const Stadium3D::Meshes& meshes) 
     batterAnim.applyClip(stanceClip, 0.4f, true);
     Mesh3D batterMesh = batterModel.skinToMesh(batterAnim.skinMatrices());
 
-    Matrix4 pitcherXform = Matrix4::translation(Vector3(0.0f, 0.0f, 0.0f));
+    // Feet on the raised mound table (y = mound top).
+    Matrix4 pitcherXform = Matrix4::translation(Vector3(0.0f, 0.28f, 0.0f));
     Matrix4 batterXform =
         Matrix4::translation(Vector3(-1.05f, 0.0f, plateZ - 0.28f)) *
         Matrix4::rotationY(kPi); // face the mound (−Z)
