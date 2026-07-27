@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 #include <sstream>
 
 // ============================================================================
@@ -51,9 +52,10 @@ const sf::Color kEyeWhite(248, 246, 242);
 const sf::Color kUndershirt(48, 92, 180);   // bold blue batting sleeves
 const sf::Color kUndershirtDeep(32, 64, 140);
 const sf::Color kPantsStripe(232, 232, 240);
+const sf::Color kGlove(242, 242, 246);      // white batting gloves
 
 // ~1.78 m male. Limb lengths locked for skinned_model_test.
-constexpr float kPi = 3.14159265f;
+constexpr float kPi = std::numbers::pi_v<float>;
 constexpr float kHU = 1.78f / 8.0f;
 constexpr float kHeight = 1.78f;
 constexpr float kHeadR = kHU * 0.56f;         // larger game-readable head
@@ -563,8 +565,8 @@ void attachClips(SkinnedModel3D& m, Role role) {
             eul(0.14f, -0.50f,  0.04f),  // plant closed
             eul(0.16f,  0.00f,  0.05f),  // hips fire
             eul(0.16f,  0.38f,  0.05f),  // RELEASE
-            eul(0.14f,  0.72f,  0.04f),
-            eul(0.10f,  0.40f,  0.02f),
+            eul(0.14f,  0.85f,  0.04f),  // follow-through — full hip turn
+            eul(0.10f,  0.44f,  0.02f),
             eul(0.05f,  0.14f,  0.01f),
             eul(0.02f,  0.03f,  0.00f)
         });
@@ -626,8 +628,8 @@ void attachClips(SkinnedModel3D& m, Role role) {
             eul(-0.68f,  0.30f,  0.30f),  // 3 kick
             eul(-0.68f,  0.30f,  0.30f),  // 4 balance HOLD glove box
             eul(-1.20f, -0.02f,  0.65f),  // 5 BREAK — pull ball out/up
-            eul(-1.80f, -0.12f,  0.70f),  // 6 stride cock (unit lift)
-            eul(-2.15f, -0.22f,  0.66f),  // 7 plant high elbow
+            eul(-1.95f, -0.15f,  0.72f),  // 6 stride cock — deep layback
+            eul(-2.30f, -0.26f,  0.68f),  // 7 plant — full external rotation
             eul(-1.70f, -0.06f,  0.30f),  // 8 accel — drive forward
             eul(-1.35f,  0.02f,  0.14f),  // 9 RELEASE high ¾
             eul(-0.68f,  0.12f,  0.78f),  // 10 follow across
@@ -1198,19 +1200,32 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     auto G = restGlobals(m);
     auto W = [&](int j) { return worldOf(G, j); };
 
+    // ── Per-role uniforms — team identity navy / white / hot-red trim ───
+    //   Pitcher: home whites (white jersey + white pants, navy cap).
+    //   Batter:  road royal (full royal jersey + white pants, navy helmet).
+    //   Catcher: navy armor over home whites.
+    const sf::Color kWhitePants(238, 240, 244);
+    const sf::Color kWhitePantsDeep(204, 210, 220);
     sf::Color torso = catcher ? kGear : (athlete ? kUndershirt : kJersey);
     sf::Color torsoD = catcher ? kGearDeep : (athlete ? kUndershirtDeep : kJerseyDeep);
-    sf::Color sleeve = catcher ? kGearDeep : (athlete ? kSkin : kJerseyDeep);
+    sf::Color sleeve = catcher ? kGearDeep : (athlete ? kUndershirt : kJersey);
+    sf::Color sleeveD = catcher ? kGearDeep : (athlete ? kUndershirtDeep : kJerseyDeep);
+    sf::Color pants = catcher ? kPants : kWhitePants;
+    sf::Color pantsD = catcher ? kPantsDeep : kWhitePantsDeep;
+    // Forearms: skin for fielders, royal compression sleeve for the batter.
+    sf::Color foreCol = athlete ? kUndershirtDeep : kSkin;
+    sf::Color foreDeep = athlete ? kUndershirtDeep : kSkinDeep;
 
-    // ── LEGS: bold athletic volumes (read at distance) ──────────────────
+    // ── LEGS: quad bulge, knee cap, calf, stirrups, spiked cleats ───────
     auto makeLeg = [&](int jHip, int jTh, int jTt, int jKn, int jShin, int jSt, int jAn, int jToe) {
         Vector3 pH = W(jHip), pTh = W(jTh), pK = W(jKn), pSh = W(jShin), pA = W(jAn), pT = W(jToe);
+        float sideSign = (pH.x >= 0.0f) ? 1.0f : -1.0f;
         boneChain(
             m,
             {pH, pTh, pK + Vector3(0, 0.014f, 0.004f)},
             {jHip, jTh, jTt},
-            {0.092f, 0.088f, 0.064f},
-            kPants, kPantsDeep, 0.40f,
+            {0.094f, 0.090f, 0.066f},
+            pants, pantsD, 0.40f,
             rings + 14, segs,
             0.042f
         );
@@ -1218,23 +1233,36 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
             m,
             {pK, pSh, pA + Vector3(0, 0.012f, 0)},
             {jKn, jShin, jSt},
-            {0.060f, 0.056f, 0.040f},
-            kPants, kPantsDeep, 0.52f,
+            {0.058f, 0.052f, 0.038f},
+            pants, pantsD, 0.52f,
             rings + 12, segs,
             0.042f
         );
+        // Quad bulge (front thigh) + calf bulge (back shin).
+        ball(m, lerpV(pH, pK, 0.38f) + Vector3(0, 0, 0.030f), 0.062f, 0.085f, 0.058f, pants,
+             hr, hs, jTh, 0.60f, jTt, 0.40f);
+        ball(m, lerpV(pK, pA, 0.30f) + Vector3(0, 0, -0.026f), 0.048f, 0.075f, 0.050f, pants,
+             hr - 1, hs - 2, jShin, 0.65f, jSt, 0.35f);
+        // Knee cap.
+        ball(m, pK + Vector3(0, 0.005f, 0.028f), 0.050f, 0.046f, 0.040f, pantsD,
+             hr - 1, hs - 2, jKn, 0.78f, jTt, 0.11f, jShin, 0.11f);
         // Outer pant stripe (team flash).
-        Vector3 midTh = lerpV(pH, pK, 0.45f) + Vector3(pH.x > 0 ? 0.055f : -0.055f, 0, 0);
+        Vector3 midTh = lerpV(pH, pK, 0.45f) + Vector3(0.055f * sideSign, 0, 0);
         ball(m, midTh, 0.012f, 0.12f, 0.012f, kPantsStripe, 5, 8, jTh, 0.7f, jTt, 0.3f);
-        ball(m, pH, 0.070f, 0.064f, 0.068f, kPants, hr + 1, hs, jHip, 0.72f, hips, 0.28f);
-        ball(m, pK, 0.056f, 0.050f, 0.054f, kPantsLight, hr, hs - 2, jKn, 0.74f, jTt, 0.13f, jShin, 0.13f);
-        // Tall white socks.
+        ball(m, pH, 0.070f, 0.064f, 0.068f, pants, hr + 1, hs, jHip, 0.72f, hips, 0.28f);
+        // Tall sanitary sock + team-color stirrup band.
+        sf::Color stirrup = athlete ? kUndershirt : kCap;
         ball(m, pA + Vector3(0, 0.055f, 0), 0.040f, 0.055f, 0.040f, kSock, 8, 12, jAn, 0.75f, jSt, 0.25f);
-        ball(m, pA + Vector3(0, 0.028f, 0), 0.038f, 0.028f, 0.038f, kSock, 7, 12, jAn, 0.92f, jSt, 0.08f);
-        // Bold cleats.
+        ball(m, pA + Vector3(0, 0.044f, 0), 0.042f, 0.024f, 0.042f, stirrup, 7, 12, jAn, 0.85f, jSt, 0.15f);
+        // Cleats: upper, sole plate, toe accent, lace flash, spikes.
         ball(m, pT, 0.048f, 0.028f, 0.092f, kCleat, hr, hs - 2, jToe, 0.82f, jAn, 0.18f);
         ball(m, pT + Vector3(0, -0.015f, 0.012f), 0.050f, 0.012f, 0.096f, kSole, 5, 10, jToe, 0.88f, jAn, 0.12f);
         ball(m, pT + Vector3(0, 0.008f, 0.04f), 0.022f, 0.014f, 0.030f, kAccent, 4, 6, jToe, 0.9f, jAn, 0.1f);
+        ball(m, pT + Vector3(0, 0.016f, 0.002f), 0.020f, 0.007f, 0.028f, kSock, 4, 6, jToe, 0.9f, jAn, 0.1f);
+        for (int sp = -1; sp <= 1; sp++) {
+            ball(m, pT + Vector3(static_cast<float>(sp) * 0.028f, -0.026f, 0.05f),
+                 0.008f, 0.010f, 0.012f, kSole, 4, 5, jToe, 1.0f);
+        }
     };
     makeLeg(hipR, thR, ttR, knR, shinR, stR, anR, toeR);
     makeLeg(hipL, thL, ttL, knL, shinL, stL, anL, toeL);
@@ -1253,8 +1281,8 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         shinGuard(knR, anR);
     }
 
-    // ── PELVIS + TORSO (hero V-torso) ────────────────────────────────────
-    ball(m, W(hips), 0.145f, 0.110f, 0.122f, kPants, hr + 1, hs + 2, hips, 1.0f);
+    // ── PELVIS + TORSO (V-taper: pec pair, lats, ab column) ─────────────
+    ball(m, W(hips), 0.145f, 0.110f, 0.122f, pants, hr + 1, hs + 2, hips, 1.0f);
     ball(m, W(hips) + Vector3(0, 0.055f, 0), 0.130f, 0.026f, 0.108f, kBelt, 6, 14, hips, 0.92f, spine, 0.08f);
     // Belt buckle flash.
     ball(m, W(hips) + Vector3(0, 0.055f, 0.09f), 0.028f, 0.022f, 0.014f, kAccent, 4, 6, hips, 1.0f);
@@ -1277,8 +1305,17 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
     ball(m, W(spine), 0.118f, 0.085f, 0.100f, torso, hr + 1, hs, spine, 0.62f, hips, 0.20f, spine2, 0.18f);
     ball(m, W(spine2), 0.142f, 0.098f, 0.118f, torso, hr + 1, hs, spine2, 0.70f, spine, 0.15f, chest, 0.15f);
     ball(m, W(chest), 0.172f, 0.112f, 0.130f, torso, hr + 2, hs + 2, chest, 0.88f, spine2, 0.12f);
-    // Deep pec / jersey front mass.
-    ball(m, W(chest) + Vector3(0, -0.012f, 0.055f), 0.140f, 0.092f, 0.080f, torsoD, hr + 1, hs, chest, 1.0f);
+    // Pec pair — split front mass that reads as a real chest.
+    ball(m, W(chest) + Vector3(-0.058f, -0.006f, 0.060f), 0.066f, 0.062f, 0.058f, torso, hr, hs, chest, 1.0f);
+    ball(m, W(chest) + Vector3(0.058f, -0.006f, 0.060f), 0.066f, 0.062f, 0.058f, torso, hr, hs, chest, 1.0f);
+    // Lat flares under the arms — the V-taper edge.
+    ball(m, W(chest) + Vector3(-0.132f, -0.052f, 0.008f), 0.048f, 0.072f, 0.054f, torsoD, hr - 1, hs - 2,
+         chest, 0.70f, spine2, 0.30f);
+    ball(m, W(chest) + Vector3(0.132f, -0.052f, 0.008f), 0.048f, 0.072f, 0.054f, torsoD, hr - 1, hs - 2,
+         chest, 0.70f, spine2, 0.30f);
+    // Ab column down the jersey front.
+    ball(m, W(spine) + Vector3(0, 0.004f, 0.064f), 0.054f, 0.078f, 0.044f, torsoD, hr - 1, hs - 2,
+         spine, 0.70f, spine2, 0.30f);
     // Traps / collarbone shelf (wide silhouette).
     ball(m, (W(shL) + W(shR)) * 0.5f + Vector3(0, 0.018f, 0.012f),
          0.125f, 0.038f, 0.060f, torso, hr, hs - 2, chest, 0.88f, spine2, 0.12f);
@@ -1290,6 +1327,15 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         ball(m, G[chest].transformPoint(Vector3(0, 0.02f, 0.112f)), 0.055f, 0.070f, 0.014f, kAccent, 6, 10, chest, 1.0f);
         ball(m, G[chest].transformPoint(Vector3(-0.018f, 0.02f, 0.120f)), 0.014f, 0.055f, 0.008f, kJersey, 4, 6, chest, 1.0f);
         ball(m, G[chest].transformPoint(Vector3(0.018f, 0.02f, 0.120f)), 0.014f, 0.055f, 0.008f, kJersey, 4, 6, chest, 1.0f);
+        // Button placket down the jersey front.
+        ball(m, G[chest].transformPoint(Vector3(0, -0.02f, 0.118f)), 0.012f, 0.075f, 0.008f, kJerseyDeep, 4, 6, chest, 1.0f);
+        for (int bIdx = 0; bIdx < 4; bIdx++) {
+            ball(
+                m,
+                G[chest].transformPoint(Vector3(0, 0.028f - static_cast<float>(bIdx) * 0.034f, 0.124f)),
+                0.006f, 0.006f, 0.004f, kCapDeep, 4, 6, chest, 1.0f
+            );
+        }
         // Red sleeve cuffs + shoulder piping.
         ball(m, W(uaR) + Vector3(0.01f, 0, 0), 0.056f, 0.022f, 0.056f, kAccent, 5, 10, uaR, 0.9f, htR, 0.1f);
         ball(m, W(uaL) + Vector3(-0.01f, 0, 0), 0.056f, 0.022f, 0.056f, kAccent, 5, 10, uaL, 0.9f, htL, 0.1f);
@@ -1297,8 +1343,16 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         ball(m, W(shL) + Vector3(-0.02f, 0.02f, 0), 0.040f, 0.018f, 0.040f, kAccentLite, 4, 8, shL, 0.8f, clavL, 0.2f);
     }
     if (athlete) {
-        // Compression sleeves already blue; add chest band + number (front).
+        // Royal road jersey — chest wordmark band + button placket.
         ball(m, G[chest].transformPoint(Vector3(0, 0.0f, 0.100f)), 0.048f, 0.060f, 0.012f, kAccent, 6, 10, chest, 1.0f);
+        ball(m, G[chest].transformPoint(Vector3(0, -0.02f, 0.116f)), 0.012f, 0.075f, 0.008f, kUndershirtDeep, 4, 6, chest, 1.0f);
+        for (int bIdx = 0; bIdx < 4; bIdx++) {
+            ball(
+                m,
+                G[chest].transformPoint(Vector3(0, 0.028f - static_cast<float>(bIdx) * 0.034f, 0.122f)),
+                0.006f, 0.006f, 0.004f, kSock, 4, 6, chest, 1.0f
+            );
+        }
         ball(m, W(chest) + Vector3(0, -0.08f, 0.04f), 0.130f, 0.022f, 0.100f, kUndershirtDeep, 5, 12, chest, 0.7f, spine2, 0.3f);
         // Back number plate — the default HR Derby camera sits behind the
         // plate looking at the pitcher, so the batter's BACK (not the front
@@ -1306,6 +1360,23 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         ball(m, G[chest].transformPoint(Vector3(0, 0.02f, -0.112f)), 0.055f, 0.070f, 0.014f, kAccent, 6, 10, chest, 1.0f);
         ball(m, G[chest].transformPoint(Vector3(-0.018f, 0.02f, -0.120f)), 0.014f, 0.055f, 0.008f, kJersey, 4, 6, chest, 1.0f);
         ball(m, G[chest].transformPoint(Vector3(0.018f, 0.02f, -0.120f)), 0.014f, 0.055f, 0.008f, kJersey, 4, 6, chest, 1.0f);
+        // Lead-elbow guard — the batter's signature armor.
+        ball(m, W(elL), 0.052f, 0.046f, 0.052f, kCapDeep, 6, 10, elL, 0.85f, faL, 0.15f);
+        ball(m, W(elL) + Vector3(0, 0.012f, 0.012f), 0.054f, 0.020f, 0.054f, kCap, 5, 8, elL, 0.85f, faL, 0.15f);
+        // White batting gloves + wrist tape — both hands grip the bat.
+        for (int h = 0; h < 2; h++) {
+            int jPalm = (h == 0) ? palmL : palmR;
+            int jWr = (h == 0) ? wrL : wrR;
+            ball(m, W(jPalm), 0.042f, 0.028f, 0.050f, kGlove, hr - 1, hs - 2, jPalm, 0.94f, jWr, 0.06f);
+            ball(m, W(jWr), 0.038f, 0.024f, 0.038f, kGlove, 6, 10, jWr, 0.90f, jPalm, 0.10f);
+            // Tape band above the glove cuff.
+            ball(m, W(jWr) + Vector3(0, 0.026f, 0), 0.036f, 0.014f, 0.036f, kSock, 5, 8, jWr, 0.95f, jPalm, 0.05f);
+            // Small team-logo dot on the glove back.
+            ball(m, W(jPalm) + Vector3(0, 0.014f, -0.012f), 0.013f, 0.009f, 0.013f, kAccent, 4, 6, jPalm, 1.0f);
+        }
+        // Eyeblack strips under the eyes.
+        ball(m, G[head].transformPoint(Vector3(-0.034f, -0.016f, 0.094f)), 0.022f, 0.007f, 0.009f, kEye, 4, 6, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0.034f, -0.016f, 0.094f)), 0.022f, 0.007f, 0.009f, kEye, 4, 6, head, 1.0f);
     }
     if (catcher) {
         // Thick chest protector with layered plates + red trim.
@@ -1347,17 +1418,20 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         boneChain(
             m, {f0, f1, f2}, {jEl, jFa, jPt},
             {rElbow, rFore, rWrist},
-            kSkin, kSkinDeep, 0.55f, rings + 12, segs, 0.036f
+            foreCol, foreDeep, 0.55f, rings + 12, segs, 0.036f
         );
 
-        // Oversized deltoid cap — key read at distance.
+        // Deltoid: rounded cap + front head — the shoulder read at distance.
         ball(m, pS + axisU * 0.012f, 0.064f, 0.058f, 0.064f, sleeve, hr, hs - 2,
              jSh, 0.90f, jClav, 0.10f);
-        ball(m, pE, 0.042f, 0.038f, 0.042f, kSkin, hr - 1, hs - 2,
+        ball(m, pS + axisU * 0.042f + Vector3(0, 0, 0.020f), 0.050f, 0.044f, 0.048f, sleeve, hr - 1, hs - 2,
+             jSh, 0.70f, jUa, 0.30f);
+        ball(m, pE, 0.042f, 0.038f, 0.042f, foreCol, hr - 1, hs - 2,
              jEl, 0.84f, jHt, 0.08f, jFa, 0.08f);
-        ball(m, pUa + axisU * 0.02f, 0.058f, 0.052f, 0.058f, torsoD, hr - 1, hs - 2,
+        // Bicep peak on the front of the upper arm.
+        ball(m, pUa + axisU * 0.02f + Vector3(0, 0, 0.024f), 0.048f, 0.052f, 0.044f, sleeveD, hr - 1, hs - 2,
              jUa, 0.92f, jHt, 0.08f);
-        ball(m, pW, 0.032f, 0.028f, 0.032f, kSkinDeep, 7, 12, jWr, 0.90f, jPt, 0.10f);
+        ball(m, pW, 0.032f, 0.028f, 0.032f, foreDeep, 7, 12, jWr, 0.90f, jPt, 0.10f);
 
         if (mitt) {
             // Oversized mitt — iconic baseball prop.
@@ -1411,9 +1485,14 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         16, segs
     );
     ball(m, W(neck), 0.056f, 0.058f, 0.056f, kSkin, 10, 14, neck, 0.55f, chest, 0.25f, head, 0.20f);
-    // Large skull + jaw for silhouette.
+    // Cranium + occipital (back of the skull) + jaw for a real head shape.
     ball(m, W(head), kHeadR * 0.98f, kHeadR * 1.10f, kHeadR * 0.96f, kSkin, hr + 2, hs + 2, head, 1.0f);
+    ball(m, G[head].transformPoint(Vector3(0, 0.010f, -0.052f)), 0.082f, 0.088f, 0.062f, kSkin, 9, 14, head, 1.0f);
     ball(m, G[head].transformPoint(Vector3(0, -0.062f, 0.032f)), 0.056f, 0.044f, 0.050f, kSkin, 9, 14, head, 1.0f);
+    // Cheek pair + chin — mid-face volume instead of a bare egg.
+    ball(m, G[head].transformPoint(Vector3(-0.042f, -0.026f, 0.066f)), 0.028f, 0.024f, 0.026f, kSkinLight, 6, 10, head, 1.0f);
+    ball(m, G[head].transformPoint(Vector3(0.042f, -0.026f, 0.066f)), 0.028f, 0.024f, 0.026f, kSkinLight, 6, 10, head, 1.0f);
+    ball(m, G[head].transformPoint(Vector3(0, -0.078f, 0.052f)), 0.026f, 0.020f, 0.028f, kSkinDeep, 6, 10, head, 1.0f);
     // Ears.
     ball(m, G[head].transformPoint(Vector3(-0.105f, 0, 0)), 0.016f, 0.026f, 0.014f, kSkinDeep, 5, 8, head, 1.0f);
     ball(m, G[head].transformPoint(Vector3(0.105f, 0, 0)), 0.016f, 0.026f, 0.014f, kSkinDeep, 5, 8, head, 1.0f);
@@ -1447,14 +1526,16 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         ball(m, G[head].transformPoint(Vector3(-0.09f, 0.0f, 0.02f)), 0.028f, 0.040f, 0.035f, kGear, 5, 8, head, 1.0f);
         ball(m, G[head].transformPoint(Vector3(0.09f, 0.0f, 0.02f)), 0.028f, 0.040f, 0.035f, kGear, 5, 8, head, 1.0f);
     } else if (pitcher) {
-        // Tall navy cap + long bill + red button.
+        // Tall navy cap + long bill + red button + panel seams.
         ball(m, G[head].transformPoint(Vector3(0, 0.088f, -0.014f)), 0.108f, 0.038f, 0.108f, kCap, hr + 1, hs + 2, head, 1.0f);
         ball(m, G[head].transformPoint(Vector3(0, 0.060f, -0.006f)), 0.110f, 0.016f, 0.110f, kCapDeep, 6, 12, head, 1.0f);
         ball(m, G[head].transformPoint(Vector3(0, 0.048f, 0.105f)), 0.062f, 0.012f, 0.050f, kCapDeep, 6, 12, head, 1.0f);
         ball(m, G[head].transformPoint(Vector3(0, 0.045f, 0.145f)), 0.048f, 0.010f, 0.022f, kCap, 5, 10, head, 1.0f);
         ball(m, G[head].transformPoint(Vector3(0, 0.095f, 0.02f)), 0.018f, 0.014f, 0.014f, kAccent, 5, 8, head, 1.0f);
-        // Cap logo patch.
+        // Cap logo patch + side panel seams.
         ball(m, G[head].transformPoint(Vector3(0, 0.075f, 0.055f)), 0.020f, 0.016f, 0.010f, kAccentLite, 4, 6, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(-0.058f, 0.075f, 0.030f)), 0.010f, 0.026f, 0.012f, kCapDeep, 4, 6, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0.058f, 0.075f, 0.030f)), 0.010f, 0.026f, 0.012f, kCapDeep, 4, 6, head, 1.0f);
     } else {
         // Batting helmet — hard-shell dome + brim (team navy). Batters wear
         // a full helmet, not a soft cap; this used to be a thin headband
@@ -1463,6 +1544,12 @@ SkinnedModel3D buildInternal(Role role, Detail detailLevel) {
         ball(m, G[head].transformPoint(Vector3(0, 0.072f, -0.008f)), 0.118f, 0.088f, 0.116f, kCap, hr + 1, hs + 2, head, 1.0f);
         ball(m, G[head].transformPoint(Vector3(0, 0.048f, 0.098f)), 0.072f, 0.020f, 0.044f, kCapDeep, 6, 12, head, 1.0f);
         ball(m, G[head].transformPoint(Vector3(0, 0.100f, 0.018f)), 0.020f, 0.016f, 0.016f, kAccent, 5, 8, head, 1.0f);
+        // Rear shell flare protecting the neck line.
+        ball(m, G[head].transformPoint(Vector3(0, 0.010f, -0.095f)), 0.086f, 0.036f, 0.032f, kCap, 6, 10, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(0, -0.006f, -0.082f)), 0.090f, 0.018f, 0.030f, kCapDeep, 5, 8, head, 1.0f);
+        // Ear flap on the pitcher-facing (left) side + lower shell guard.
+        ball(m, G[head].transformPoint(Vector3(-0.102f, -0.012f, 0.018f)), 0.030f, 0.048f, 0.040f, kCap, 5, 8, head, 1.0f);
+        ball(m, G[head].transformPoint(Vector3(-0.080f, -0.040f, 0.010f)), 0.028f, 0.020f, 0.034f, kCapDeep, 5, 8, head, 1.0f);
     }
 
     // Soft waist blend pants → jersey.
