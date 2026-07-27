@@ -6,9 +6,9 @@
 #include "../math/Vector3.h"
 
 // Shared open-air ballpark for HR Derby / pitching / batting.
-// Style: minor-league outdoor horseshoe (Fredericksburg-class reference) —
-// striped grass, dirt diamond, blue OF wall, blue lower bowl + red club seats,
-// light towers, suite facade behind home. No closed dome.
+// Style: "Crown Jewel" retro-modern MLB arena — striped grass, dirt diamond,
+// dark-green padded walls, forest-green two-tier bowl + suite ring, brick
+// rotunda behind home, cantilevered white roof canopy, downtown skyline.
 //
 // Play coordinate frame:
 //   Mound at (0, 0, 0)
@@ -32,21 +32,21 @@ inline sf::Color grassDarkColor() { return sf::Color(34, 112, 48); }
 inline sf::Color dirtColor() { return sf::Color(185, 125, 70); }
 inline sf::Color warningTrackColor() { return sf::Color(168, 112, 62); }
 
-// Reference: royal blue lower seats, red club / corner seats, blue OF padding.
-inline sf::Color seatBlueColor() { return sf::Color(28, 70, 150); }
-inline sf::Color seatBlueAltColor() { return sf::Color(22, 58, 130); }
+// Reference: forest-green bowl, gold premium band, dark-green OF padding.
+inline sf::Color seatBlueColor() { return sf::Color(26, 76, 54); }
+inline sf::Color seatBlueAltColor() { return sf::Color(20, 62, 46); }
 inline sf::Color seatRedColor() { return sf::Color(185, 45, 45); }
 inline sf::Color seatRedAltColor() { return sf::Color(160, 35, 38); }
-inline sf::Color seatMidColor() { return sf::Color(28, 70, 150); }
+inline sf::Color seatMidColor() { return sf::Color(26, 76, 54); }
 inline sf::Color seatUpperColor() { return sf::Color(185, 45, 45); }
-// Reserve-level gold/yellow band topping the bowl, Dodger Stadium-style.
+// Premium gold/yellow band topping the bowl.
 inline sf::Color seatGoldColor() { return sf::Color(232, 190, 70); }
 inline sf::Color seatGoldAltColor() { return sf::Color(205, 165, 52); }
 inline sf::Color concourseColor() { return sf::Color(150, 145, 135); }
-inline sf::Color facadeTanColor() { return sf::Color(175, 160, 140); }
-inline sf::Color facadeGrayColor() { return sf::Color(155, 155, 158); }
-inline sf::Color ofWallColor() { return sf::Color(18, 55, 120); }
-inline sf::Color ofWallTopColor() { return sf::Color(25, 70, 145); }
+inline sf::Color facadeTanColor() { return sf::Color(156, 90, 66); }   // brick
+inline sf::Color facadeGrayColor() { return sf::Color(198, 186, 162); } // sandstone
+inline sf::Color ofWallColor() { return sf::Color(16, 48, 34); }       // dark green pads
+inline sf::Color ofWallTopColor() { return sf::Color(26, 66, 46); }
 inline sf::Color foulPoleColor() { return sf::Color(232, 205, 40); }
 inline sf::Color boardChassisColor() { return sf::Color(240, 240, 245); }
 inline sf::Color railColor() { return sf::Color(210, 215, 220); }

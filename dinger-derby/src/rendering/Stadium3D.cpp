@@ -3,20 +3,21 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <numbers>
 #include <optional>
 #include <vector>
 
 #include "GltfLoader.h"
 
-// Masterpiece open-air minor-league ballpark (Fredericksburg-class).
-// One continuous structure: diamond field, blue horseshoe bowl, red club
-// deck, OF bleachers + wall, suite facade, light towers, exterior apron.
-// Dense crowds in bowl and outfield. No closed dome.
+// Crown Jewel retro-modern ballpark — a downtown park. One continuous
+// structure: diamond field, forest-green bowl, suite ring + steep upper deck
+// behind home, white cantilevered roof, brick + sandstone rotunda, gold
+// crown videoboard, tall green LF wall, light towers, and a CBD skyline.
 
 namespace Stadium3D {
 namespace {
 
-constexpr float pi = 3.1415926535f;
+constexpr float pi = std::numbers::pi_v<float>;
 
 float hash01(int n) {
     unsigned x = static_cast<unsigned>(n) * 747796405u + 2891336453u;
@@ -213,7 +214,7 @@ bool isOfBleacher(const Layout& L, float ang) {
 
 bool isClubZone(float ang) {
     wrapAng(ang);
-    return std::abs(ang) > 1.65f; // behind home
+    return std::abs(ang) > 1.30f; // wide double-deck arc behind home + dugouts
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -366,6 +367,13 @@ Mesh3D buildField(const Layout& L) {
     addBox(m, Vector3(-1.7f, 0.03f, L.plateZ() - 0.2f), 2.1f, 0.02f, 3.1f, shade(dDk, 1.05f));
     addBox(m, Vector3(1.7f, 0.03f, L.plateZ() - 0.2f), 2.1f, 0.02f, 3.1f, shade(dDk, 1.05f));
 
+    // On-deck circles — chalk-rimmed dirt discs behind home, both sides.
+    for (float cx : {-7.5f, 7.5f}) {
+        Vector3 oc(cx, 0.0f, L.plateZ() + 6.5f);
+        addDisk(m, oc, 2.6f, 0.021f, 24, shade(dirt, 0.92f));
+        addRing(m, oc, 2.35f, 2.6f, 0.027f, 24, sf::Color(248, 248, 245));
+    }
+
     m.rebuildNormals();
     return m;
 }
@@ -381,6 +389,10 @@ Mesh3D buildWalls(const Layout& L) {
     const int segs = 72;
     sf::Color face = ofWallColor();
     sf::Color top = ofWallTopColor();
+    const float baseWallH = L.wallHeightFeet / L.feetPerUnit;
+    // Fenway-style dark green for the tall LF wall.
+    const sf::Color monsterFace(19, 62, 38);
+    const sf::Color monsterTop(32, 82, 50);
     // Stand-ins for the ad-board ribbon lining a real OF wall — flat blocks
     // of color (no text/logos possible on this texture-less renderer), just
     // enough variation to read as "advertising" rather than a blank wall.
@@ -394,11 +406,15 @@ Mesh3D buildWalls(const Layout& L) {
         float t1 = static_cast<float>(i + 1) / segs;
         float ang0 = aL + (aR - aL) * t0;
         float ang1 = aL + (aR - aL) * t1;
+        float angM = 0.5f * (ang0 + ang1);
         float r0 = L.wallRAtAngle(ang0);
         float r1 = L.wallRAtAngle(ang1);
         float h0 = L.wallHeightAtAngle(ang0);
         float h1 = L.wallHeightAtAngle(ang1);
-        sf::Color fc = shade(face, 0.92f + 0.12f * ((i % 4) / 3.0f));
+        bool monster = L.wallHeightAtAngle(angM) > baseWallH * 1.4f;
+        sf::Color faceC = monster ? monsterFace : face;
+        sf::Color topC = monster ? monsterTop : top;
+        sf::Color fc = shade(faceC, 0.92f + 0.12f * ((i % 4) / 3.0f));
         // Ad-board strip across the lower half of the pad, gapped so a
         // sliver of blue pad still shows top/bottom like a real wall.
         float adY0 = h0 * 0.18f;
@@ -411,7 +427,8 @@ Mesh3D buildWalls(const Layout& L) {
             m, L.fromHome(r0, ang0, adY0), L.fromHome(r1, ang1, adY1),
             L.fromHome(r1, ang1, h1), L.fromHome(r0, ang0, h0), fc
         );
-        if (i % 4 != 0) {
+        // The tall wall stays bare green (no pasted ads) like the real one.
+        if (!monster && i % 4 != 0) {
             sf::Color ad = adBoards[(i / 4) % 5];
             addQuad(
                 m, L.fromHome(r0 + 0.03f, ang0, adY0 + h0 * 0.05f),
@@ -423,20 +440,77 @@ Mesh3D buildWalls(const Layout& L) {
         // Thickness + outside face (connects to bleachers)
         addQuad(
             m, L.fromHome(r0 + 1.4f, ang0, 0.0f), L.fromHome(r0, ang0, 0.0f),
-            L.fromHome(r0, ang0, h0), L.fromHome(r0 + 1.4f, ang0, h0), shade(face, 0.8f)
+            L.fromHome(r0, ang0, h0), L.fromHome(r0 + 1.4f, ang0, h0), shade(faceC, 0.8f)
         );
         addQuad(
             m, L.fromHome(r0, ang0, h0), L.fromHome(r1, ang1, h1),
-            L.fromHome(r1 + 1.4f, ang1, h1), L.fromHome(r0 + 1.4f, ang0, h0), top
+            L.fromHome(r1 + 1.4f, ang1, h1), L.fromHome(r0 + 1.4f, ang0, h0), topC
+        );
+        // Gold trim stripe capping the pad on the field side — the Crown
+        // Jewel signature line running the full length of the OF wall.
+        addQuad(
+            m, L.fromHome(r0 - 0.04f, ang0, h0 - 0.44f), L.fromHome(r1 - 0.04f, ang1, h1 - 0.44f),
+            L.fromHome(r1 - 0.04f, ang1, h1 + 0.02f), L.fromHome(r0 - 0.04f, ang0, h0 + 0.02f),
+            seatGoldColor()
         );
         // Padding panel dividers
         if (i % 3 == 0) {
             addBox(
                 m, L.fromHome(r0 + 0.08f, ang0, h0 * 0.5f), 0.1f, h0 * 0.92f, 0.1f,
-                shade(face, 0.75f)
+                shade(faceC, 0.75f)
             );
         }
     }
+
+    // Wall-parallel panel helper (matches the winding of the wall face so it
+    // shades/culls the same way) for scoreboards and distance markers.
+    auto wallPanel = [&](float ang, float halfW, float y0, float y1, float pushOut, sf::Color col) {
+        float r = L.wallRAtAngle(ang) + pushOut;
+        float dA = halfW / std::max(r, 1.0f);
+        addQuad(
+            m, L.fromHome(r, ang - dA, y0), L.fromHome(r, ang + dA, y0),
+            L.fromHome(r, ang + dA, y1), L.fromHome(r, ang - dA, y1), col
+        );
+    };
+
+    // Hand-operated scoreboard set low into the tall LF wall — black panel,
+    // sparse lit score slots, the signature retro detail.
+    {
+        const float sbA = -0.42f;
+        const float h = L.wallHeightAtAngle(sbA);
+        const float y0 = h * 0.10f;
+        const float y1 = h * 0.44f;
+        wallPanel(sbA, 7.0f, y0, y1, 0.14f, sf::Color(10, 14, 12));
+        for (int row = 0; row < 3; row++) {
+            float ry0 = y0 + (y1 - y0) * (0.12f + 0.30f * static_cast<float>(row));
+            float ry1 = ry0 + (y1 - y0) * 0.16f;
+            for (int col = 0; col < 10; col++) {
+                float off = (static_cast<float>(col) - 4.5f) * 1.28f;
+                bool lit = hash01(row * 31 + col * 7) > 0.62f;
+                sf::Color sc = lit ? sf::Color(235, 225, 130) : sf::Color(26, 36, 30);
+                wallPanel(sbA + off / L.wallRAtAngle(sbA), 0.5f, ry0, ry1, 0.17f, sc);
+            }
+        }
+    }
+
+    // Distance markers — bright plates with abstract digit bars (LF pole,
+    // dead center, RF porch).
+    auto distanceMarker = [&](float ang) {
+        const float h = L.wallHeightAtAngle(ang);
+        const float y0 = h * 0.66f;
+        const float y1 = h * 0.92f;
+        wallPanel(ang, 1.7f, y0, y1, 0.12f, sf::Color(245, 245, 240));
+        for (int d = 0; d < 3; d++) {
+            float off = (static_cast<float>(d) - 1.0f) * 0.85f;
+            wallPanel(
+                ang + off / L.wallRAtAngle(ang), 0.28f, y0 + (y1 - y0) * 0.18f,
+                y0 + (y1 - y0) * 0.82f, 0.15f, sf::Color(30, 40, 60)
+            );
+        }
+    };
+    distanceMarker(aL + 0.06f);
+    distanceMarker(0.0f);
+    distanceMarker(aR - 0.06f);
 
     // Outfield_wall prop tiled along the outside face (behind the pad, out
     // of the primary infield sightline) — the converted Meshy asset.
@@ -509,7 +583,8 @@ Mesh3D buildStands(const Layout& L) {
     const float rise = 0.88f;
     sf::Color blueA = seatBlueColor(), blueB = seatBlueAltColor();
     sf::Color goldA = seatGoldColor(), goldB = seatGoldAltColor();
-    sf::Color riserBlue(30, 50, 95);
+    // Dark forest-green risers to match the Crown Jewel bowl palette.
+    sf::Color riserBlue(16, 40, 30);
     sf::Color riserGold(120, 95, 35);
     sf::Color conc = concourseColor();
     sf::Color aisle(70, 78, 92);
@@ -578,44 +653,88 @@ Mesh3D buildStands(const Layout& L) {
             L.fromHome(rC0, ang1, yC), L.fromHome(rC0, ang0, yC), shade(facadeGrayColor(), 0.9f)
         );
 
-        // Club / suite upper deck behind home
+        // Crown Jewel grandstand behind home: suite ring (sandstone fascia
+        // + glass front + gold mullions), a steep forest-green upper bowl,
+        // gold fascia ribbon, and a white cantilevered roof canopy with
+        // truss ribs and a warm LED strip under the front lip.
         if (club) {
+            const sf::Color roofWhite(238, 238, 236);
+            const sf::Color ledWarm(255, 236, 170);
             float rU = rC1 + 0.6f;
             float yU = yC + 3.2f;
-            // Mid facade
+            // Sandstone fascia band at the suite level base.
             addQuad(
                 m, L.fromHome(rC1, ang0, yC), L.fromHome(rC1, ang1, yC),
-                L.fromHome(rC1, ang1, yU), L.fromHome(rC1, ang0, yU),
-                shade(ofWallColor(), 1.1f)
+                L.fromHome(rC1, ang1, yU + 0.4f), L.fromHome(rC1, ang0, yU + 0.4f),
+                facadeGrayColor()
             );
-            for (int row = 0; row < 7; row++) {
-                float r1 = rU + dRow * 0.88f;
-                float y1 = yU + rise * 0.78f;
-                sf::Color sc = (row + i) % 2 ? goldA : goldB;
+            // Suite ring: continuous glass front.
+            addQuad(
+                m, L.fromHome(rC1 + 0.15f, ang0, yU + 0.4f), L.fromHome(rC1 + 0.15f, ang1, yU + 0.4f),
+                L.fromHome(rC1 + 0.15f, ang1, yU + 3.4f), L.fromHome(rC1 + 0.15f, ang0, yU + 3.4f),
+                sf::Color(80, 130, 160, 150)
+            );
+            // Gold mullion dividers every few bays.
+            if (i % 4 == 0) {
                 addQuad(
-                    m, L.fromHome(rU, ang0, y1), L.fromHome(rU, ang1, y1),
+                    m, L.fromHome(rC1 + 0.12f, ang0, yU + 0.35f),
+                    L.fromHome(rC1 + 0.12f, ang1, yU + 0.35f),
+                    L.fromHome(rC1 + 0.12f, ang1, yU + 3.45f),
+                    L.fromHome(rC1 + 0.12f, ang0, yU + 3.45f),
+                    seatGoldColor()
+                );
+            }
+            // Steep upper bowl — 9 rows of forest green under the roof.
+            float rRow = rU + 0.4f;
+            float yRow = yU + 3.6f;
+            for (int row = 0; row < 9; row++) {
+                float r1 = rRow + dRow * 0.82f;
+                float y1 = yRow + rise * 0.72f;
+                sf::Color sc = isAisle ? aisle : ((row + i) % 2 ? blueA : blueB);
+                sc = shade(sc, 0.93f + 0.07f * hash01(i * 7 + row));
+                addQuad(
+                    m, L.fromHome(rRow, ang0, y1), L.fromHome(rRow, ang1, y1),
                     L.fromHome(r1, ang1, y1), L.fromHome(r1, ang0, y1), sc
                 );
                 addQuad(
-                    m, L.fromHome(rU, ang0, yU), L.fromHome(rU, ang1, yU),
-                    L.fromHome(rU, ang1, y1), L.fromHome(rU, ang0, y1), riserGold
+                    m, L.fromHome(rRow, ang0, yRow), L.fromHome(rRow, ang1, yRow),
+                    L.fromHome(rRow, ang1, y1), L.fromHome(rRow, ang0, y1), riserBlue
                 );
-                rU = r1 + 0.06f;
-                yU += rise;
+                rRow = r1 + 0.05f;
+                yRow += rise * 0.9f;
             }
-            // Upper roof slab
+            // Gold fascia ribbon capping the upper bowl.
             addQuad(
-                m, L.fromHome(rC1, ang0, yC + 3.0f), L.fromHome(rC1, ang1, yC + 3.0f),
-                L.fromHome(rU + 2.0f, ang1, yC + 3.0f), L.fromHome(rU + 2.0f, ang0, yC + 3.0f),
-                facadeGrayColor()
+                m, L.fromHome(rRow, ang0, yRow), L.fromHome(rRow, ang1, yRow),
+                L.fromHome(rRow + 0.3f, ang1, yRow + 1.1f), L.fromHome(rRow + 0.3f, ang0, yRow + 1.1f),
+                seatGoldColor()
             );
-            // Glass rail
+            // White cantilevered roof canopy rising gently outward.
+            float roofY0 = yRow + 1.2f;
             addQuad(
-                m, L.fromHome(rC1 + 0.1f, ang0, yC + 3.5f),
-                L.fromHome(rC1 + 0.1f, ang1, yC + 3.5f),
-                L.fromHome(rC1 + 0.1f, ang1, yC + 5.2f),
-                L.fromHome(rC1 + 0.1f, ang0, yC + 5.2f),
-                sf::Color(70, 150, 200, 140)
+                m, L.fromHome(rRow - 0.4f, ang0, roofY0), L.fromHome(rRow - 0.4f, ang1, roofY0),
+                L.fromHome(rRow + 6.5f, ang1, roofY0 + 2.2f), L.fromHome(rRow + 6.5f, ang0, roofY0 + 2.2f),
+                roofWhite
+            );
+            // Sloped underside reaching forward over the suite ring.
+            addQuad(
+                m, L.fromHome(rC1 + 0.5f, ang0, roofY0 - 0.8f), L.fromHome(rC1 + 0.5f, ang1, roofY0 - 0.8f),
+                L.fromHome(rRow - 0.4f, ang1, roofY0 - 0.15f), L.fromHome(rRow - 0.4f, ang0, roofY0 - 0.15f),
+                shade(roofWhite, 0.82f)
+            );
+            // Truss rib struts from fascia to the roof's back edge.
+            if (i % 5 == 0) {
+                addQuad(
+                    m, L.fromHome(rRow + 0.1f, ang0, yRow + 1.0f), L.fromHome(rRow + 0.1f, ang1, yRow + 1.0f),
+                    L.fromHome(rRow + 6.5f, ang1, roofY0 + 2.1f), L.fromHome(rRow + 6.5f, ang0, roofY0 + 2.1f),
+                    shade(roofWhite, 0.7f)
+                );
+            }
+            // Warm LED ribbon tucked under the roof's front edge.
+            addQuad(
+                m, L.fromHome(rRow - 0.45f, ang0, roofY0 - 0.18f), L.fromHome(rRow - 0.45f, ang1, roofY0 - 0.18f),
+                L.fromHome(rRow - 0.45f, ang1, roofY0 + 0.1f), L.fromHome(rRow - 0.45f, ang0, roofY0 + 0.1f),
+                ledWarm
             );
         }
 
@@ -650,6 +769,48 @@ Mesh3D buildStands(const Layout& L) {
                     appendPropInstance(m, *bleacherProp, Vector3(s, s, s), ang, base);
                 }
             }
+        }
+    }
+
+    // Red seat rows perched on top of the tall LF wall (Monster-style).
+    {
+        const float mA0 = -0.72f, mA1 = -0.26f;
+        const int msegs = 22;
+        const float baseWallH = L.wallHeightFeet / L.feetPerUnit;
+        for (int i = 0; i < msegs; i++) {
+            float t0 = static_cast<float>(i) / msegs;
+            float t1 = static_cast<float>(i + 1) / msegs;
+            float ang0 = mA0 + (mA1 - mA0) * t0;
+            float ang1 = mA0 + (mA1 - mA0) * t1;
+            float angM = 0.5f * (ang0 + ang1);
+            float h = L.wallHeightAtAngle(angM);
+            if (h < baseWallH * 1.2f) {
+                continue; // only where the wall is actually tall
+            }
+            float rIn = L.wallRAtAngle(angM) + 0.75f;
+            for (int row = 0; row < 3; row++) {
+                float r0 = rIn + row * 1.15f;
+                float r1 = r0 + 1.0f;
+                float y = h + 0.4f + row * 0.85f;
+                sf::Color sc = shade(
+                    (row + i) % 2 ? seatRedColor() : seatRedAltColor(),
+                    0.93f + 0.07f * hash01(i * 3 + row)
+                );
+                addQuad(
+                    m, L.fromHome(r0, ang0, y), L.fromHome(r0, ang1, y),
+                    L.fromHome(r1, ang1, y), L.fromHome(r1, ang0, y), sc
+                );
+                addQuad(
+                    m, L.fromHome(r0, ang0, y - 0.85f), L.fromHome(r0, ang1, y - 0.85f),
+                    L.fromHome(r0, ang1, y), L.fromHome(r0, ang0, y), shade(sc, 0.7f)
+                );
+            }
+            // Safety rail along the front edge of the perch.
+            addQuad(
+                m, L.fromHome(rIn, ang0, h + 0.4f), L.fromHome(rIn, ang1, h + 0.4f),
+                L.fromHome(rIn, ang1, h + 1.5f), L.fromHome(rIn, ang0, h + 1.5f),
+                sf::Color(200, 205, 210, 130)
+            );
         }
     }
 
@@ -698,24 +859,57 @@ Mesh3D buildStands(const Layout& L) {
 Mesh3D buildHotel(const Layout& L) {
     Mesh3D m;
     float z = L.plateZ() + 30.0f;
-    // Main press / suite block (connects into bowl)
-    addBox(m, Vector3(0, 11.0f, z), 48.0f, 10.0f, 14.0f, facadeGrayColor());
-    addBox(m, Vector3(0, 16.0f, z - 0.5f), 46.0f, 2.5f, 0.5f, ofWallColor());
-    // Glass bands
-    for (int row = 0; row < 3; row++) {
-        addBox(
-            m, Vector3(0, 9.0f + row * 2.8f, z - 6.8f), 44.0f, 1.8f, 0.3f,
-            sf::Color(90, 170, 220, 170)
-        );
+    // ── Crown Jewel rotunda — brick + sandstone entry block behind home:
+    // arched bays, clock medallion, cornice, roofline flag row, side wings.
+    sf::Color brick = facadeTanColor();   // re-themed brick red-brown
+    sf::Color stone = facadeGrayColor();  // re-themed sandstone
+    sf::Color glass(46, 62, 74);
+    sf::Color gold = seatGoldColor();
+
+    // Central drum + cornice + parapet.
+    addBox(m, Vector3(0, 9.0f, z), 34.0f, 18.0f, 16.0f, brick);
+    addBox(m, Vector3(0, 18.6f, z), 37.0f, 1.2f, 18.0f, stone);
+    addBox(m, Vector3(0, 20.0f, z), 30.0f, 1.6f, 14.0f, shade(brick, 1.05f));
+    // Stone base course + corner quoins.
+    addBox(m, Vector3(0, 1.2f, z), 35.0f, 2.4f, 17.0f, stone);
+    for (float sx : {-16.6f, 16.6f}) {
+        addBox(m, Vector3(sx, 9.0f, z - 7.9f), 1.4f, 18.0f, 1.4f, stone);
     }
-    // Side wings continuous with exterior
-    addBox(m, Vector3(32.0f, 8.5f, z - 2.0f), 18.0f, 12.0f, 18.0f, facadeTanColor());
-    addBox(m, Vector3(-32.0f, 8.5f, z - 2.0f), 18.0f, 12.0f, 18.0f, facadeTanColor());
-    addBox(m, Vector3(38.0f, 6.0f, z - 12.0f), 14.0f, 9.0f, 16.0f, facadeGrayColor());
-    addBox(m, Vector3(-38.0f, 6.0f, z - 12.0f), 14.0f, 9.0f, 16.0f, facadeGrayColor());
-    // Entry canopies
-    addBox(m, Vector3(20.0f, 4.5f, z + 6.0f), 10.0f, 0.4f, 6.0f, facadeGrayColor());
-    addBox(m, Vector3(-20.0f, 4.5f, z + 6.0f), 10.0f, 0.4f, 6.0f, facadeGrayColor());
+    // Arched bays across the field-facing facade — glass insets, sandstone
+    // arch heads and sills, keystones, pilasters between bays.
+    for (int k = -3; k <= 3; k++) {
+        float bx = static_cast<float>(k) * 4.6f;
+        addBox(m, Vector3(bx, 8.6f, z - 8.05f), 2.6f, 9.5f, 0.3f, glass);
+        addBox(m, Vector3(bx, 13.9f, z - 8.1f), 3.2f, 1.4f, 0.5f, stone);
+        addBox(m, Vector3(bx, 3.3f, z - 8.1f), 3.2f, 0.7f, 0.5f, stone);
+        addBox(m, Vector3(bx, 14.9f, z - 8.15f), 0.7f, 1.1f, 0.6f, shade(stone, 1.1f));
+        if (k < 3) {
+            addBox(m, Vector3(bx + 2.3f, 8.6f, z - 8.05f), 0.8f, 10.6f, 0.4f, stone);
+        }
+    }
+    // Clock medallion centered above the arches.
+    addBox(m, Vector3(0, 16.4f, z - 8.1f), 4.4f, 4.4f, 0.5f, gold);
+    addBox(m, Vector3(0, 16.4f, z - 8.25f), 3.4f, 3.4f, 0.55f, sf::Color(248, 246, 238));
+    addBox(m, Vector3(0, 16.9f, z - 8.35f), 0.25f, 1.1f, 0.15f, sf::Color(30, 32, 36));
+    addBox(m, Vector3(0.5f, 16.4f, z - 8.35f), 1.0f, 0.25f, 0.15f, sf::Color(30, 32, 36));
+    // Roofline flag row — alternating gold / red pennants.
+    for (int f = -3; f <= 3; f++) {
+        float fx = static_cast<float>(f) * 4.8f;
+        addBox(m, Vector3(fx, 23.4f, z), 0.18f, 6.4f, 0.18f, sf::Color(210, 210, 215));
+        sf::Color flag = (f % 2 == 0) ? gold : sf::Color(190, 45, 40);
+        addBox(m, Vector3(fx + 0.9f, 26.0f, z), 1.7f, 1.0f, 0.1f, flag);
+    }
+    // Brick side wings with stone cornice + glass strips, entry canopies.
+    for (float side : {1.0f, -1.0f}) {
+        float wx = side * 30.0f;
+        addBox(m, Vector3(wx, 7.5f, z - 1.0f), 24.0f, 15.0f, 15.0f, brick);
+        addBox(m, Vector3(wx, 15.3f, z - 1.0f), 25.0f, 0.9f, 16.0f, stone);
+        for (int row = 0; row < 2; row++) {
+            addBox(m, Vector3(wx, 6.4f + row * 4.6f, z - 8.6f), 20.0f, 2.2f, 0.3f, glass);
+        }
+        addBox(m, Vector3(wx, 4.6f, z + 7.6f), 12.0f, 0.5f, 5.0f, stone);
+        addBox(m, Vector3(wx, 4.3f, z + 7.6f), 12.4f, 0.25f, 5.4f, gold);
+    }
 
     m.rebuildNormals();
     return m;
@@ -727,66 +921,110 @@ Mesh3D buildHotel(const Layout& L) {
 
 Mesh3D buildScoreboardScreen(const Layout& L) {
     Mesh3D m;
-    // Continuous blue OF board ribbon
-    const int n = 18;
+    // Ribbon board: thin lit strip capping the OF wall, continuous except
+    // for the CF videoboard slot.
+    const int n = 36;
     for (int i = 0; i < n; i++) {
         float t = (static_cast<float>(i) + 0.5f) / n;
-        float ang = -L.foulAngleRad() * 0.92f + t * L.foulAngleRad() * 1.84f;
-        if (std::abs(ang) < 0.08f) {
-            continue; // CF board gap
+        float ang = -L.foulAngleRad() * 0.94f + t * L.foulAngleRad() * 1.88f;
+        if (std::abs(ang) < 0.075f) {
+            continue; // CF videoboard slot
         }
-        float r = L.wallRAtAngle(ang) + 0.55f;
-        float h = L.wallHeightAtAngle(ang) * 0.52f;
+        float r = L.wallRAtAngle(ang) + 0.4f;
+        float h = L.wallHeightAtAngle(ang);
         addBox(
-            m, L.fromHome(r, ang, h), 5.2f, L.wallH() * 0.78f, 0.4f,
-            shade(ofWallColor(), 0.95f + 0.08f * (i % 3) / 2.0f)
+            m, L.fromHome(r, ang, h + 0.55f), 5.4f, 1.1f, 0.5f,
+            shade(sf::Color(14, 24, 58), 0.92f + 0.14f * (i % 3) / 2.0f)
         );
     }
-    // Twin elevated videoboards flanking a low central batter's-eye
-    // structure — matches the real park's layout much better than one
-    // central board (which read as a plain box sitting alone in CF).
-    // Camera (batter/mound) sits on the +Z side looking toward -Z here, so
-    // "closer to camera" means a LARGER z offset — the board's front-facing
-    // content must be built with increasingly positive z as each layer gets
-    // more foreground, or a nearer opaque layer just occludes the one
-    // meant to show through behind it.
+
+    // One dominant videoboard parked dead-center, placed exactly on
+    // scoreboardCenter() so the visual chassis matches the collision solid
+    // (isCfScoreboardZone). Camera (batter/mound) sits on the +Z side
+    // looking toward -Z, so foreground layers carry increasingly positive z.
     std::optional<Mesh3D> scoreboardProp = loadStaticProp("scoreboard");
     LocalBBox scoreboardBBox;
     if (scoreboardProp) {
         scoreboardBBox = computeBBox(*scoreboardProp);
     }
-    auto videoboard = [&](float ang) {
-        float r = L.wallRAtAngle(ang) + 4.0f;
-        float baseY = L.wallHeightAtAngle(0.0f) + 9.5f;
-        Vector3 c = L.fromHome(r, ang, baseY);
-        if (scoreboardProp && scoreboardBBox.size().x > 1e-4f && scoreboardBBox.size().y > 1e-4f) {
-            Vector3 sz = scoreboardBBox.size();
-            Vector3 scale(17.0f / sz.x, 10.0f / sz.y, sz.z > 1e-4f ? 1.5f / sz.z : 1.0f);
-            appendPropInstance(m, *scoreboardProp, scale, ang, c);
-        } else {
-            // Backing frame, set furthest back so only its edges peek out.
-            addBox(m, c + Vector3(0, 0, -0.4f), 17.0f, 10.0f, 0.3f, sf::Color(238, 238, 240));
-            // Screen face, in front of the frame.
-            addBox(m, c, 15.6f, 8.8f, 0.5f, sf::Color(10, 16, 26));
-            // "Active content" blocks, in front of the screen.
-            addBox(m, c + Vector3(-4.6f, 1.6f, 0.28f), 5.6f, 4.4f, 0.15f, sf::Color(40, 95, 160));
-            addBox(m, c + Vector3(3.1f, -1.0f, 0.28f), 6.6f, 5.4f, 0.15f, sf::Color(60, 140, 75));
-        }
-        float postH = std::max(baseY - 2.0f, 1.0f);
-        float postOffsetY = -(baseY + 2.0f) * 0.5f;
-        addBox(m, c + Vector3(-6.2f, postOffsetY, 0.6f), 0.7f, postH, 0.7f, facadeGrayColor());
-        addBox(m, c + Vector3(6.2f, postOffsetY, 0.6f), 0.7f, postH, 0.7f, facadeGrayColor());
-    };
-    videoboard(0.35f);
-    videoboard(-0.35f);
-
-    // Low dark batter's-eye structure between the two boards.
     {
         Vector3 c = L.scoreboardCenter();
-        float bw = L.wallHeightAtAngle(0.0f);
-        addBox(m, Vector3(c.x, bw + 3.0f, c.z), 13.0f, 6.0f, 3.0f, sf::Color(24, 30, 34));
-        addBox(m, Vector3(c.x, bw + 6.4f, c.z), 13.6f, 0.5f, 3.4f, facadeGrayColor());
+        const float bw = 30.0f; // ~60 ft face
+        const float bh = 11.0f; // matches collision half-height 5.5
+        if (scoreboardProp && scoreboardBBox.size().x > 1e-4f && scoreboardBBox.size().y > 1e-4f) {
+            Vector3 sz = scoreboardBBox.size();
+            Vector3 scale(bw / sz.x, bh / sz.y, sz.z > 1e-4f ? 1.5f / sz.z : 1.0f);
+            appendPropInstance(m, *scoreboardProp, scale, 0.0f, c);
+        } else {
+            // Truss backing, furthest back.
+            addBox(m, c + Vector3(0, 0, -1.0f), bw + 3.0f, bh + 2.4f, 1.2f, sf::Color(36, 40, 45));
+            // Screen face, in front of the frame.
+            addBox(m, c, bw, bh, 0.9f, sf::Color(8, 12, 20));
+            // "Active content" blocks, in front of the screen.
+            addBox(m, c + Vector3(-8.6f, 2.1f, 0.5f), 10.4f, 5.6f, 0.18f, sf::Color(40, 95, 160));
+            addBox(m, c + Vector3(7.2f, 1.2f, 0.5f), 11.6f, 4.2f, 0.18f, sf::Color(60, 140, 75));
+            addBox(m, c + Vector3(0.5f, -3.0f, 0.5f), 20.0f, 3.4f, 0.18f, sf::Color(190, 55, 45));
+        }
+        // Crown silhouette capping the board (prop or procedural) — gold
+        // base band plus three stepped points, the park's signature mark.
+        addBox(m, c + Vector3(0, bh * 0.5f + 1.1f, -0.3f), bw * 0.66f, 1.5f, 1.4f, seatGoldColor());
+        for (int pt = -1; pt <= 1; pt++) {
+            float px = static_cast<float>(pt) * (bw * 0.22f);
+            float ph = (pt == 0) ? 3.4f : 2.2f;
+            addBox(
+                m, c + Vector3(px, bh * 0.5f + 1.85f + ph * 0.5f, -0.3f), 2.6f, ph, 1.2f,
+                shade(seatGoldColor(), pt == 0 ? 1.06f : 0.96f)
+            );
+        }
+        // Triple support masts dropping into the CF bleachers.
+        float footY = L.wallHeightAtAngle(0.0f) + 0.3f;
+        for (float sx : {-10.5f, 0.0f, 10.5f}) {
+            float topY = c.y - bh * 0.5f + 1.0f;
+            float postH = std::max(topY - footY, 2.0f);
+            addBox(
+                m, Vector3(c.x + sx, footY + postH * 0.5f, c.z - 1.6f), 1.0f, postH, 1.0f,
+                facadeGrayColor()
+            );
+        }
     }
+
+    // Batter's eye: dark green backdrop filling the gap between the CF wall
+    // top and the underside of the videoboard, so hitters get a clean
+    // contrast background.
+    {
+        float r = L.wallRAtAngle(0.0f) + 0.7f;
+        float wallH = L.wallHeightAtAngle(0.0f);
+        float dA = 11.5f / r;
+        addQuad(
+            m, L.fromHome(r, -dA, wallH), L.fromHome(r, dA, wallH),
+            L.fromHome(r, dA, 15.8f), L.fromHome(r, -dA, 15.8f), sf::Color(15, 40, 26)
+        );
+        // Vertical slat shading so the eye reads as louvers, not a flat card.
+        for (int k = -5; k <= 5; k++) {
+            float a = static_cast<float>(k) * (dA / 5.5f);
+            addBox(
+                m, L.fromHome(r + 0.1f, a, (wallH + 15.8f) * 0.5f), 0.22f, 15.8f - wallH, 0.12f,
+                sf::Color(10, 28, 18)
+            );
+        }
+    }
+
+    // Secondary out-of-town board in right-center.
+    {
+        float ang = 0.42f;
+        float r = L.wallRAtAngle(ang) + 4.0f;
+        float baseY = L.wallHeightAtAngle(ang) + 8.0f;
+        Vector3 c = L.fromHome(r, ang, baseY);
+        addBox(m, c + Vector3(0, 0, -0.6f), 15.5f, 8.0f, 1.0f, sf::Color(36, 40, 45));
+        addBox(m, c, 14.0f, 6.8f, 0.7f, sf::Color(10, 14, 24));
+        addBox(m, c + Vector3(0, 1.5f, 0.4f), 12.0f, 2.6f, 0.15f, sf::Color(45, 100, 170));
+        addBox(m, c + Vector3(0, -1.7f, 0.4f), 12.0f, 2.4f, 0.15f, sf::Color(190, 150, 45));
+        float postH = std::max(baseY - 4.0f - 1.0f, 1.0f);
+        float postOffY = -(baseY - 4.0f + 1.0f) * 0.5f;
+        addBox(m, c + Vector3(-5.4f, postOffY, 0.6f), 0.7f, postH, 0.7f, facadeGrayColor());
+        addBox(m, c + Vector3(5.4f, postOffY, 0.6f), 0.7f, postH, 0.7f, facadeGrayColor());
+    }
+
     // Corner sign plates (abstract ad boards, one per foul corner)
     for (float side : {1.0f, -1.0f}) {
         float ang = side * L.foulAngleRad() * 0.75f;
@@ -863,19 +1101,22 @@ Mesh3D buildStructure(const Layout& L) {
         }
     };
 
-    // Six towers total, matching the real park's sparse-but-massive light
-    // standards: two dominant ones flanking the CF structure (closest to
-    // camera in most views), four smaller ones spaced around the rest of
-    // the bowl's roofline.
-    const float tw[][3] = {
-        {0.55f, 0.0f, 92.0f},   {-0.55f, 0.0f, 92.0f},
-        {0.18f, 0.0f, 72.0f},   {-0.18f, 0.0f, 72.0f},
-        {L.foulAngleRad() - 0.12f, 0.0f, 66.0f}, {-(L.foulAngleRad() - 0.12f), 0.0f, 66.0f},
+    // Four towers total: two dominant standards flanking the CF videoboard
+    // and a shorter pair just inside the foul poles — sparse but massive,
+    // leaving the downtown skyline behind center field unobstructed.
+    struct TowerSpec {
+        float angleRad;
+        float reserved;
+        float height;
     };
-    for (const auto& t : tw) {
-        float ang = t[0];
-        float r = L.wallRAtAngle(ang) + 28.0f;
-        tower(ang, r, t[2]);
+    const TowerSpec towers[] = {
+        {.angleRad = 0.55f, .reserved = 0.0f, .height = 92.0f},
+        {.angleRad = -0.55f, .reserved = 0.0f, .height = 92.0f},
+        {.angleRad = L.foulAngleRad() - 0.12f, .reserved = 0.0f, .height = 66.0f},
+        {.angleRad = -(L.foulAngleRad() - 0.12f), .reserved = 0.0f, .height = 66.0f},
+    };
+    for (const auto& t : towers) {
+        tower(t.angleRad, L.wallRAtAngle(t.angleRad) + 28.0f, t.height);
     }
 
     // Bullpen sheds LF/RF
@@ -1090,59 +1331,73 @@ Mesh3D buildCity(const Layout& L) {
     addBox(m, Vector3(46.0f, 5.0f, pz + 10.0f), 20.0f, 10.0f, 26.0f, facadeGrayColor());
     addBox(m, Vector3(-46.0f, 5.0f, pz + 10.0f), 20.0f, 10.0f, 26.0f, facadeGrayColor());
 
-    // ── Golden-green hillside backdrop, Chavez Ravine-style — dominant,
-    // close, and tree-covered, replacing what used to be a full city
-    // skyline. No buildings ring the park; just chaparral hills rising
-    // right behind the parking lot on every side.
-    sf::Color hillLow(150, 145, 95);   // sun-baked golden grass, valley floor
-    sf::Color hillMid(115, 128, 78);
-    sf::Color hillHigh(88, 108, 66);   // denser tree cover higher up
-    const int hillRings = 3;
-    for (int ring = 0; ring < hillRings; ring++) {
-        float u = static_cast<float>(ring) / (hillRings - 1);
-        // Extra clearance off the parking lot so the nearest ring doesn't
-        // read as a wall of flat-roofed buildings right at the fence line.
-        float rBase = rPark1 + 22.0f + u * (rFar - rPark1) * 0.8f;
-        int count = 30 - ring * 6;
-        for (int h = 0; h < count; h++) {
-            float ang = -pi + (static_cast<float>(h) + 0.5f * hash01(h * 3 + ring)) /
-                                   static_cast<float>(count) * 2.0f * pi;
-            float r = rBase + hash01(h * 5 + ring * 13) * 40.0f;
-            float hillH = (20.0f + u * 70.0f) * (0.7f + 0.6f * hash01(h * 7 + ring));
-            float hillW = (85.0f + u * 70.0f) * (0.75f + 0.5f * hash01(h * 11 + ring));
-            Vector3 c = L.fromHome(r, ang, hillH * 0.3f + yG);
-            sf::Color base = (u < 0.4f) ? hillLow : (u < 0.75f ? hillMid : hillHigh);
-            sf::Color hillCol = shade(base, 0.8f + 0.28f * hash01(h * 17 + ring * 3));
-            // Three stacked, shrinking tiers instead of one hard-edged box
-            // — reads as a graduated slope rather than a flat-roofed block.
-            addBox(m, c, hillW, hillH, hillW * 0.58f, hillCol);
-            addBox(
-                m, c + Vector3(0, hillH * 0.3f, 0), hillW * 0.68f, hillH * 0.46f, hillW * 0.42f,
-                shade(hillCol, 1.06f)
-            );
-            addBox(
-                m, c + Vector3(0, hillH * 0.58f, 0), hillW * 0.34f, hillH * 0.3f, hillW * 0.22f,
-                shade(hillCol, 1.14f)
-            );
-            // Tree clusters dotting the slope.
-            int trees = 3 + static_cast<int>(hash01(h * 23 + ring) * 5.0f);
-            for (int t = 0; t < trees; t++) {
-                float ta = ang + (hash01(h * 29 + t + ring * 7) - 0.5f) * 0.35f;
-                float tr = r - hillW * 0.3f + hash01(h * 31 + t) * hillW * 0.6f;
-                addTree(
-                    m, L.fromHome(tr, ta, yG), 1.0f + hash01(h * 3 + t) * 1.6f,
-                    h * 37 + t * 5 + ring * 101
-                );
+    // ── Downtown skyline — the Crown Jewel park sits in the city: a central
+    // business district rising behind the outfield, densest dead center so
+    // the videoboard plays against towers. Low civic blocks fill the ring
+    // behind home so the batter's view stays open.
+    const sf::Color towerGlass[] = {
+        sf::Color(52, 68, 88),  sf::Color(38, 52, 70),  sf::Color(70, 88, 110),
+        sf::Color(88, 96, 108), sf::Color(46, 60, 80),
+    };
+    const sf::Color towerLit(255, 214, 130);
+    const sf::Color crownGold(232, 200, 110);
+    const int towers = 46;
+    for (int t = 0; t < towers; t++) {
+        // Bias placement toward CF (ang ≈ 0) with jitter.
+        float ang = (hash01(t * 13 + 5) - 0.5f) * 2.6f + (hash01(t * 7) - 0.5f) * 0.18f;
+        float r = rSuburb + 60.0f + hash01(t * 11) * (rFar - rSuburb - 100.0f);
+        float tw2 = 26.0f + hash01(t * 3) * 30.0f;
+        float th = 55.0f + hash01(t * 17) * 130.0f;
+        // Tallest cluster dead-center — the postcard view.
+        th *= 1.0f + 0.55f * (1.0f - std::min(std::abs(ang) / 1.3f, 1.0f));
+        Vector3 c = L.fromHome(r, ang, yG);
+        sf::Color body = shade(towerGlass[t % 5], 0.85f + 0.3f * hash01(t * 23));
+        // Main shaft + setback crown — the classic setback-skyscraper stack.
+        addBox(m, c + Vector3(0, th * 0.5f, 0), tw2, th, tw2 * 0.85f, body);
+        addBox(
+            m, c + Vector3(0, th * 0.88f, 0), tw2 * 0.72f, th * 0.24f, tw2 * 0.6f,
+            shade(body, 1.08f)
+        );
+        if (t % 7 == 0) { // spire towers punctuate the skyline
+            addBox(m, c + Vector3(0, th + 8.0f, 0), tw2 * 0.16f, 16.0f, tw2 * 0.16f, shade(body, 1.2f));
+            addBox(m, c + Vector3(0, th + 16.5f, 0), tw2 * 0.5f, 1.2f, tw2 * 0.5f, crownGold);
+        }
+        // Sparse warm lit windows on the park-facing side.
+        int winRows = 6 + static_cast<int>(th / 26.0f);
+        for (int wr = 0; wr < winRows; wr++) {
+            float wy = th * (0.18f + 0.72f * static_cast<float>(wr) / static_cast<float>(winRows));
+            for (int wc = 0; wc < 5; wc++) {
+                if (hash01(t * 101 + wr * 13 + wc * 7) < 0.52f) {
+                    continue;
+                }
+                float off = (static_cast<float>(wc) - 2.0f) * tw2 * 0.17f;
+                Vector3 wp = L.fromHome(r - tw2 * 0.44f, ang + off / r, yG + wy);
+                addBox(m, wp, 1.6f, 2.2f, 0.3f, shade(towerLit, 0.8f + 0.35f * hash01(t + wr + wc)));
             }
         }
+        // Street trees at the tower base soften the parking-to-city edge.
+        if (t % 3 == 0) {
+            addTree(m, L.fromHome(r - tw2 * 0.8f, ang + 0.01f, yG), 1.2f + hash01(t * 31), t * 17);
+        }
     }
-    // Far horizon silhouette — hazy distant ridgeline.
+    // Low civic blocks filling the ring behind home plate.
+    for (int i = 0; i < 18; i++) {
+        float ang = pi - 0.9f + (static_cast<float>(i) + 0.5f) / 18.0f * 1.8f;
+        float r = rSuburb + 40.0f + hash01(i * 19) * 120.0f;
+        float bh = 14.0f + hash01(i * 29) * 22.0f;
+        addBox(
+            m, L.fromHome(r, ang, yG + bh * 0.5f), 34.0f + hash01(i * 7) * 26.0f, bh,
+            24.0f + hash01(i * 11) * 18.0f,
+            shade(sf::Color(96, 100, 108), 0.8f + 0.25f * hash01(i * 5))
+        );
+    }
+    // Far horizon silhouette — hazy distant towers blending into the sky.
     for (int i = 0; i < 22; i++) {
         float ang = -pi + (static_cast<float>(i) + 0.5f) / 22.0f * 2.0f * pi;
         float r = rHorizon - 60.0f;
-        float h = 30.0f + hash01(i * 5) * 65.0f;
+        float h = 40.0f + hash01(i * 5) * 95.0f;
         addBox(
-            m, L.fromHome(r, ang, h * 0.5f + yG), 60.0f + hash01(i) * 50.0f, h, 30.0f,
+            m, L.fromHome(r, ang, h * 0.5f + yG), 34.0f + hash01(i) * 34.0f, h, 26.0f,
             shade(sf::Color(140, 150, 165), 0.62f + 0.16f * hash01(i + 2))
         );
     }
@@ -1337,9 +1592,10 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
         }
 
         if (club) {
-            float rU = seatInnerR(L, ang) + 20.0f;
-            float yU = seatBaseY(L, ang) + 14.0f;
-            for (int row = 0; row < 4; row++) {
+            // Fans seated in the new steep upper bowl above the suite glass.
+            float rU = seatInnerR(L, ang) + 23.0f;
+            float yU = seatBaseY(L, ang) + 21.6f;
+            for (int row = 0; row < 5; row++) {
                 if (hash01(fanId * 17 + row) > 0.7f) {
                     fanId++;
                     rU += dRow;
@@ -1374,6 +1630,37 @@ std::vector<Mesh3D> buildFanSectors(const Layout& L) {
             float y = y0 + 0.7f + row * rise;
             Vector3 seat = L.fromHome(r, ang, y);
             addFan(sectors[sector], seat, 0.85f, fanShirt(i * 3 + row), fanSkin(i + row));
+        }
+    }
+
+    // Monster-top perch pass — fans in the seats atop the tall LF wall.
+    {
+        const float baseWallH = L.wallHeightFeet / L.feetPerUnit;
+        for (int i = 0; i < 30; i++) {
+            float t = (static_cast<float>(i) + 0.5f) / 30.0f;
+            float ang = -0.70f + t * 0.42f;
+            float h = L.wallHeightAtAngle(ang);
+            if (h < baseWallH * 1.2f) {
+                continue;
+            }
+            int sector = static_cast<int>(((ang + pi) / (2.0f * pi)) * kFanSectorCount) %
+                         kFanSectorCount;
+            if (sector < 0) {
+                sector += kFanSectorCount;
+            }
+            for (int row = 0; row < 3; row++) {
+                if (hash01(i * 41 + row * 11) > 0.85f) {
+                    continue;
+                }
+                float r = L.wallRAtAngle(ang) + 0.9f + row * 1.15f;
+                float y = h + 0.85f + row * 0.85f;
+                Vector3 seat = L.fromHome(r, ang, y);
+                seat.x += (hash01(i * 7 + row) - 0.5f) * 0.3f;
+                addFan(
+                    sectors[sector], seat, 0.9f, fanShirt(i * 5 + row + 20),
+                    fanSkin(i + row + 2)
+                );
+            }
         }
     }
 
@@ -1417,29 +1704,50 @@ float Layout::foulAngleRad() const {
 float Layout::wallFeetAtAngle(float angleRad) const {
     float aDeg = angleRad * (180.0f / pi);
     aDeg = std::clamp(aDeg, -foulAngleDegrees, foulAngleDegrees);
-    static const float samples[][2] = {
-        {-45.0f, 330.0f}, {-28.0f, 355.0f}, {-15.0f, 375.0f}, {0.0f, 400.0f},
-        {15.0f, 375.0f},  {28.0f, 355.0f},  {45.0f, 330.0f},
+    struct FenceSample {
+        float angleDeg;
+        float feet;
+    };
+    static const FenceSample samples[] = {
+        {.angleDeg = -45.0f, .feet = 328.0f}, {.angleDeg = -28.0f, .feet = 350.0f},
+        {.angleDeg = -15.0f, .feet = 370.0f}, {.angleDeg = 0.0f, .feet = 400.0f},
+        {.angleDeg = 15.0f, .feet = 368.0f},  {.angleDeg = 28.0f, .feet = 340.0f},
+        {.angleDeg = 45.0f, .feet = 322.0f},
     };
     constexpr int n = 7;
-    if (aDeg <= samples[0][0]) {
-        return samples[0][1];
+    if (aDeg <= samples[0].angleDeg) {
+        return samples[0].feet;
     }
-    if (aDeg >= samples[n - 1][0]) {
-        return samples[n - 1][1];
+    if (aDeg >= samples[n - 1].angleDeg) {
+        return samples[n - 1].feet;
     }
     for (int i = 0; i < n - 1; i++) {
-        if (aDeg >= samples[i][0] && aDeg <= samples[i + 1][0]) {
-            float u = (aDeg - samples[i][0]) / (samples[i + 1][0] - samples[i][0]);
+        if (aDeg >= samples[i].angleDeg && aDeg <= samples[i + 1].angleDeg) {
+            float u = (aDeg - samples[i].angleDeg) / (samples[i + 1].angleDeg - samples[i].angleDeg);
             u = u * u * (3.0f - 2.0f * u);
-            return samples[i][1] + (samples[i + 1][1] - samples[i][1]) * u;
+            return samples[i].feet + (samples[i + 1].feet - samples[i].feet) * u;
         }
     }
     return wallDistanceFeet;
 }
 
-float Layout::wallHeightAtAngle(float /*a*/) const {
-    return wallHeightFeet / feetPerUnit;
+float Layout::wallHeightAtAngle(float a) const {
+    const float base = wallHeightFeet / feetPerUnit;
+    // Tall "Monster"-style wall across left field: full height from the LF
+    // foul pole to left-center, then tapering back down to the standard
+    // padded-wall height before center field.
+    const float monster = 24.0f / feetPerUnit;
+    float aDeg = a * (180.0f / pi);
+    aDeg = std::clamp(aDeg, -foulAngleDegrees, foulAngleDegrees);
+    if (aDeg <= -14.0f) {
+        return monster;
+    }
+    if (aDeg < -6.0f) {
+        float u = (aDeg + 14.0f) / 8.0f;
+        u = u * u * (3.0f - 2.0f * u);
+        return monster + (base - monster) * u;
+    }
+    return base;
 }
 
 Vector3 Layout::domeCenter() const {
@@ -1465,7 +1773,7 @@ float Layout::clampRadiusInDome(float, float radius, float) const {
 
 bool Layout::isCfScoreboardZone(float angleRad) const {
     wrapAng(angleRad);
-    return std::abs(angleRad) < 0.10f;
+    return std::abs(angleRad) < 0.062f;
 }
 
 float Layout::seatDeckYAtRadius(float radiusFromHome, float angleRad) const {
