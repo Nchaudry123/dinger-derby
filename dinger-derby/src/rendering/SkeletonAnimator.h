@@ -28,6 +28,12 @@ public:
     // Ball joint if present, else Palm_R, else wrist+offset — for pitch glue.
     Vector3 throwHandWorld(const Matrix4& modelWorld) const;
 
+    // Palm_{side} if the model has it, else Wrist_{side} extrapolated along
+    // the elbow->wrist direction, else the origin. "side" is "L" or "R".
+    // Lets a hand-tracked prop (e.g. a bat grip) work on a skeleton that
+    // lacks dedicated palm joints, same idea as throwHandWorld's fallback.
+    Vector3 palmWorld(const char* side) const;
+
 private:
     const SkinnedModel3D* model_ = nullptr;
     std::vector<Matrix4> localPose_;

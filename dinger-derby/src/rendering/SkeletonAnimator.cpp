@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 void SkeletonAnimator::setModel(const SkinnedModel3D& model) {
     model_ = &model;
@@ -228,4 +229,32 @@ Vector3 SkeletonAnimator::throwHandWorld(const Matrix4& modelWorld) const {
         }
     }
     return modelWorld.transformPoint(w);
+}
+
+Vector3 SkeletonAnimator::palmWorld(const char* side) const {
+    if (!model_) {
+        return Vector3();
+    }
+    std::string palmName = std::string("Palm_") + side;
+    int palm = model_->findJoint(palmName);
+    if (palm >= 0) {
+        return jointWorldPosition(palm);
+    }
+    std::string wristName = std::string("Wrist_") + side;
+    std::string elbowName = std::string("Elbow_") + side;
+    int wrist = model_->findJoint(wristName);
+    if (wrist < 0) {
+        return Vector3();
+    }
+    Vector3 w = jointWorldPosition(wrist);
+    int elbow = model_->findJoint(elbowName);
+    if (elbow >= 0) {
+        Vector3 e = jointWorldPosition(elbow);
+        Vector3 dir = w - e;
+        float m = dir.magnitude();
+        if (m > 1e-4f) {
+            w = w + dir * (0.06f / m);
+        }
+    }
+    return w;
 }

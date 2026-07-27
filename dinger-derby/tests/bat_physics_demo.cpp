@@ -1938,8 +1938,8 @@ int main() {
     // Keep knob in the palms; barrel follows swing path and squares on PCI at contact.
     // Stance = high tip overhead. Swing = hands track palms with arm-extension near contact.
     auto lockBatToHands = [&](bool drivingSwing) {
-        Vector3 palmLocal = batterAnim.jointWorldPosition("Palm_R");
-        Vector3 palmLLocal = batterAnim.jointWorldPosition("Palm_L");
+        Vector3 palmLocal = batterAnim.palmWorld("R");
+        Vector3 palmLLocal = batterAnim.palmWorld("L");
         Vector3 wristR = batterAnim.jointWorldPosition("Wrist_R");
         constexpr float kBatterBoxX = -1.05f;
         constexpr float kBatterBoxZ = plateZ - 0.28f;
